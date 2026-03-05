@@ -1,0 +1,404 @@
+-- =========================================
+-- БАЗА ДАННЫХ (PostgreSQL) В 3НФ
+-- =========================================
+
+-- ====== СПРАВОЧНИКИ ======
+
+-- Типы операций с недвижимостью (продажа/аренда)
+CREATE TABLE operation_types (
+    id INT PRIMARY KEY, -- Уникальный идентификатор типа операции
+    code VARCHAR(10) UNIQUE NOT NULL, -- Код операции ('sale', 'rent')
+    name VARCHAR(50) NOT NULL -- Название операции на русском ('Продажа', 'Аренда')
+);
+
+-- Статусы объектов недвижимости
+CREATE TABLE property_statuses (
+    id INT PRIMARY KEY, -- Уникальный идентификатор статуса
+    code VARCHAR(10) UNIQUE NOT NULL, -- Код статуса ('active', 'sold')
+    name VARCHAR(50) NOT NULL -- Название статуса на русском
+);
+
+-- Статусы заявок клиентов
+CREATE TABLE request_statuses (
+    id INT PRIMARY KEY, -- Уникальный идентификатор статуса заявки
+    code VARCHAR(15) UNIQUE NOT NULL, -- Код статуса ('open', 'closed')
+    name VARCHAR(50) NOT NULL -- Название статуса на русском
+);
+
+-- Роли пользователей системы
+CREATE TABLE user_roles (
+    id INT PRIMARY KEY, -- Уникальный идентификатор роли
+    code VARCHAR(20) UNIQUE NOT NULL, -- Код роли ('admin', 'agent')
+    name VARCHAR(50) NOT NULL, -- Название роли на русском
+    description TEXT -- Описание роли
+);
+
+-- ====== АДРЕСА (ИЕРАРХИЧЕСКАЯ СТРУКТУРА) ======
+
+-- Города/населенные пункты
+CREATE TABLE cities (
+    id INT PRIMARY KEY, -- Уникальный идентификатор города
+    name VARCHAR(100) NOT NULL, -- Название города
+    region VARCHAR(100) -- Область/край/регион
+);
+
+-- Улицы
+CREATE TABLE streets (
+    id INT PRIMARY KEY, -- Уникальный идентификатор улицы
+    city_id INT NOT NULL, -- ID города, к которому относится улица
+    name VARCHAR(150) NOT NULL, -- Название улицы
+    street_type VARCHAR(20), -- Тип улицы (ул., пр-т, б-р, пер.)
+    CONSTRAINT fk_street_city
+        FOREIGN KEY (city_id)
+        REFERENCES cities(id)
+        ON DELETE CASCADE
+);
+
+-- Дома
+CREATE TABLE houses (
+    id INT PRIMARY KEY, -- Уникальный идентификатор дома
+    street_id INT NOT NULL, -- ID улицы, на которой находится дом
+    house_number VARCHAR(20) NOT NULL, -- Номер дома
+    building VARCHAR(10), -- Корпус
+    structure VARCHAR(10), -- Строение
+    postal_code VARCHAR(10), -- Почтовый индекс
+    CONSTRAINT fk_house_street
+        FOREIGN KEY (street_id)
+        REFERENCES streets(id)
+        ON DELETE CASCADE
+);
+
+-- Полные адреса (связующая таблица)
+CREATE TABLE addresses (
+    id INT PRIMARY KEY, -- Уникальный идентификатор адреса
+    house_id INT NOT NULL, -- ID дома
+    apartment_number VARCHAR(20), -- Номер квартиры/офиса
+    entrance INT, -- Номер подъезда
+    floor INT, -- Этаж
+    CONSTRAINT fk_address_house
+        FOREIGN KEY (house_id)
+        REFERENCES houses(id)
+        ON DELETE CASCADE,
+    CONSTRAINT unique_address UNIQUE (house_id, apartment_number)
+);
+
+-- ====== ПОЛЬЗОВАТЕЛИ (для авторизации) ======
+
+-- Основная таблица пользователей (и сотрудники, и клиенты)
+CREATE TABLE users (
+    id INT PRIMARY KEY, -- Уникальный идентификатор пользователя
+    username VARCHAR(50) UNIQUE NOT NULL, -- Логин для входа
+    password_hash VARCHAR(255) NOT NULL, -- Хеш пароля
+    email VARCHAR(255) UNIQUE NOT NULL, -- Email для входа и уведомлений
+    phone VARCHAR(20) UNIQUE, -- Телефон для входа в моб. приложение
+    
+    user_type VARCHAR(20) NOT NULL CHECK (user_type IN ('employee', 'client')), -- Тип пользователя
+    role_id INT, -- ID роли (только для сотрудников)
+    
+    is_active BOOLEAN DEFAULT TRUE, -- Активна ли учетная запись
+    is_email_verified BOOLEAN DEFAULT FALSE, -- Подтвержден ли email
+    is_phone_verified BOOLEAN DEFAULT FALSE, -- Подтвержден ли телефон
+    
+    last_login TIMESTAMP, -- Дата последнего входа
+    last_ip INET, -- Последний IP-адрес
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Дата регистрации
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Дата обновления
+    
+    CONSTRAINT fk_user_role 
+        FOREIGN KEY (role_id) 
+        REFERENCES user_roles(id)
+);
+
+-- ====== ПРОФИЛИ СОТРУДНИКОВ ======
+
+CREATE TABLE employee_profiles (
+    id INT PRIMARY KEY, -- Уникальный идентификатор профиля
+    user_id INT UNIQUE NOT NULL, -- ID пользователя
+    
+    first_name VARCHAR(50) NOT NULL, -- Имя
+    last_name VARCHAR(50) NOT NULL, -- Фамилия
+    middle_name VARCHAR(50), -- Отчество
+    
+    position VARCHAR(100), -- Должность
+    department VARCHAR(100), -- Отдел
+    hire_date DATE, -- Дата приема на работу
+    internal_phone VARCHAR(20), -- Внутренний телефон
+    notes TEXT, -- Заметки
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_employee_user 
+        FOREIGN KEY (user_id) 
+        REFERENCES users(id) 
+        ON DELETE CASCADE
+);
+
+-- ====== ПРОФИЛИ КЛИЕНТОВ ======
+
+CREATE TABLE client_profiles (
+    id INT PRIMARY KEY, -- Уникальный идентификатор профиля
+    user_id INT UNIQUE NOT NULL, -- ID пользователя
+    
+    first_name VARCHAR(50) NOT NULL, -- Имя
+    last_name VARCHAR(50) NOT NULL, -- Фамилия
+    middle_name VARCHAR(50), -- Отчество
+    
+    birth_date DATE, -- Дата рождения
+    
+    passport_series VARCHAR(4), -- Серия паспорта
+    passport_number VARCHAR(6), -- Номер паспорта
+    passport_issued_by VARCHAR(255), -- Кем выдан
+    passport_issued_date DATE, -- Дата выдачи
+    passport_code VARCHAR(7), -- Код подразделения
+    
+    registration_address TEXT, -- Адрес регистрации
+    actual_address TEXT, -- Фактический адрес
+    
+    preferred_contact_method VARCHAR(20), -- Предпочтительный способ связи
+    notes TEXT, -- Заметки
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_client_user 
+        FOREIGN KEY (user_id) 
+        REFERENCES users(id) 
+        ON DELETE CASCADE
+);
+
+-- ====== ОБЪЕКТЫ НЕДВИЖИМОСТИ ======
+
+CREATE TABLE properties (
+    id INT PRIMARY KEY, -- Уникальный идентификатор объекта
+    title VARCHAR(255), -- Заголовок объявления
+    
+    operation_type_id INT NOT NULL, -- Тип операции (продажа/аренда)
+    status_id INT NOT NULL DEFAULT 1, -- Статус объекта
+    
+    address_id INT NOT NULL, -- ID адреса
+    
+    coordinates_lat DECIMAL(10,8), -- Широта
+    coordinates_lon DECIMAL(11,8), -- Долгота
+    
+    price FLOAT NOT NULL, -- Цена
+    price_per_sqm FLOAT, -- Цена за кв.м
+    
+    area_total DECIMAL(8,2), -- Общая площадь
+    area_living DECIMAL(8,2), -- Жилая площадь
+    area_kitchen DECIMAL(8,2), -- Площадь кухни
+    
+    rooms_count INT, -- Количество комнат
+    floor_number INT, -- Этаж
+    total_floors INT, -- Всего этажей
+    
+    description TEXT, -- Описание
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_property_operation_type 
+        FOREIGN KEY (operation_type_id) 
+        REFERENCES operation_types(id),
+    CONSTRAINT fk_property_status 
+        FOREIGN KEY (status_id) 
+        REFERENCES property_statuses(id),
+    CONSTRAINT fk_property_address 
+        FOREIGN KEY (address_id) 
+        REFERENCES addresses(id)
+);
+
+-- ====== ХАРАКТЕРИСТИКИ ОБЪЕКТОВ ======
+
+CREATE TABLE property_features (
+    id INT PRIMARY KEY, -- Уникальный идентификатор характеристики
+    name VARCHAR(100) NOT NULL, -- Название характеристики
+    category VARCHAR(50) -- Категория
+);
+
+CREATE TABLE property_feature_values (
+    property_id INT NOT NULL, -- ID объекта
+    feature_id INT NOT NULL, -- ID характеристики
+    value VARCHAR(255), -- Значение характеристики
+    PRIMARY KEY (property_id, feature_id),
+    CONSTRAINT fk_feature_value_property 
+        FOREIGN KEY (property_id) 
+        REFERENCES properties(id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_feature_value_feature 
+        FOREIGN KEY (feature_id) 
+        REFERENCES property_features(id) 
+        ON DELETE CASCADE
+);
+
+-- ====== ФОТО ОБЪЕКТОВ ======
+
+CREATE TABLE property_photos (
+    id INT PRIMARY KEY, -- Уникальный идентификатор фото
+    property_id INT NOT NULL, -- ID объекта
+    url TEXT NOT NULL, -- URL фотографии
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_photo_property
+        FOREIGN KEY (property_id)
+        REFERENCES properties(id)
+        ON DELETE CASCADE
+);
+
+-- ====== ДОКУМЕНТЫ ОБЪЕКТОВ ======
+
+CREATE TABLE property_documents (
+    id INT PRIMARY KEY, -- Уникальный идентификатор документа
+    property_id INT NOT NULL, -- ID объекта
+    document_name VARCHAR(255) NOT NULL, -- Название документа
+    file_url TEXT NOT NULL, -- URL файла
+    is_verified BOOLEAN DEFAULT FALSE, -- Проверен ли документ
+    verified_by_user_id INT, -- ID проверившего сотрудника
+    verified_at TIMESTAMP, -- Дата проверки
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_document_property
+        FOREIGN KEY (property_id)
+        REFERENCES properties(id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_document_verified_by
+        FOREIGN KEY (verified_by_user_id)
+        REFERENCES users(id)
+);
+
+-- ====== ЗАЯВКИ ======
+
+CREATE TABLE requests (
+    id INT PRIMARY KEY, -- Уникальный идентификатор заявки
+    client_user_id INT NOT NULL, -- ID клиента
+    agent_user_id INT NOT NULL, -- ID ответственного агента
+    
+    operation_type_id INT NOT NULL, -- Тип операции
+    status_id INT NOT NULL DEFAULT 1, -- Статус заявки
+    
+    property_type VARCHAR(50), -- Желаемый тип недвижимости
+    min_price FLOAT, -- Минимальная цена
+    max_price FLOAT, -- Максимальная цена
+    min_area DECIMAL(8,2), -- Минимальная площадь
+    max_area DECIMAL(8,2), -- Максимальная площадь
+    rooms_count INT, -- Количество комнат
+    
+    address_preferences TEXT, -- Предпочтения по адресу
+    description TEXT, -- Описание пожеланий
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP, -- Дата закрытия
+    
+    CONSTRAINT fk_request_client 
+        FOREIGN KEY (client_user_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_request_agent 
+        FOREIGN KEY (agent_user_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_request_operation_type 
+        FOREIGN KEY (operation_type_id) 
+        REFERENCES operation_types(id),
+    CONSTRAINT fk_request_status 
+        FOREIGN KEY (status_id) 
+        REFERENCES request_statuses(id)
+);
+
+-- ====== СДЕЛКИ ======
+
+CREATE TABLE deals (
+    id INT PRIMARY KEY, -- Уникальный идентификатор сделки
+    deal_number VARCHAR(50) UNIQUE NOT NULL, -- Номер сделки
+    property_id INT NOT NULL, -- ID объекта
+    agent_user_id INT NOT NULL, -- ID агента
+    client_user_id INT NOT NULL, -- ID клиента
+    
+    operation_type_id INT NOT NULL, -- Тип сделки
+    
+    price_final FLOAT NOT NULL, -- Итоговая цена
+    commission_percent NUMERIC(5, 2), -- Процент комиссии
+    commission_amount FLOAT, -- Сумма комиссии
+    
+    deal_date DATE NOT NULL, -- Дата сделки
+    
+    CONSTRAINT fk_deal_property 
+        FOREIGN KEY (property_id) 
+        REFERENCES properties(id),
+    CONSTRAINT fk_deal_agent 
+        FOREIGN KEY (agent_user_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_deal_client 
+        FOREIGN KEY (client_user_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_deal_operation_type 
+        FOREIGN KEY (operation_type_id) 
+        REFERENCES operation_types(id)
+);
+
+-- ====== ИСТОРИЯ СТАТУСОВ ОБЪЕКТОВ ======
+
+CREATE TABLE property_status_history (
+    id INT PRIMARY KEY, -- Уникальный идентификатор записи
+    property_id INT NOT NULL, -- ID объекта
+    status_id INT NOT NULL, -- Новый статус
+    changed_by_user_id INT NOT NULL, -- ID изменившего сотрудника
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Дата изменения
+    
+    CONSTRAINT fk_history_property 
+        FOREIGN KEY (property_id) 
+        REFERENCES properties(id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_history_status 
+        FOREIGN KEY (status_id) 
+        REFERENCES property_statuses(id),
+    CONSTRAINT fk_history_user 
+        FOREIGN KEY (changed_by_user_id) 
+        REFERENCES users(id)
+);
+
+-- ====== ПРОСМОТРЫ ОБЪЕКТОВ ======
+
+CREATE TABLE property_viewings (
+    id INT PRIMARY KEY, -- Уникальный идентификатор просмотра
+    property_id INT NOT NULL, -- ID объекта
+    client_user_id INT NOT NULL, -- ID клиента
+    agent_user_id INT NOT NULL, -- ID сопровождающего агента
+    scheduled_date TIMESTAMP NOT NULL, -- Дата и время просмотра
+    notes TEXT, -- Заметки
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_viewing_property 
+        FOREIGN KEY (property_id) 
+        REFERENCES properties(id),
+    CONSTRAINT fk_viewing_client 
+        FOREIGN KEY (client_user_id) 
+        REFERENCES users(id),
+    CONSTRAINT fk_viewing_agent 
+        FOREIGN KEY (agent_user_id) 
+        REFERENCES users(id)
+);
+
+-- ====== ЗАПОЛНЕНИЕ СПРАВОЧНИКОВ ======
+
+-- Типы операций
+INSERT INTO operation_types (id, code, name) VALUES
+(1, 'sale', 'Продажа'),
+(2, 'rent', 'Аренда');
+
+-- Статусы объектов
+INSERT INTO property_statuses (id, code, name) VALUES
+(1, 'active', 'Активно'),
+(2, 'reserved', 'Зарезервировано'),
+(3, 'sold', 'Продано'),
+(4, 'rented', 'Сдано');
+
+-- Статусы заявок
+INSERT INTO request_statuses (id, code, name) VALUES
+(1, 'open', 'Открыта'),
+(2, 'processing', 'В обработке'),
+(3, 'closed', 'Закрыта');
+
+-- Роли пользователей
+INSERT INTO user_roles (id, code, name, description) VALUES
+(1, 'admin', 'Администратор', 'Полный доступ ко всем функциям системы'),
+(2, 'manager', 'Менеджер', 'Управление сделками и сотрудниками'),
+(3, 'agent', 'Агент', 'Работа с клиентами и объектами');
