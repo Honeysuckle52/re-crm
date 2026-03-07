@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36" version="29.6.0">
   <diagram id="crmRealEstateUI" name="CRM Real Estate UI">
-    <mxGraphModel dx="2951" dy="2050" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2200" pageHeight="1400" math="0" shadow="0">
+    <mxGraphModel dx="1853" dy="1205" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2200" pageHeight="1400" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -43,10 +43,10 @@
         <mxCell id="dash-menu-settings" parent="dashboard-page" style="text;html=1;align=left;verticalAlign=middle;spacingLeft=16;fontSize=12" value="Настройки" vertex="1">
           <mxGeometry height="32" width="180" y="216" as="geometry" />
         </mxCell>
-        <mxCell id="dash-card-requests" parent="dashboard-page" style="rounded=1;whiteSpace=wrap;html=1;" value="Активные заявки: 24" vertex="1">
+        <mxCell id="dash-card-requests" parent="dashboard-page" style="rounded=1;whiteSpace=wrap;html=1;" value="&amp;nbsp;Заявки в работе у агента" vertex="1">
           <mxGeometry height="80" width="170" x="200" y="70" as="geometry" />
         </mxCell>
-        <mxCell id="dash-card-properties" parent="dashboard-page" style="rounded=1;whiteSpace=wrap;html=1;" value="Объекты в работе: 56" vertex="1">
+        <mxCell id="dash-card-properties" parent="dashboard-page" style="rounded=1;whiteSpace=wrap;html=1;" value="Доступные обьекты недвижемости&amp;nbsp;" vertex="1">
           <mxGeometry height="80" width="170" x="390" y="70" as="geometry" />
         </mxCell>
         <mxCell id="dash-card-new" parent="dashboard-page" style="rounded=1;whiteSpace=wrap;html=1;" value="Новые клиенты: 8" vertex="1">
@@ -339,7 +339,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="pdukCZ9C8GSLHd6bfVlM-4" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
-          <mxGeometry height="1201" width="2360" x="34" y="1107" as="geometry" />
+          <mxGeometry height="1201" width="2360" x="-63" y="1100" as="geometry" />
         </mxCell>
         <mxCell id="pdukCZ9C8GSLHd6bfVlM-5" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="&lt;font style=&quot;font-size: 25px;&quot; face=&quot;Times New Roman&quot;&gt;&lt;b style=&quot;&quot;&gt;ПРОТОТИПЫ МОБИЛЬНОГО ПРИЛОЖЕНИЯ&lt;/b&gt;&lt;/font&gt;" vertex="1">
           <mxGeometry height="30" width="575" x="926.5" y="1151" as="geometry" />
