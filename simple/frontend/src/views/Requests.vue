@@ -144,6 +144,11 @@
               <div class="row" style="gap: 6px; flex-wrap: wrap">
                 <button v-if="auth.isStaff && !r.agent"
                         class="btn btn--sm btn--accent"
+                        :disabled="takeDisabled"
+                        :title="takeDisabled
+                          ? 'Достигнут лимит активных заявок (' +
+                            workload.activeRequestsLabel + ')'
+                          : 'Взять заявку в работу'"
                         @click="takeRequest(r)">
                   Взять
                 </button>
@@ -168,8 +173,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
+import { useWorkloadStore } from '../store/workload'
 
 const auth = useAuthStore()
+const workload = useWorkloadStore()
 
 const requests = ref([])
 const clients = ref([])
@@ -212,6 +219,12 @@ const emptyLabel = computed(() => {
   if (scope.value === 'mine') return 'У вас нет активных заявок.'
   return 'Заявок ещё не создано.'
 })
+
+// Кнопка «Взять» блокируется, когда сотрудник упёрся в лимит
+// одновременных активных заявок (для менеджеров/админов ограничения нет).
+const takeDisabled = computed(() =>
+  !auth.isManager && !workload.workload.can_take_request,
+)
 
 function statusClass (r) {
   const code = r.status_code
@@ -280,21 +293,37 @@ async function createRequest () {
 }
 
 async function takeRequest (r) {
-  await api.post(`/requests/${r.id}/take/`)
-  await load()
+  // Предварительно проверяем локальный срез лимита — экономим 1 запрос
+  // и сразу объясняем пользователю причину отказа. Бэкенд всё равно
+  // защищён business_rules.assert_can_take_request.
+  if (!auth.isManager && !workload.workload.can_take_request) {
+    alert(`Нельзя взять заявку: уже ${workload.workload.active_requests} в работе `
+      + `из ${workload.workload.max_active_requests}. Закройте текущую.`)
+    return
+  }
+  try {
+    await api.post(`/requests/${r.id}/take/`)
+  } catch (err) {
+    alert(err.response?.data?.detail
+      || 'Не удалось взять заявку. Возможно, превышен лимит.')
+  }
+  await Promise.all([load(), workload.refresh()])
 }
 
 async function closeRequest (r) {
   if (!confirm('Закрыть заявку?')) return
   await api.post(`/requests/${r.id}/close/`)
-  await load()
+  await Promise.all([load(), workload.refresh()])
 }
 
 function formatMoney (v) {
   return v ? new Intl.NumberFormat('ru-RU').format(v) : '—'
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (auth.isStaff) workload.refresh()
+})
 </script>
 
 <style scoped>

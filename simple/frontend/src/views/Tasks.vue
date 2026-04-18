@@ -8,6 +8,16 @@
           <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
             Поручения сотрудникам: звонки, показы, документы
           </div>
+          <!-- Индикатор личной нагрузки сотрудника — сразу под заголовком. -->
+          <div v-if="!auth.isManager"
+               class="workload-banner"
+               :class="{ 'is-limit': workload.isOverloaded }">
+            <span>Моя загрузка:</span>
+            <b>{{ workload.activeTasksLabel }}</b> задач ·
+            <b>{{ workload.activeRequestsLabel }}</b> заявок ·
+            <b>{{ workload.workload.in_progress_tasks }}/{{ workload.workload.max_in_progress_tasks }}</b>
+            в работе
+          </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
           <button class="btn btn--accent" @click="toggleForm">
@@ -140,11 +150,37 @@
             </td>
             <td>
               <span class="tag tag--accent">{{ t.status_name }}</span>
+              <div v-if="t.assignee === auth.user?.id && t.status_code === 'in_progress'"
+                   class="muted" style="font-size: 11px; margin-top: 2px">
+                вы сейчас выполняете
+              </div>
             </td>
-            <td>
-              <select class="select select--sm" :value="t.status"
+            <td class="task-actions">
+              <!-- Быстрые переходы по статусам. «Старт» блокируется,
+                   если у сотрудника уже есть задача в работе — лимит 1. -->
+              <button v-if="canStart(t)"
+                      class="btn btn--sm btn--accent"
+                      :disabled="!canStartBtn(t) || busyId === t.id"
+                      :title="!canStartBtn(t) ? 'У сотрудника уже есть задача в работе' : 'Взять в работу'"
+                      @click="startTask(t)">
+                Старт
+              </button>
+              <button v-if="canPause(t)"
+                      class="btn btn--sm"
+                      :disabled="busyId === t.id"
+                      @click="pauseTask(t)">
+                Пауза
+              </button>
+              <button v-if="canComplete(t)"
+                      class="btn btn--sm btn--ghost"
+                      :disabled="busyId === t.id"
+                      @click="completeTask(t)">
+                Завершить
+              </button>
+              <select class="select select--sm"
+                      :value="t.status"
                       @change="changeStatus(t, $event.target.value)">
-                <option disabled value="">Изменить статус</option>
+                <option disabled value="">Статус…</option>
                 <option v-for="s in statuses" :key="s.id" :value="s.id">
                   {{ s.name }}
                 </option>
@@ -161,6 +197,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
+import { useAuthStore } from '../store/auth'
+import { useWorkloadStore } from '../store/workload'
+
+const auth = useAuthStore()
+const workload = useWorkloadStore()
 
 const tasks = ref([])
 const statuses = ref([])
@@ -171,6 +212,7 @@ const properties = ref([])
 
 const statusFilter = ref('')
 const showForm = ref(false)
+const busyId = ref(null)
 
 const form = reactive(defaultForm())
 
@@ -242,12 +284,79 @@ async function create () {
 
 async function changeStatus (task, statusId) {
   if (!statusId) return
-  await api.post(`/tasks/${task.id}/change_status/`,
-                 { status_id: Number(statusId) })
-  await load()
+  try {
+    await api.post(`/tasks/${task.id}/change_status/`,
+                   { status_id: Number(statusId) })
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Не удалось изменить статус.')
+  }
+  await refreshAll()
 }
 
-onMounted(load)
+// --- права на быстрые действия --------------------------------------------
+// Сотрудник может стартовать/паузить/завершать только свои задачи.
+// Менеджер и админ — любые (для ручного вмешательства).
+function isOwnOrManaged (task) {
+  return auth.isManager || task.assignee === auth.user?.id
+}
+function canStart (task) {
+  return isOwnOrManaged(task)
+    && ['new', 'waiting'].includes(task.status_code)
+}
+function canPause (task) {
+  return isOwnOrManaged(task) && task.status_code === 'in_progress'
+}
+function canComplete (task) {
+  return isOwnOrManaged(task)
+    && ['new', 'in_progress', 'waiting'].includes(task.status_code)
+}
+// Кнопка «Старт» становится активной только если не превышен лимит
+// параллельных in_progress-задач у конкретного сотрудника.
+function canStartBtn (task) {
+  if (auth.isManager) return true
+  // Если задача уже у меня и в работе — старт не нужен.
+  if (task.assignee !== auth.user?.id) return false
+  return workload.workload.in_progress_tasks
+      < workload.workload.max_in_progress_tasks
+}
+
+async function startTask (task) {
+  busyId.value = task.id
+  try {
+    await api.post(`/tasks/${task.id}/start/`)
+    await refreshAll()
+  } catch (err) {
+    alert(err.response?.data?.detail
+      || 'Нельзя стартовать задачу: превышен лимит.')
+  } finally { busyId.value = null }
+}
+async function pauseTask (task) {
+  busyId.value = task.id
+  try {
+    await api.post(`/tasks/${task.id}/pause/`)
+    await refreshAll()
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Не удалось приостановить задачу.')
+  } finally { busyId.value = null }
+}
+async function completeTask (task) {
+  busyId.value = task.id
+  try {
+    await api.post(`/tasks/${task.id}/complete/`)
+    await refreshAll()
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Не удалось завершить задачу.')
+  } finally { busyId.value = null }
+}
+
+async function refreshAll () {
+  await Promise.all([load(), workload.refresh()])
+}
+
+onMounted(async () => {
+  await load()
+  if (auth.isStaff) workload.refresh()
+})
 </script>
 
 <style scoped>
@@ -255,4 +364,20 @@ onMounted(load)
 .link:hover { text-decoration: underline; }
 .overdue { background: #fee; color: #c2554a; margin-left: 6px; }
 .select--sm { padding: 6px 10px; font-size: 13px; }
+
+.task-actions {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  align-items: center;
+}
+
+.workload-banner {
+  margin-top: 10px;
+  background: rgba(255,255,255,.12);
+  color: #fff; font-size: 13px;
+  padding: 6px 12px; border-radius: 999px;
+  display: inline-flex; gap: 6px; align-items: center;
+}
+.workload-banner.is-limit {
+  background: rgba(194, 85, 74, .9);
+}
 </style>

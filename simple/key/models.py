@@ -426,21 +426,33 @@ class PropertyPhoto(models.Model):
     Изображение загружает сотрудник агентства — DaData возвращает только
     адресные данные, а визуальный контент заполняется вручную. Допустимы
     оба варианта: загрузка файла (``image``) или внешний URL (``url``).
+
+    Ранее файлы складывались в ``properties/%Y/%m/``. Теперь путь упрощён
+    до ``%Y/%m/`` — ровно там, где лежат демо-картинки из
+    ``seed_demo`` (``media/2026/04/1.jpg`` и т. д.). Старые файлы в
+    ``media/properties/...`` можно либо удалить вручную, либо оставить —
+    они останутся валидными ссылками у ранее созданных записей.
     """
     property = models.ForeignKey(Property, on_delete=models.CASCADE,
                                  related_name='photos')
-    image = models.ImageField(upload_to='properties/%Y/%m/',
+    image = models.ImageField(upload_to='%Y/%m/',
                               blank=True, null=True)
     url = models.TextField(blank=True, null=True)
     caption = models.CharField(max_length=255, blank=True, null=True)
+    # Обложка — первое фото, которое показывается на карточке.
     is_cover = models.BooleanField(default=False)
+    # «Мягкое» скрытие. Позволяет сотруднику исключить фото из выдачи
+    # клиенту, не удаляя его физически — для ручного управления альбомом.
+    is_hidden = models.BooleanField(default=False)
+    # Ручной порядок сортировки. 0 — самый верх, дальше по возрастанию.
+    order = models.PositiveIntegerField(default=0)
     uploaded_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = 'property_photos'
         verbose_name = 'Фото объекта'
         verbose_name_plural = 'Фото объектов'
-        ordering = ['-is_cover', '-uploaded_at']
+        ordering = ['-is_cover', 'order', '-uploaded_at']
 
 
 class PropertyDocument(models.Model):
