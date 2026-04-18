@@ -64,7 +64,9 @@ function onInput(e) {
       results.value = data.results || []
       open.value = results.value.length > 0
     } catch (e) {
-      error.value = 'Сервис подсказок адресов недоступен'
+      const detail = e?.response?.data?.detail
+      error.value = detail || 'Сервис подсказок адресов недоступен. '
+        + 'Адрес можно ввести вручную.'
     } finally {
       loading.value = false
     }
