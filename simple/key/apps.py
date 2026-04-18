@@ -5,3 +5,7 @@ class KeyConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'key'
     verbose_name = 'Недвижимость (CRM/ERP)'
+
+    def ready(self):
+        # Регистрация обработчиков сигналов (авто-создание задач и т. п.).
+        from . import signals  # noqa: F401

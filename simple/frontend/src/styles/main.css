@@ -120,7 +120,9 @@ input, select, textarea { font: inherit; }
 .textarea { resize: vertical; min-height: 90px; }
 
 /* ---- Общая сетка ---- */
-.layout { padding: 0 16px 48px; }
+/* нижний отступ освобождает место под фиксированным футером
+   (капсула 48px + круглая кнопка «дом» 48px/2 + запас) */
+.layout { padding: 0 16px 140px; }
 .grid { display: grid; gap: 16px; }
 .grid--2 { grid-template-columns: repeat(2, 1fr); }
 .grid--3 { grid-template-columns: repeat(3, 1fr); }
@@ -203,19 +205,29 @@ input, select, textarea { font: inherit; }
   background: var(--c-paper); border-radius: var(--r-md);
 }
 
-/* ---- Footer ---- */
+/* ---- Footer (прижат к нижней части окна просмотра) ---- */
 .footer {
+  position: fixed;
+  left: 16px; right: 16px; bottom: 16px;
   display: flex; justify-content: space-between; align-items: center;
   background: var(--c-panel); color: #fff;
   padding: 18px 32px; border-radius: var(--r-pill);
-  margin: 32px 16px; box-shadow: var(--shadow-1);
+  margin: 0; box-shadow: var(--shadow-2);
   letter-spacing: .1em; text-transform: uppercase; font-size: 12px;
+  z-index: 40;
 }
 .footer__home {
+  /* круглая кнопка вынесена над капсулой независимо от position: fixed у родителя */
+  position: absolute;
+  top: -24px; left: 50%; transform: translateX(-50%);
   width: 48px; height: 48px; border-radius: 50%;
   background: var(--c-paper); color: var(--c-panel);
   display: grid; place-items: center;
-  margin: -36px auto 0; box-shadow: var(--shadow-1);
+  margin: 0; box-shadow: var(--shadow-1);
+}
+@media (max-width: 720px) {
+  .footer { padding: 14px 20px; font-size: 11px; letter-spacing: .06em; }
+  .layout { padding-bottom: 120px; }
 }
 
 /* ---- Вспомогательное ---- */
