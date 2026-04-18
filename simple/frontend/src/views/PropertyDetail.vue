@@ -67,12 +67,30 @@
         </label>
       </div>
       <div v-if="property.photos?.length" class="gallery">
-        <div v-for="ph in property.photos" :key="ph.id" class="gallery__item">
+        <div v-for="ph in property.photos" :key="ph.id"
+             class="gallery__item"
+             :class="{ 'is-hidden': ph.is_hidden, 'is-cover': ph.is_cover }">
           <img :src="ph.image_url" :alt="property.title || 'Фото объекта'" />
-          <button v-if="auth.isStaff" class="gallery__del"
-                  @click="removePhoto(ph)" title="Удалить">
-            ×
-          </button>
+          <div class="gallery__badges">
+            <span v-if="ph.is_cover" class="gallery__badge is-cover">Обложка</span>
+            <span v-if="ph.is_hidden" class="gallery__badge is-hidden">Скрыто</span>
+          </div>
+          <!-- Ручное управление альбомом: обложка, скрыть/показать, удалить.
+               Доступно только сотрудникам. -->
+          <div v-if="auth.isStaff" class="gallery__toolbar">
+            <button class="gallery__btn"
+                    :disabled="ph.is_cover"
+                    :title="ph.is_cover ? 'Это текущая обложка' : 'Сделать обложкой'"
+                    @click="setCover(ph)">★</button>
+            <button class="gallery__btn"
+                    :disabled="ph.is_cover"
+                    :title="ph.is_hidden ? 'Показать клиенту' : 'Скрыть от клиента'"
+                    @click="toggleHidden(ph)">
+              {{ ph.is_hidden ? '◐' : '●' }}
+            </button>
+            <button class="gallery__btn gallery__btn--danger"
+                    title="Удалить фото" @click="removePhoto(ph)">×</button>
+          </div>
         </div>
       </div>
       <div v-else class="muted" style="margin-top: 8px">
@@ -214,6 +232,21 @@ async function removePhoto(photo) {
   await load()
 }
 
+// --- ручное управление альбомом ------------------------------------------
+async function setCover (photo) {
+  await api.post(`/property-photos/${photo.id}/set_cover/`)
+  await load()
+}
+
+async function toggleHidden (photo) {
+  try {
+    await api.post(`/property-photos/${photo.id}/toggle_hidden/`)
+    await load()
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Не удалось изменить видимость.')
+  }
+}
+
 async function remove() {
   if (!confirm('Удалить объект?')) return
   await api.delete(`/properties/${route.params.id}/`)
@@ -236,13 +269,34 @@ onMounted(load)
   border-radius: var(--r-sm); background: #f1f5f4;
 }
 .gallery__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.gallery__del {
+.gallery__item.is-hidden img { filter: grayscale(.85) opacity(.5); }
+.gallery__item.is-cover { outline: 3px solid var(--c-accent, #1fa39a); outline-offset: -3px; }
+
+.gallery__badges {
+  position: absolute; top: 6px; left: 6px;
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.gallery__badge {
+  font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+  color: #fff; background: rgba(0,0,0,.55);
+}
+.gallery__badge.is-cover { background: var(--c-accent, #1fa39a); }
+.gallery__badge.is-hidden { background: #7a6f68; }
+
+.gallery__toolbar {
   position: absolute; top: 6px; right: 6px;
+  display: flex; gap: 4px;
+}
+.gallery__btn {
   width: 26px; height: 26px; border-radius: 50%;
   border: none; background: rgba(0,0,0,.55); color: #fff;
-  cursor: pointer; font-size: 18px; line-height: 1;
+  cursor: pointer; font-size: 14px; line-height: 1;
+  display: grid; place-items: center;
 }
-.gallery__del:hover { background: rgba(0,0,0,.75); }
+.gallery__btn:hover:not(:disabled) { background: rgba(0,0,0,.78); }
+.gallery__btn:disabled { opacity: .35; cursor: not-allowed; }
+.gallery__btn--danger:hover:not(:disabled) { background: #9a3b32; }
 
 .modal {
   position: fixed; inset: 0; z-index: 80;

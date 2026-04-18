@@ -167,12 +167,34 @@ class Command(BaseCommand):
         Рендерит 5 JPEG-заглушек в ``MEDIA_ROOT/2026/04/{i}.jpg``.
 
         Использует Pillow (есть в requirements). Ничего не тянет из сети.
+
+        Дополнительно чистит устаревший каталог
+        ``MEDIA_ROOT/properties/2026/04`` — в нём лежали старые тестовые
+        картинки (``1.jpg..5.jpg`` + артефакты вроде
+        ``Первый_курс_Юра.jpg``). Код перешёл на ``MEDIA_ROOT/2026/04``,
+        поэтому старые файлы больше не нужны и могут вводить в
+        заблуждение.
         """
         from PIL import Image, ImageDraw, ImageFont
 
         media_root = Path(settings.MEDIA_ROOT)
         target_dir = media_root / '2026' / '04'
         target_dir.mkdir(parents=True, exist_ok=True)
+
+        legacy_dir = media_root / 'properties' / '2026' / '04'
+        if legacy_dir.exists():
+            for item in legacy_dir.iterdir():
+                try:
+                    if item.is_file():
+                        item.unlink()
+                except OSError:
+                    # Не валим всю команду, если один файл занят.
+                    self.stdout.write(self.style.WARNING(
+                        f'  !! Не удалось удалить {item}'
+                    ))
+            self.stdout.write(self.style.WARNING(
+                f'  -- Очищен устаревший каталог {legacy_dir}'
+            ))
 
         try:
             font = ImageFont.truetype(
@@ -363,12 +385,16 @@ class Command(BaseCommand):
                 )
 
             # Фотография — ссылается на media/2026/04/{idx}.jpg.
+            # Актуальный путь совпадает с новым ``upload_to='%Y/%m/'``
+            # у поля PropertyPhoto.image. Старые демо-фото из
+            # ``properties/2026/04/`` больше НЕ используются.
             PropertyPhoto.objects.filter(property=prop).delete()
             PropertyPhoto.objects.create(
                 property=prop,
                 image=f'2026/04/{idx}.jpg',
                 caption=f'Фото объекта №{idx}',
                 is_cover=True,
+                order=0,
             )
             created.append(prop)
         return created

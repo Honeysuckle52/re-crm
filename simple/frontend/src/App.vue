@@ -1,6 +1,9 @@
 <template>
   <div>
     <TopBar v-if="auth.isAuthenticated" />
+    <!-- Виджет «Текущая задача» — только для сотрудников.
+         Показывает активную задачу в работе и индикатор лимитов. -->
+    <CurrentTaskWidget v-if="auth.isAuthenticated && auth.isStaff" />
     <main class="layout">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
@@ -16,6 +19,7 @@
 import { useAuthStore } from './store/auth'
 import TopBar from './components/TopBar.vue'
 import AppFooter from './components/AppFooter.vue'
+import CurrentTaskWidget from './components/CurrentTaskWidget.vue'
 
 const auth = useAuthStore()
 </script>

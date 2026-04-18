@@ -218,7 +218,8 @@ class PropertyPhotoSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.PropertyPhoto
         fields = ['id', 'property', 'image', 'url', 'image_url',
-                  'caption', 'is_cover', 'uploaded_at']
+                  'caption', 'is_cover', 'is_hidden', 'order',
+                  'uploaded_at']
         read_only_fields = ['uploaded_at', 'image_url']
 
     def get_image_url(self, obj) -> str | None:
@@ -280,7 +281,11 @@ class PropertySerializer(serializers.ModelSerializer):
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
     full_address = serializers.SerializerMethodField()
-    photos = PropertyPhotoSerializer(many=True, read_only=True)
+    # Фото возвращаем через метод, чтобы для клиентов (и неавторизованных
+    # пользователей) скрывать флаг ``is_hidden`` — это и есть «ручное
+    # управление альбомом» из бизнес-требований: сотрудник может спрятать
+    # фото от клиента, но не удалять.
+    photos = serializers.SerializerMethodField()
     feature_values = PropertyFeatureValueSerializer(many=True, read_only=True)
     feature_ids = serializers.PrimaryKeyRelatedField(
         queryset=models.PropertyFeature.objects.all(),
@@ -308,6 +313,26 @@ class PropertySerializer(serializers.ModelSerializer):
 
     def get_full_address(self, obj) -> str:
         return str(obj.address)
+
+    def get_photos(self, obj):
+        """
+        Клиенту и неавторизованному пользователю возвращаем только
+        видимые фото (``is_hidden=False``). Сотрудник/администратор
+        видит весь альбом, чтобы управлять обложкой и скрытием.
+        """
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        is_staff_like = bool(
+            user and user.is_authenticated
+            and (getattr(user, 'is_employee', False)
+                 or getattr(user, 'is_superuser', False))
+        )
+        qs = obj.photos.all()
+        if not is_staff_like:
+            qs = qs.filter(is_hidden=False)
+        return PropertyPhotoSerializer(
+            qs, many=True, context=self.context,
+        ).data
 
     # --- создание/обновление с построением адресной иерархии ----------
 

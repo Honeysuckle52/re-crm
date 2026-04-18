@@ -16,7 +16,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from . import models, serializers
+from . import business_rules, models, serializers
+from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
 from .permissions import (
     IsAdminOrManager,
@@ -237,6 +238,42 @@ class UserViewSet(viewsets.ModelViewSet):
         target.save()
         return Response(serializers.UserSerializer(target).data)
 
+    @action(detail=False, methods=['get'], url_path='me/workload',
+            permission_classes=[IsAuthenticated])
+    def my_workload(self, request):
+        """
+        Срез текущей загрузки сотрудника: сколько задач/заявок
+        сейчас в работе и каковы лимиты. Используется виджетом в TopBar
+        и формами назначения, чтобы заранее показывать «лимит исчерпан».
+        """
+        if not request.user.is_employee:
+            return Response({
+                'active_tasks': 0,
+                'in_progress_tasks': 0,
+                'active_requests': 0,
+                'max_active_tasks': business_rules.MAX_ACTIVE_TASKS,
+                'max_in_progress_tasks':
+                    business_rules.MAX_IN_PROGRESS_TASKS,
+                'max_active_requests':
+                    business_rules.MAX_ACTIVE_REQUESTS,
+                'can_take_request': False,
+                'can_take_task': False,
+                'can_start_task': False,
+            })
+        return Response(business_rules.snapshot_for(request.user).as_dict())
+
+    @action(detail=True, methods=['get'], url_path='workload',
+            permission_classes=[IsAdminOrManager])
+    def user_workload(self, request, pk=None):
+        """Нагрузка конкретного сотрудника — только для менеджеров/админов."""
+        target = self.get_object()
+        if not target.is_employee:
+            return Response(
+                {'detail': 'Учитывается только загрузка сотрудников.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(business_rules.snapshot_for(target).as_dict())
+
 
 class EmployeeProfileViewSet(viewsets.ModelViewSet):
     queryset = models.EmployeeProfile.objects.select_related('user').all()
@@ -335,10 +372,14 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 {'detail': 'Нужно передать файл image или ссылку url.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Если это самое первое фото — сразу делаем его обложкой.
+        is_first = not property_obj.photos.exists()
         photo = models.PropertyPhoto.objects.create(
             property=property_obj,
             image=image if image else None,
             url=url if not image else '',
+            caption=request.data.get('caption', '') or '',
+            is_cover=is_first,
             order=property_obj.photos.count(),
         )
         return Response(
@@ -359,11 +400,82 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     Фото объекта. Поддерживает два формата загрузки:
       * multipart/form-data с полем ``image`` — файл;
       * application/json с полем ``url`` — внешняя ссылка.
+
+    Для ручного управления альбомом добавлены действия:
+      * ``set_cover``    — назначить обложкой;
+      * ``toggle_hidden`` — скрыть/показать фото без удаления;
+      * ``reorder``      — переставить порядок фото у объекта.
     """
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
     permission_classes = [IsEmployee]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        prop = self.request.query_params.get('property')
+        if prop:
+            qs = qs.filter(property_id=prop)
+        # По умолчанию клиентская часть может скрывать "скрытые" фото,
+        # а сотрудники — видеть всё. Параметр show_hidden=0/1 управляется
+        # фронтом и использует только значения 0/1.
+        if self.request.query_params.get('show_hidden') == '0':
+            qs = qs.filter(is_hidden=False)
+        return qs
+
+    @action(detail=True, methods=['post'], url_path='set_cover')
+    def set_cover(self, request, pk=None):
+        """Сделать выбранное фото обложкой объекта."""
+        photo = self.get_object()
+        # Снимаем флаг у всех остальных фото этого объекта
+        # одним UPDATE и выставляем у выбранного.
+        models.PropertyPhoto.objects.filter(
+            property_id=photo.property_id
+        ).exclude(pk=photo.pk).update(is_cover=False)
+        photo.is_cover = True
+        photo.is_hidden = False  # обложка не может быть скрытой
+        photo.save(update_fields=['is_cover', 'is_hidden'])
+        return Response(serializers.PropertyPhotoSerializer(
+            photo, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='toggle_hidden')
+    def toggle_hidden(self, request, pk=None):
+        """Скрыть/показать фото. Обложку скрыть нельзя."""
+        photo = self.get_object()
+        if photo.is_cover and not photo.is_hidden:
+            return Response(
+                {'detail': 'Нельзя скрыть фото-обложку. '
+                           'Сначала назначьте обложкой другое фото.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        photo.is_hidden = not photo.is_hidden
+        photo.save(update_fields=['is_hidden'])
+        return Response(serializers.PropertyPhotoSerializer(
+            photo, context={'request': request}).data)
+
+    @action(detail=False, methods=['post'], url_path='reorder')
+    def reorder(self, request):
+        """
+        Массовая перестановка порядка. Тело: ``{"order": [id1, id2, ...]}``.
+        Все фото должны принадлежать одному объекту.
+        """
+        order = request.data.get('order') or []
+        if not isinstance(order, list) or not order:
+            return Response({'detail': 'Нужно поле order: [id,...]'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        photos = list(models.PropertyPhoto.objects.filter(pk__in=order))
+        if len({p.property_id for p in photos}) > 1:
+            return Response({'detail': 'Фото разных объектов.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        by_id = {p.pk: p for p in photos}
+        for idx, pid in enumerate(order):
+            p = by_id.get(pid)
+            if p is None:
+                continue
+            if p.order != idx:
+                p.order = idx
+                p.save(update_fields=['order'])
+        return Response({'detail': 'Порядок обновлён.'})
 
 
 class PropertyDocumentViewSet(viewsets.ModelViewSet):
@@ -481,6 +593,19 @@ class RequestViewSet(viewsets.ModelViewSet):
                 {'detail': 'Заявка уже взята другим сотрудником.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Лимит «один сотрудник — максимум 2 активные заявки».
+        # Администраторы и менеджеры могут перераспределять нагрузку,
+        # поэтому их не ограничиваем.
+        if not request.user.is_admin_or_manager:
+            try:
+                business_rules.assert_can_take_request(
+                    request.user, exclude_pk=req.pk,
+                )
+            except WorkloadLimitExceeded as exc:
+                return Response(
+                    {'detail': exc.detail, 'code': exc.code},
+                    status=status.HTTP_409_CONFLICT,
+                )
         req.agent = request.user
         processing = models.RequestStatus.objects.filter(
             code='processing').first()
@@ -629,6 +754,16 @@ class TaskViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        # При создании задачи проверяем лимит активных задач у исполнителя.
+        # Менеджер может «перегрузить» сотрудника только через отдельную
+        # проверку is_admin_or_manager ниже — обычные сотрудники себя
+        # лимитируют.
+        assignee = serializer.validated_data.get('assignee')
+        if assignee and not self.request.user.is_admin_or_manager:
+            try:
+                business_rules.assert_can_assign_task(assignee)
+            except WorkloadLimitExceeded as exc:
+                raise ValidationError({'assignee': [exc.detail]})
         serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['post'], url_path='change_status')
@@ -639,12 +774,82 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not status_id:
             return Response({'detail': 'Не указан статус.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        task.status_id = status_id
-        # Если статус «выполнено» — проставим время завершения
         new_status = models.TaskStatus.objects.filter(pk=status_id).first()
-        if new_status and new_status.code == 'done':
+        if not new_status:
+            return Response({'detail': 'Неизвестный статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # При переводе в ``in_progress`` — гарантируем,
+        # что у исполнителя нет другой задачи в работе.
+        if (new_status.code == 'in_progress'
+                and task.assignee_id
+                and not request.user.is_admin_or_manager):
+            try:
+                business_rules.assert_can_start_task(task.assignee, task)
+            except WorkloadLimitExceeded as exc:
+                return Response(
+                    {'detail': exc.detail, 'code': exc.code},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        task.status = new_status
+        # Если статус «выполнено» — проставим время завершения
+        if new_status.code == 'done':
             task.completed_at = timezone.now()
         task.save()
+        return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """
+        Перевести задачу в «В работе». Сотрудник может держать только
+        одну активную задачу одновременно — соответствующий лимит
+        проверяется бизнес-слоем.
+        """
+        task = self.get_object()
+        if task.assignee_id != request.user.id \
+                and not request.user.is_admin_or_manager:
+            return Response(
+                {'detail': 'Нельзя стартовать чужую задачу.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        in_progress = business_rules.status_by_code(
+            models.TaskStatus, 'in_progress',
+        )
+        if not in_progress:
+            return Response(
+                {'detail': 'Справочник статусов не заполнен.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        try:
+            business_rules.assert_can_start_task(task.assignee, task)
+        except WorkloadLimitExceeded as exc:
+            return Response(
+                {'detail': exc.detail, 'code': exc.code},
+                status=status.HTTP_409_CONFLICT,
+            )
+        task.status = in_progress
+        task.save(update_fields=['status', 'updated_at'])
+        return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'])
+    def pause(self, request, pk=None):
+        """Поставить текущую задачу на паузу — перевод в «Ожидание»."""
+        task = self.get_object()
+        if task.assignee_id != request.user.id \
+                and not request.user.is_admin_or_manager:
+            return Response(
+                {'detail': 'Нельзя приостанавливать чужую задачу.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        waiting = business_rules.status_by_code(
+            models.TaskStatus, 'waiting',
+        )
+        if not waiting:
+            return Response(
+                {'detail': 'Справочник статусов не заполнен.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        task.status = waiting
+        task.save(update_fields=['status', 'updated_at'])
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -656,6 +861,26 @@ class TaskViewSet(viewsets.ModelViewSet):
             task.status = done
         task.completed_at = timezone.now()
         task.save()
+        return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """
+        Текущая активная задача сотрудника (статус ``in_progress``).
+
+        Возвращает либо одну задачу, либо ``null`` — чтобы виджет в TopBar
+        мог отрендерить «у вас нет задачи в работе».
+        """
+        if not request.user.is_employee:
+            return Response(None)
+        task = models.Task.objects.select_related(
+            'status', 'request', 'client', 'property',
+        ).filter(
+            assignee=request.user,
+            status__code='in_progress',
+        ).order_by('-updated_at').first()
+        if task is None:
+            return Response(None)
         return Response(serializers.TaskSerializer(task).data)
 
 
