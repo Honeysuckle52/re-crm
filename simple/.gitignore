@@ -17,14 +17,59 @@ __pycache__/
 .venv/
 venv/
 db.sqlite3
-staticfiles/
-media/
+*.log
+local_settings.py
+
+# Virtualenv / env files
+.env
+.env.*
 
 # Node / Vite
 node_modules/
 frontend/dist/
+frontend/.vite/
+
+# Vite build artifacts (optional)
+# frontend/dist/   # already included above
+
+# Static collected files
+staticfiles/
+
+# Media uploads
+media/
 
 # IDE
 .idea/
 .vscode/
 .DS_Store
+
+# OS
+Thumbs.db
+
+# Node logs and lockfiles
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.pnpm-debug.log
+
+# Secrets and keys
+*.pem
+*.key
+
+# Editors
+*.sublime-project
+*.sublime-workspace
+
+# Python bytecode and caches
+*.py[cod]
+__pycache__/
+
+# Misc
+*.pyo
+*.pyd
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Ignore build artifacts and temporary files
+*.egg-info/

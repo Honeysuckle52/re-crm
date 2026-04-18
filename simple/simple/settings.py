@@ -105,8 +105,13 @@ USE_TZ = True
 
 # --- Static & Media ---------------------------------------------------------
 
+VITE_ASSETS_DIR = BASE_DIR / "frontend" / "dist" / ".vite"
+
 STATIC_URL = '/static/'
-STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'dist']
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+    BASE_DIR / 'frontend' / 'dist',
+]
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
@@ -164,10 +169,10 @@ CORS_ALLOW_CREDENTIALS = True
 DJANGO_VITE = {
     'default': {
         'dev_mode': os.getenv('DJANGO_VITE_DEV_MODE', 'True').lower() == 'true',
-        'dev_server_host': os.getenv('DJANGO_VITE_DEV_SERVER_HOST', 'localhost'),
+        'dev_server_host': os.getenv('DJANGO_VITE_DEV_SERVER_HOST', '127.0.0.1'),
         'dev_server_port': int(os.getenv('DJANGO_VITE_DEV_SERVER_PORT', '5173')),
         'manifest_path': BASE_DIR / 'frontend' / 'dist' / '.vite' / 'manifest.json',
-        'static_url_prefix': '',
+        'static_url_prefix': '/static/',
     }
 }
 

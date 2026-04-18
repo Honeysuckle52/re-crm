@@ -1,11 +1,12 @@
-{% load django_vite %}
-<!DOCTYPE html>
+{% load vite %}
+<!doctype html>
 <html lang="ru">
 <head>
-    {% vite_hmr_client %}
-    {% vite_asset 'src/main.js' %}
+  <meta charset="utf-8">
+  <title>re_crm</title>
+  {% vite_asset 'src/main.js' %}
 </head>
 <body>
-    <div id="app"></div>
+  <div id="app"></div>
 </body>
 </html>
