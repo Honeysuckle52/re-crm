@@ -36,6 +36,9 @@ const routes = [
     meta: { staff: true } },
   { path: '/account', name: 'account',
     component: () => import('./views/Account.vue') },
+  { path: '/admin', name: 'admin',
+    component: () => import('./views/Admin.vue'),
+    meta: { manager: true } },
 ]
 
 const router = createRouter({
@@ -48,6 +51,8 @@ router.beforeEach((to) => {
   if (!to.meta.guest && !auth.isAuthenticated) return { name: 'login' }
   if (to.meta.guest && auth.isAuthenticated) return { name: 'home' }
   if (to.meta.staff && !auth.isStaff) return { name: 'home' }
+  // Роуты с meta.manager = true доступны только администраторам/менеджерам.
+  if (to.meta.manager && !auth.isManager) return { name: 'home' }
 })
 
 export default router

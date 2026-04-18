@@ -1,9 +1,15 @@
 <template>
-  <section class="stack">
-    <!-- Вступительный блок -->
-    <div class="hero">
+  <!--
+    Дашборд занимает ровно одну высоту окна просмотра и не прокручивается.
+    Контент разложен вертикально через flex; раздел «Последние объекты»
+    вынесен на отдельную страницу /properties, чтобы здесь не появлялась
+    прокрутка из-за галереи.
+  -->
+  <section class="dashboard">
+    <!-- Hero -->
+    <div class="hero hero--compact">
       <div class="hero__eyebrow">УЧЁТНАЯ СИСТЕМА АГЕНТСТВА НЕДВИЖИМОСТИ</div>
-      <h1 class="hero__title">РИЭЛТ</h1>
+      <h1 class="hero__title hero__title--compact">РИЭЛТ</h1>
       <div class="hero__subtitle">УПРАВЛЕНИЕ ОБЪЕКТАМИ, ЗАЯВКАМИ И СДЕЛКАМИ</div>
       <div class="hero__actions">
         <router-link v-if="canEdit" to="/properties/new" class="btn btn--accent">
@@ -12,18 +18,21 @@
         <router-link to="/requests" class="btn btn--ghost">
           Заявки клиентов
         </router-link>
+        <router-link to="/properties" class="btn btn--ghost">
+          Каталог объектов
+        </router-link>
+        <router-link v-if="auth.isManager" to="/admin" class="btn btn--accent">
+          Админ-панель
+        </router-link>
       </div>
       <div class="hero__callout">
         <h3>Что это?</h3>
         <p>
           Единая учётная система агентства недвижимости: объекты, клиенты,
-          заявки, сделки и задачи сотрудников — в одном окне, с подсказками
-          адресов и журналом операций.
+          заявки, сделки и задачи сотрудников — в одном окне.
         </p>
       </div>
     </div>
-
-    <div class="scroll-hint">ПРОКРУТКА ▾</div>
 
     <!-- Статистика -->
     <div class="grid grid--stats">
@@ -38,49 +47,34 @@
     </div>
 
     <!-- Две колонки — быстрые действия -->
-    <div class="grid grid--2">
+    <div class="grid grid--2 dashboard__actions">
       <div class="panel">
         <span class="tag tag--panel">Быстрые действия</span>
-        <h2 class="h2" style="color: #fff; margin-top: 12px">
+        <h2 class="h2" style="color: #fff; margin-top: 10px">
           Подберите клиенту объект
         </h2>
-        <p style="color: rgba(255,255,255,.8); font-size: 14px">
+        <p style="color: rgba(255,255,255,.8); font-size: 13px; margin: 6px 0 0">
           Создайте заявку с параметрами поиска — менеджер закрепит её за
-          агентом и проведёт по воронке до сделки. История статусов
-          хранится автоматически.
+          агентом и проведёт по воронке до сделки.
         </p>
         <router-link to="/requests" class="btn btn--accent"
-                     style="margin-top: 8px">
+                     style="margin-top: 12px">
           Перейти к заявкам →
         </router-link>
       </div>
       <div class="panel panel--light">
         <span class="tag tag--accent">Подсказки адресов</span>
-        <h2 class="h2" style="margin-top: 12px">Адресы из реестра DaData</h2>
-        <p class="muted">
+        <h2 class="h2" style="margin-top: 10px">Адресы из реестра DaData</h2>
+        <p class="muted" style="margin: 6px 0 0">
           Адреса хранятся иерархически: город → улица → дом → адрес.
-          При создании объекта работает автодополнение по открытому сервису
-          подсказок, индекс и координаты подставляются автоматически.
+          Индекс и координаты подставляются автоматически.
         </p>
-        <router-link v-if="canEdit" to="/properties/new" class="btn btn--primary">
+        <router-link v-if="canEdit" to="/properties/new" class="btn btn--primary"
+                     style="margin-top: 12px">
           Создать объект →
         </router-link>
       </div>
     </div>
-
-    <!-- Последние объекты -->
-    <section class="panel panel--light">
-      <div class="row row--between" style="margin-bottom: 12px">
-        <h2 class="h2">Последние объекты</h2>
-        <router-link to="/properties" class="btn btn--sm">Все →</router-link>
-      </div>
-      <div v-if="lastProperties.length" class="grid grid--3">
-        <PropertyCard v-for="p in lastProperties" :key="p.id" :property="p" />
-      </div>
-      <div v-else class="empty">
-        Объектов пока нет. Создайте первый, чтобы начать работу.
-      </div>
-    </section>
   </section>
 </template>
 
@@ -88,26 +82,57 @@
 import { computed, onMounted, ref } from 'vue'
 import api from '../api'
 import StatCard from '../components/StatCard.vue'
-import PropertyCard from '../components/PropertyCard.vue'
 import { useAuthStore } from '../store/auth'
 
 const auth = useAuthStore()
 const stats = ref({})
-const lastProperties = ref([])
 
 const canEdit = computed(() => auth.user?.user_type === 'employee')
 
 onMounted(async () => {
-  const [s, p] = await Promise.all([
-    api.get('/dashboard/stats/'),
-    api.get('/properties/', { params: { page: 1 } }),
-  ])
-  stats.value = s.data
-  lastProperties.value = (p.data.results || p.data || []).slice(0, 6)
+  const { data } = await api.get('/dashboard/stats/')
+  stats.value = data
 })
 
-function formatMoney(v) {
+function formatMoney (v) {
   if (!v) return '0'
   return new Intl.NumberFormat('ru-RU').format(v)
 }
 </script>
+
+<style scoped>
+/*
+  Дашборд должен укладываться в одну «экранную» высоту без прокрутки.
+  Высота TopBar (~72px с отступами) и фиксированного Footer (~90px) уже
+  учтены в глобальных паддингах .layout — здесь резервируем 220px под
+  эти элементы и работаем с оставшимся пространством.
+*/
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100dvh - 220px);
+}
+
+/* Компактный hero — меньше внутренних отступов и шрифт помельче, */
+/* чтобы оставить место для статистики и action-панелей. */
+.hero--compact { padding: 18px 24px; }
+.hero--compact .hero__title--compact {
+  font-size: clamp(36px, 5vw, 56px);
+  margin: 10px 0 0;
+}
+.hero--compact .hero__subtitle { margin-top: 4px; }
+.hero--compact .hero__actions { margin-top: 14px; }
+
+/* Action-панели делим остаток высоты пополам по горизонтали. */
+.dashboard__actions { flex: 0 0 auto; }
+.dashboard__actions .panel {
+  padding: 18px 22px;
+}
+
+/* На узких экранах снимаем жёсткую фиксацию высоты — естественная
+   прокрутка безопаснее, чем обрезанный контент. */
+@media (max-width: 1024px) {
+  .dashboard { min-height: auto; }
+}
+</style>

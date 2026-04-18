@@ -10,14 +10,6 @@
           </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <div class="row" style="gap: 0; background: rgba(255,255,255,.1); border-radius: var(--r-pill); padding: 4px">
-            <button class="btn btn--sm"
-                    :class="viewMode === 'table' ? 'btn--accent' : 'btn--ghost'"
-                    @click="viewMode = 'table'">Таблица</button>
-            <button class="btn btn--sm"
-                    :class="viewMode === 'kanban' ? 'btn--accent' : 'btn--ghost'"
-                    @click="viewMode = 'kanban'">Канбан</button>
-          </div>
           <button class="btn btn--accent" @click="toggleForm">
             {{ showForm ? 'Скрыть форму' : '+ Новая задача' }}
           </button>
@@ -25,7 +17,7 @@
       </div>
     </div>
 
-    <!-- Форма -->
+    <!-- Форма создания -->
     <form v-if="showForm" class="panel panel--light stack" @submit.prevent="create">
       <div class="grid grid--3">
         <div class="field">
@@ -90,8 +82,8 @@
       </div>
     </form>
 
-    <!-- Фильтр по статусам (только для табличного вида) -->
-    <div v-if="viewMode === 'table'" class="panel panel--light">
+    <!-- Фильтр по статусам -->
+    <div class="panel panel--light">
       <div class="row" style="gap: 8px; flex-wrap: wrap">
         <button class="btn btn--sm"
                 :class="{ 'btn--primary': statusFilter === '' }"
@@ -107,8 +99,8 @@
       </div>
     </div>
 
-    <!-- Таблица -->
-    <div v-if="viewMode === 'table'" class="panel panel--light">
+    <!-- Таблица задач -->
+    <div class="panel panel--light">
       <table class="table">
         <thead>
           <tr>
@@ -163,49 +155,6 @@
       </table>
       <div v-if="!filtered.length" class="empty">Задач нет.</div>
     </div>
-
-    <!-- Канбан -->
-    <div v-else class="kanban">
-      <div v-for="s in kanbanColumns" :key="s.id" class="kanban__col">
-        <div class="kanban__head">
-          <h3 class="h3">{{ s.name }}</h3>
-          <span class="tag">{{ groupedTasks[s.id]?.length || 0 }}</span>
-        </div>
-        <div class="kanban__list">
-          <article v-for="t in groupedTasks[s.id] || []" :key="t.id"
-                   class="kanban__card"
-                   :class="{ 'kanban__card--overdue': t.is_overdue }">
-            <div class="row row--between" style="gap: 8px">
-              <b>{{ t.title }}</b>
-              <span class="tag" :class="priorityClass(t.priority)">
-                {{ priorityLabel(t.priority) }}
-              </span>
-            </div>
-            <div v-if="t.description" class="muted" style="font-size: 13px">
-              {{ truncate(t.description, 120) }}
-            </div>
-            <div class="kanban__meta">
-              <span>{{ t.assignee_username }}</span>
-              <span v-if="t.due_date">· до {{ formatDate(t.due_date) }}</span>
-            </div>
-            <router-link v-if="t.request" :to="`/requests/${t.request}`"
-                         class="link" style="font-size: 13px">
-              → Заявка №{{ t.request }}
-            </router-link>
-            <select class="select select--sm"
-                    :value="t.status"
-                    @change="changeStatus(t, $event.target.value)">
-              <option v-for="st in statuses" :key="st.id" :value="st.id">
-                {{ st.name }}
-              </option>
-            </select>
-          </article>
-          <div v-if="!(groupedTasks[s.id] || []).length" class="kanban__empty">
-            Нет задач
-          </div>
-        </div>
-      </div>
-    </div>
   </section>
 </template>
 
@@ -222,7 +171,6 @@ const properties = ref([])
 
 const statusFilter = ref('')
 const showForm = ref(false)
-const viewMode = ref('table')  // 'table' | 'kanban'
 
 const form = reactive(defaultForm())
 
@@ -237,25 +185,6 @@ function defaultForm () {
 const filtered = computed(() => {
   if (!statusFilter.value) return tasks.value
   return tasks.value.filter((t) => t.status === statusFilter.value)
-})
-
-// В канбане скрываем «Отменена», если нет задач — слишком много колонок.
-const kanbanColumns = computed(() => {
-  return statuses.value.filter(s => {
-    if (s.code === 'cancelled') {
-      return tasks.value.some(t => t.status === s.id)
-    }
-    return true
-  })
-})
-
-const groupedTasks = computed(() => {
-  const groups = {}
-  for (const s of statuses.value) groups[s.id] = []
-  for (const t of tasks.value) {
-    if (groups[t.status]) groups[t.status].push(t)
-  }
-  return groups
 })
 
 function countBy (id) {
@@ -275,10 +204,6 @@ function formatDate (s) {
   return new Date(s).toLocaleString('ru-RU', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   })
-}
-
-function truncate (s, n) {
-  return s && s.length > n ? s.slice(0, n - 1) + '…' : s
 }
 
 function toggleForm () {
@@ -330,37 +255,4 @@ onMounted(load)
 .link:hover { text-decoration: underline; }
 .overdue { background: #fee; color: #c2554a; margin-left: 6px; }
 .select--sm { padding: 6px 10px; font-size: 13px; }
-
-/* Канбан */
-.kanban {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
-}
-.kanban__col {
-  background: var(--c-paper); border-radius: var(--r-md);
-  padding: 14px; display: flex; flex-direction: column; gap: 10px;
-  min-height: 120px; box-shadow: var(--shadow-1);
-}
-.kanban__head {
-  display: flex; justify-content: space-between; align-items: center;
-}
-.kanban__list {
-  display: flex; flex-direction: column; gap: 8px;
-}
-.kanban__card {
-  background: var(--c-paper-2); border-radius: var(--r-sm);
-  padding: 12px; display: flex; flex-direction: column; gap: 6px;
-  border-left: 3px solid transparent;
-}
-.kanban__card--overdue {
-  border-left-color: var(--c-danger);
-  background: #fdf1ef;
-}
-.kanban__meta {
-  font-size: 12px; color: var(--c-ink-soft);
-}
-.kanban__empty {
-  color: var(--c-muted); font-size: 13px; text-align: center; padding: 10px;
-}
 </style>

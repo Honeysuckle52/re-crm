@@ -52,7 +52,9 @@ input, select, textarea { font: inherit; }
 /* ---- Шапка ---- */
 .topbar {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px; margin: 16px;
+  padding: 14px 16px; margin: 0;
+  position: sticky; top: 0; z-index: 50;
+  background: var(--c-bg);
 }
 .topbar__nav {
   flex: 1; display: flex; gap: 8px;
@@ -238,10 +240,3 @@ input, select, textarea { font: inherit; }
 .error { color: var(--c-danger); font-size: 13px; }
 .h2 { font-size: 22px; font-weight: 700; margin: 0; }
 .h3 { font-size: 16px; font-weight: 600; margin: 0; }
-.scroll-hint {
-  display: grid; place-items: center; width: 72px; height: 48px;
-  margin: -24px auto 0;
-  background: var(--c-panel); color: #fff;
-  border-radius: 0 0 var(--r-md) var(--r-md);
-  font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
-}
