@@ -94,10 +94,17 @@ class TaskStatusViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
-class UserRoleViewSet(viewsets.ReadOnlyModelViewSet):
+class UserRoleViewSet(viewsets.ModelViewSet):
+    """
+    Справочник должностей сотрудников.
+
+    Чтение доступно любому авторизованному пользователю (нужен для
+    выпадающих списков). Создание, редактирование и удаление — только
+    администратору и менеджеру через админ-панель.
+    """
     queryset = models.UserRole.objects.all()
     serializer_class = serializers.UserRoleSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
 # ====== Адресная иерархия ==================================================
