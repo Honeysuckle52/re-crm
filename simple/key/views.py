@@ -1,21 +1,28 @@
 """
-REST-представления приложения `key`.
+REST-представления приложения ``key``.
 
 Архитектура: ViewSet-ы для CRUD + отдельные APIView для аутентификации
-и интеграции с ФИАС.
+и интеграции с DaData (подсказки адресов).
 """
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Sum
+from django.db.models import Count, Sum, Q
 from django.utils import timezone
-from rest_framework import status, viewsets, permissions, filters
+from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from . import models, serializers
-from .fias import FIASClient
+from .dadata import DadataClient
+from .permissions import (
+    IsAdminOrManager,
+    IsEmployee,
+    IsEmployeeOrReadOnly,
+    IsAdminOrManagerOrReadOnly,
+)
 
 User = get_user_model()
 
@@ -23,7 +30,14 @@ User = get_user_model()
 # ====== Аутентификация =====================================================
 
 class RegisterView(APIView):
-    """Регистрация нового пользователя (сотрудника или клиента)."""
+    """
+    Регистрация нового пользователя.
+
+    Принимаются только ``username``, ``email``, ``phone`` и ``password``.
+    Тип пользователя всегда ``client``, должность не назначается —
+    это делает администратор или менеджер агентства через отдельный
+    эндпоинт ``/users/{id}/assign_role/``.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -35,7 +49,7 @@ class RegisterView(APIView):
 
 
 class LoginView(TokenObtainPairView):
-    """Получение JWT пары access/refresh."""
+    """Получение пары токенов ``access`` / ``refresh``."""
     permission_classes = [AllowAny]
 
 
@@ -47,36 +61,50 @@ class MeView(APIView):
         return Response(serializers.UserSerializer(request.user).data)
 
 
-# ====== Справочники (только чтение, публичные) ============================
+# ====== Справочники =========================================================
 
 class OperationTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.OperationType.objects.all()
     serializer_class = serializers.OperationTypeSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
 
 class PropertyStatusViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.PropertyStatus.objects.all()
     serializer_class = serializers.PropertyStatusSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
 
 class RequestStatusViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.RequestStatus.objects.all()
     serializer_class = serializers.RequestStatusSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+
+
+class DealStatusViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = models.DealStatus.objects.all()
+    serializer_class = serializers.DealStatusSerializer
+    permission_classes = [IsAuthenticated]
+
+
+class TaskStatusViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = models.TaskStatus.objects.all()
+    serializer_class = serializers.TaskStatusSerializer
+    permission_classes = [IsAuthenticated]
 
 
 class UserRoleViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.UserRole.objects.all()
     serializer_class = serializers.UserRoleSerializer
+    permission_classes = [IsAuthenticated]
 
 
-# ====== Адресная иерархия =================================================
+# ====== Адресная иерархия ==================================================
 
 class CityViewSet(viewsets.ModelViewSet):
     queryset = models.City.objects.all()
     serializer_class = serializers.CitySerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
     filter_backends = [filters.SearchFilter]
     search_fields = ['name', 'region']
 
@@ -84,6 +112,7 @@ class CityViewSet(viewsets.ModelViewSet):
 class StreetViewSet(viewsets.ModelViewSet):
     queryset = models.Street.objects.select_related('city').all()
     serializer_class = serializers.StreetSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
     filter_backends = [filters.SearchFilter]
     search_fields = ['name']
 
@@ -98,6 +127,7 @@ class StreetViewSet(viewsets.ModelViewSet):
 class HouseViewSet(viewsets.ModelViewSet):
     queryset = models.House.objects.select_related('street').all()
     serializer_class = serializers.HouseSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -111,36 +141,53 @@ class AddressViewSet(viewsets.ModelViewSet):
     queryset = models.Address.objects.select_related(
         'house__street__city').all()
     serializer_class = serializers.AddressSerializer
+    permission_classes = [IsEmployeeOrReadOnly]
 
 
-# ====== ФИАС-прокси =======================================================
+# ====== Подсказки адресов (прокси к DaData) ================================
 
-class FIASSearchView(APIView):
+class DadataSuggestAddressView(APIView):
     """
-    Прокси-эндпоинт для поиска адресов через ФИАС-сервис ФНС.
+    Прокси-эндпоинт подсказок адресов DaData.
 
-    Токен ФИАС хранится на сервере и передаётся в заголовке ``master-token``.
+    Ключ к DaData хранится только в настройках сервера и никогда не
+    передаётся в браузер. Принимает ``GET ?q=...`` и возвращает массив
+    нормализованных подсказок.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         query = request.query_params.get('q', '').strip()
-        if not query or len(query) < 3:
+        if not query or len(query) < 2:
             return Response({'results': []})
         try:
-            client = FIASClient()
-            results = client.search_address(query, limit=15)
+            count = int(request.query_params.get('count', 10))
+        except ValueError:
+            count = 10
+        try:
+            client = DadataClient()
+            results = client.suggest_address(query, count=count)
         except Exception as exc:  # pragma: no cover
-            return Response({'error': str(exc)},
-                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(
+                {'detail': 'Сервис подсказок адресов временно недоступен.',
+                 'error': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response({'results': results})
 
 
 # ====== Пользователи и профили ============================================
 
 class UserViewSet(viewsets.ModelViewSet):
+    """
+    Управление пользователями.
+
+    Просмотр списка доступен сотрудникам. Назначение роли/типа —
+    только администратору и менеджеру.
+    """
     queryset = User.objects.select_related('role').all()
     serializer_class = serializers.UserSerializer
+    permission_classes = [IsEmployee]
     filter_backends = [filters.SearchFilter]
     search_fields = ['username', 'email', 'phone']
 
@@ -149,17 +196,57 @@ class UserViewSet(viewsets.ModelViewSet):
         user_type = self.request.query_params.get('user_type')
         if user_type:
             qs = qs.filter(user_type=user_type)
+        role_code = self.request.query_params.get('role')
+        if role_code:
+            qs = qs.filter(role__code=role_code)
         return qs
+
+    def get_permissions(self):
+        if self.action in {'create', 'update', 'partial_update',
+                           'destroy', 'assign_role'}:
+            return [IsAdminOrManager()]
+        return super().get_permissions()
+
+    @action(detail=True, methods=['post'], url_path='assign_role')
+    def assign_role(self, request, pk=None):
+        """
+        Назначить пользователю тип учётной записи и должность.
+
+        Доступно только администратору или менеджеру. Принимает
+        поля ``user_type``, ``role_id`` и/или ``is_active``.
+        """
+        target = self.get_object()
+        serializer = serializers.UserRoleAssignSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        if 'user_type' in data:
+            target.user_type = data['user_type']
+        if 'role' in data:
+            target.role = data['role']
+        if 'is_active' in data:
+            target.is_active = data['is_active']
+        target.save()
+        return Response(serializers.UserSerializer(target).data)
 
 
 class EmployeeProfileViewSet(viewsets.ModelViewSet):
     queryset = models.EmployeeProfile.objects.select_related('user').all()
     serializer_class = serializers.EmployeeProfileSerializer
+    permission_classes = [IsEmployee]
 
 
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = models.ClientProfile.objects.select_related('user').all()
     serializer_class = serializers.ClientProfileSerializer
+    permission_classes = [IsEmployeeOrReadOnly]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(user=user)
+        return qs
 
 
 # ====== Объекты недвижимости ==============================================
@@ -169,6 +256,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         'operation_type', 'status', 'address__house__street__city'
     ).prefetch_related('photos', 'feature_values__feature').all()
     serializer_class = serializers.PropertySerializer
+    permission_classes = [IsEmployeeOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description']
     ordering_fields = ['price', 'created_at', 'area_total']
@@ -177,18 +265,12 @@ class PropertyViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         params = self.request.query_params
 
-        operation = params.get('operation_type')
-        if operation:
-            qs = qs.filter(operation_type_id=operation)
-
-        status_id = params.get('status')
-        if status_id:
-            qs = qs.filter(status_id=status_id)
-
-        rooms = params.get('rooms')
-        if rooms:
-            qs = qs.filter(rooms_count=rooms)
-
+        if params.get('operation_type'):
+            qs = qs.filter(operation_type_id=params['operation_type'])
+        if params.get('status'):
+            qs = qs.filter(status_id=params['status'])
+        if params.get('rooms'):
+            qs = qs.filter(rooms_count=params['rooms'])
         if params.get('min_price'):
             qs = qs.filter(price__gte=params['min_price'])
         if params.get('max_price'):
@@ -196,13 +278,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
         """Смена статуса объекта с записью в историю."""
         property_obj = self.get_object()
         new_status_id = request.data.get('status_id')
         if not new_status_id:
-            return Response({'detail': 'status_id обязателен'},
+            return Response({'detail': 'Не указан статус.'},
                             status=status.HTTP_400_BAD_REQUEST)
         property_obj.status_id = new_status_id
         property_obj.save()
@@ -211,31 +293,75 @@ class PropertyViewSet(viewsets.ModelViewSet):
             status_id=new_status_id,
             changed_by=request.user,
         )
-        return Response(serializers.PropertySerializer(property_obj).data)
+        return Response(serializers.PropertySerializer(
+            property_obj, context={'request': request}).data)
 
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None):
         """История смен статусов объекта."""
         property_obj = self.get_object()
-        qs = property_obj.status_history.all()
+        qs = property_obj.status_history.select_related('status', 'changed_by')
         return Response(
             serializers.PropertyStatusHistorySerializer(qs, many=True).data
+        )
+
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='upload_photo',
+        parser_classes=[MultiPartParser, FormParser, JSONParser],
+        permission_classes=[IsEmployee],
+    )
+    def upload_photo(self, request, pk=None):
+        """
+        Загрузить фото объекта.
+
+        Принимает либо файл в поле ``image`` (multipart/form-data),
+        либо внешний URL в поле ``url`` (application/json).
+        """
+        property_obj = self.get_object()
+        image = request.FILES.get('image')
+        url = request.data.get('url')
+        if not image and not url:
+            return Response(
+                {'detail': 'Нужно передать файл image или ссылку url.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        photo = models.PropertyPhoto.objects.create(
+            property=property_obj,
+            image=image if image else None,
+            url=url if not image else '',
+            order=property_obj.photos.count(),
+        )
+        return Response(
+            serializers.PropertyPhotoSerializer(
+                photo, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
         )
 
 
 class PropertyFeatureViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyFeature.objects.all()
     serializer_class = serializers.PropertyFeatureSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
 class PropertyPhotoViewSet(viewsets.ModelViewSet):
+    """
+    Фото объекта. Поддерживает два формата загрузки:
+      * multipart/form-data с полем ``image`` — файл;
+      * application/json с полем ``url`` — внешняя ссылка.
+    """
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
+    permission_classes = [IsEmployee]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
 
 class PropertyDocumentViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyDocument.objects.select_related('verified_by').all()
     serializer_class = serializers.PropertyDocumentSerializer
+    permission_classes = [IsEmployee]
 
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
@@ -248,21 +374,24 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
         return Response(serializers.PropertyDocumentSerializer(doc).data)
 
 
-# ====== Заявки, сделки, просмотры =========================================
+# ====== Заявки, сделки, просмотры, задачи =================================
 
 class RequestViewSet(viewsets.ModelViewSet):
     queryset = models.Request.objects.select_related(
         'client', 'agent', 'operation_type', 'status'
     ).all()
     serializer_class = serializers.RequestSerializer
+    permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['created_at', 'updated_at']
 
     def get_queryset(self):
         qs = super().get_queryset()
-        status_id = self.request.query_params.get('status')
-        if status_id:
-            qs = qs.filter(status_id=status_id)
+        user = self.request.user
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(client=user)
+        if self.request.query_params.get('status'):
+            qs = qs.filter(status_id=self.request.query_params['status'])
         return qs
 
     @action(detail=True, methods=['post'])
@@ -278,9 +407,29 @@ class RequestViewSet(viewsets.ModelViewSet):
 
 class DealViewSet(viewsets.ModelViewSet):
     queryset = models.Deal.objects.select_related(
-        'property', 'agent', 'client', 'operation_type'
+        'property', 'agent', 'client', 'operation_type', 'status'
     ).all()
     serializer_class = serializers.DealSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(client=user)
+        return qs
+
+    @action(detail=True, methods=['post'], url_path='change_status')
+    def change_status(self, request, pk=None):
+        """Смена статуса сделки (воронка продаж)."""
+        deal = self.get_object()
+        status_id = request.data.get('status_id')
+        if not status_id:
+            return Response({'detail': 'Не указан статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        deal.status_id = status_id
+        deal.save()
+        return Response(serializers.DealSerializer(deal).data)
 
 
 class PropertyViewingViewSet(viewsets.ModelViewSet):
@@ -288,15 +437,83 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
         'property', 'client', 'agent'
     ).all()
     serializer_class = serializers.PropertyViewingSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(client=user)
+        return qs
 
 
-# ====== Статистика для дашборда ==========================================
+class TaskViewSet(viewsets.ModelViewSet):
+    """
+    Задачи сотрудников агентства.
+
+    Сотрудник видит свои задачи и задачи, где он исполнитель.
+    Администратор/менеджер — все. Клиенты доступа не имеют.
+    """
+    queryset = models.Task.objects.select_related(
+        'status', 'assignee', 'created_by', 'client', 'property',
+        'request', 'deal',
+    ).all()
+    serializer_class = serializers.TaskSerializer
+    permission_classes = [IsEmployee]
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    ordering_fields = ['due_date', 'created_at', 'priority']
+    search_fields = ['title', 'description']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and not user.is_admin_or_manager:
+            qs = qs.filter(Q(assignee=user) | Q(created_by=user))
+        if self.request.query_params.get('status'):
+            qs = qs.filter(status_id=self.request.query_params['status'])
+        if self.request.query_params.get('assignee'):
+            qs = qs.filter(assignee_id=self.request.query_params['assignee'])
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='change_status')
+    def change_status(self, request, pk=None):
+        """Смена статуса задачи."""
+        task = self.get_object()
+        status_id = request.data.get('status_id')
+        if not status_id:
+            return Response({'detail': 'Не указан статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        task.status_id = status_id
+        # Если статус «выполнено» — проставим время завершения
+        new_status = models.TaskStatus.objects.filter(pk=status_id).first()
+        if new_status and new_status.code == 'done':
+            task.completed_at = timezone.now()
+        task.save()
+        return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        """Быстрая отметка задачи как выполненной."""
+        task = self.get_object()
+        done = models.TaskStatus.objects.filter(code='done').first()
+        if done:
+            task.status = done
+        task.completed_at = timezone.now()
+        task.save()
+        return Response(serializers.TaskSerializer(task).data)
+
+
+# ====== Сводка для главного экрана ========================================
 
 class DashboardStatsView(APIView):
-    """Сводная статистика для главного экрана."""
+    """Агрегированные показатели учётной системы."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        user = request.user
         data = {
             'properties_total': models.Property.objects.count(),
             'properties_active': models.Property.objects.filter(
@@ -315,4 +532,11 @@ class DashboardStatsView(APIView):
                 .annotate(total=Count('id'))
             ),
         }
+        if user.is_authenticated and user.is_employee:
+            open_tasks = models.Task.objects.exclude(
+                status__code__in=['done', 'cancelled']
+            )
+            if not user.is_admin_or_manager:
+                open_tasks = open_tasks.filter(assignee=user)
+            data['tasks_open'] = open_tasks.count()
         return Response(data)

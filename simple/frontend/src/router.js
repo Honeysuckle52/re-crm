@@ -13,18 +13,25 @@ const routes = [
   { path: '/properties', name: 'properties',
     component: () => import('./views/Properties.vue') },
   { path: '/properties/new', name: 'property-new',
-    component: () => import('./views/PropertyForm.vue') },
+    component: () => import('./views/PropertyForm.vue'),
+    meta: { staff: true } },
   { path: '/properties/:id', name: 'property-detail',
     component: () => import('./views/PropertyDetail.vue') },
   { path: '/properties/:id/edit', name: 'property-edit',
-    component: () => import('./views/PropertyForm.vue') },
+    component: () => import('./views/PropertyForm.vue'),
+    meta: { staff: true } },
 
   { path: '/requests', name: 'requests',
     component: () => import('./views/Requests.vue') },
+  { path: '/tasks', name: 'tasks',
+    component: () => import('./views/Tasks.vue'),
+    meta: { staff: true } },
   { path: '/clients', name: 'clients',
-    component: () => import('./views/Clients.vue') },
+    component: () => import('./views/Clients.vue'),
+    meta: { staff: true } },
   { path: '/deals', name: 'deals',
-    component: () => import('./views/Deals.vue') },
+    component: () => import('./views/Deals.vue'),
+    meta: { staff: true } },
   { path: '/account', name: 'account',
     component: () => import('./views/Account.vue') },
 ]
@@ -38,6 +45,7 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
   if (!to.meta.guest && !auth.isAuthenticated) return { name: 'login' }
   if (to.meta.guest && auth.isAuthenticated) return { name: 'home' }
+  if (to.meta.staff && !auth.isStaff) return { name: 'home' }
 })
 
 export default router

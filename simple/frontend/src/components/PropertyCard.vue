@@ -1,7 +1,7 @@
 <template>
   <router-link :to="`/properties/${property.id}`" class="card card--link">
     <div class="card__thumb">
-      <img v-if="property.photos?.[0]?.url" :src="property.photos[0].url"
+      <img v-if="property.photos?.[0]?.image_url" :src="property.photos[0].image_url"
            :alt="property.title || 'Объект'" />
       <div v-else class="card__thumb-fallback" aria-hidden="true">
         <svg width="42" height="42" viewBox="0 0 24 24" fill="none"

@@ -1,11 +1,12 @@
 <template>
   <header class="topbar">
     <nav class="topbar__nav">
-      <router-link to="/">Главная</router-link>
+      <router-link to="/">Сводка</router-link>
       <router-link to="/properties">Объекты</router-link>
       <router-link to="/requests">Заявки</router-link>
-      <router-link to="/clients">Клиенты</router-link>
-      <router-link to="/deals">Сделки</router-link>
+      <router-link v-if="canSeeTasks" to="/tasks">Задачи</router-link>
+      <router-link v-if="canSeeDeals" to="/deals">Сделки</router-link>
+      <router-link v-if="canSeeClients" to="/clients">Пользователи</router-link>
       <router-link to="/account">Аккаунт</router-link>
     </nav>
     <div class="topbar__user">
@@ -27,6 +28,10 @@ import { useAuthStore } from '../store/auth'
 const auth = useAuthStore()
 const router = useRouter()
 const initial = computed(() => (auth.displayName?.[0] || '?').toUpperCase())
+
+const canSeeClients = computed(() => auth.isStaff)
+const canSeeDeals   = computed(() => auth.isStaff)
+const canSeeTasks   = computed(() => auth.isStaff)
 
 function logout() {
   auth.logout()

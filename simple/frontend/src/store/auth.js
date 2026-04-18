@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import api from '../api'
 
+// Служебные роли сотрудников
+const MANAGER_ROLES = ['администратор', 'менеджер']
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
@@ -10,7 +13,17 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (s) => !!s.access,
     displayName: (s) => s.user?.username || 'Гость',
-    roleLabel: (s) => s.user?.role_name || (s.user?.user_type === 'client' ? 'Клиент' : 'Сотрудник'),
+    roleLabel: (s) => s.user?.role_name
+      || (s.user?.user_type === 'client' ? 'Клиент' : 'Сотрудник'),
+    // Сотрудник (любой)
+    isStaff: (s) => s.user?.user_type === 'employee',
+    // Руководящая роль: администратор или менеджер
+    isManager: (s) => {
+      if (!s.user) return false
+      if (s.user.is_superuser) return true
+      const role = (s.user.role_name || '').toLowerCase()
+      return MANAGER_ROLES.some((r) => role.includes(r))
+    },
   },
   actions: {
     hydrate() {
