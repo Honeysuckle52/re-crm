@@ -1,9 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../api'
 
-// Служебные роли сотрудников
-const MANAGER_ROLES = ['администратор', 'менеджер']
-
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
@@ -13,17 +10,30 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (s) => !!s.access,
     displayName: (s) => s.user?.username || 'Гость',
-    roleLabel: (s) => s.user?.role_name
-      || (s.user?.user_type === 'client' ? 'Клиент' : 'Сотрудник'),
-    // Сотрудник (любой)
-    isStaff: (s) => s.user?.user_type === 'employee',
-    // Руководящая роль: администратор или менеджер
-    isManager: (s) => {
-      if (!s.user) return false
-      if (s.user.is_superuser) return true
-      const role = (s.user.role_name || '').toLowerCase()
-      return MANAGER_ROLES.some((r) => role.includes(r))
+    roleLabel: (s) => {
+      if (!s.user) return 'Гость'
+      if (s.user.is_superuser && !s.user.role_name) return 'Суперадминистратор'
+      return s.user.role_name
+        || (s.user.user_type === 'client' ? 'Клиент' : 'Сотрудник')
     },
+    // Суперпользователь Django — полный доступ ко всему, включая назначение
+    // других администраторов, независимо от role_code и user_type.
+    isSuperuser: (s) => !!s.user?.is_superuser,
+    // Сотрудник агентства. Суперюзер автоматически считается сотрудником —
+    // иначе его бы не пускало к /tasks, /clients, /deals.
+    isStaff: (s) =>
+      s.user?.user_type === 'employee' || !!s.user?.is_superuser,
+    // Администратор: либо is_superuser, либо role.code === 'admin'.
+    isAdmin: (s) =>
+      !!s.user?.is_superuser || s.user?.role_code === 'admin'
+      || !!s.user?.is_admin,
+    // Руководитель: администратор или менеджер. Используем серверный флаг
+    // is_manager (= is_admin_or_manager в модели), чтобы не копировать
+    // логику прав в клиент.
+    isManager: (s) =>
+      !!s.user?.is_superuser || !!s.user?.is_manager
+      || s.user?.role_code === 'admin'
+      || s.user?.role_code === 'manager',
   },
   actions: {
     hydrate() {

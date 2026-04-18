@@ -84,20 +84,31 @@ class AddressSerializer(serializers.ModelSerializer):
 # ---------- Пользователи и профили ----------------------------------------
 
 class UserSerializer(serializers.ModelSerializer):
-    """Полное представление пользователя."""
+    """Полное представление пользователя.
+
+    Дополнительно отдаём ``is_superuser``/``is_staff`` и вычисляемый
+    флаг ``is_admin`` — они нужны фронтенду, чтобы показывать админ-UI
+    суперюзеру даже без явно назначенной роли «admin» в справочнике.
+    """
     role_name = serializers.CharField(source='role.name', read_only=True)
     role_code = serializers.CharField(source='role.code', read_only=True)
     user_type_display = serializers.CharField(source='get_user_type_display',
                                               read_only=True)
+    is_admin = serializers.BooleanField(source='is_admin_role', read_only=True)
+    is_manager = serializers.BooleanField(source='is_admin_or_manager',
+                                          read_only=True)
 
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'phone',
                   'user_type', 'user_type_display',
                   'role', 'role_name', 'role_code',
-                  'is_active', 'is_email_verified',
-                  'is_phone_verified', 'created_at']
-        read_only_fields = ['id', 'created_at']
+                  'is_active', 'is_staff', 'is_superuser',
+                  'is_admin', 'is_manager',
+                  'is_email_verified', 'is_phone_verified',
+                  'created_at']
+        read_only_fields = ['id', 'created_at', 'is_staff', 'is_superuser',
+                            'is_admin', 'is_manager']
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -131,7 +142,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class UserRoleAssignSerializer(serializers.Serializer):
-    """Эндпоинт назначения типа и роли пользователя администратором."""
+    """Эндпоинт назначения типа и роли пользователя администратором.
+
+    Принимает ``role`` или ``role_id`` (алиас для фронтенда) —
+    оба поля указывают на запись в справочнике :class:`UserRole`.
+    """
     user_type = serializers.ChoiceField(
         choices=User.USER_TYPE_CHOICES, required=False,
     )
@@ -139,7 +154,17 @@ class UserRoleAssignSerializer(serializers.Serializer):
         queryset=models.UserRole.objects.all(),
         required=False, allow_null=True,
     )
+    role_id = serializers.PrimaryKeyRelatedField(
+        queryset=models.UserRole.objects.all(),
+        required=False, allow_null=True, write_only=True,
+    )
     is_active = serializers.BooleanField(required=False)
+
+    def validate(self, attrs):
+        # Единый ключ ``role`` вне зависимости от того, что прислал клиент.
+        if 'role_id' in attrs:
+            attrs['role'] = attrs.pop('role_id')
+        return attrs
 
 
 class EmployeeProfileSerializer(serializers.ModelSerializer):
@@ -374,7 +399,7 @@ class PropertySerializer(serializers.ModelSerializer):
         return instance
 
 
-# ---------- Заяв��и, сделки, просмотры, задачи -----------------------------
+# ---------- Заяв����и, сделки, просмотры, задачи -----------------------------
 
 class RequestPropertyMatchSerializer(serializers.ModelSerializer):
     """Вариант объекта, предложенный агентом по заявке."""
