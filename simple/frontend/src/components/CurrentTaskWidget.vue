@@ -1,72 +1,73 @@
 <template>
-  <aside v-if="auth.isStaff" class="current-task" :class="widgetClass">
-    <header class="current-task__head">
-      <div class="current-task__title">
-        <span class="current-task__dot" :class="dotClass"></span>
+  <aside v-if="auth.isStaff" class="ctw" :class="widgetClass">
+    <!-- Компактная «шапка» в один ряд: индикатор + название + счётчики + свернуть.
+         При collapsed показываем только шапку (FAB-подобный вид). -->
+    <button class="ctw__head" :aria-expanded="!collapsed"
+            @click="collapsed = !collapsed">
+      <span class="ctw__dot" :class="dotClass" aria-hidden="true"></span>
+      <span class="ctw__label">
         <b>Текущая задача</b>
-      </div>
-      <div class="current-task__meta">
-        <span class="current-task__pill" :title="`Задачи: активных ${wl.activeTasksLabel}`">
-          Задачи {{ wl.activeTasksLabel }}
-        </span>
-        <span class="current-task__pill" :title="`Заявки: в работе ${wl.activeRequestsLabel}`">
-          Заявки {{ wl.activeRequestsLabel }}
-        </span>
-        <button class="current-task__refresh"
-                :disabled="wl.loading"
-                title="Обновить"
-                @click="wl.refresh()">
-          <span aria-hidden="true">{{ wl.loading ? '…' : '↻' }}</span>
-        </button>
-      </div>
-    </header>
+        <span v-if="task" class="ctw__subtle">{{ task.title }}</span>
+        <span v-else class="ctw__subtle">не выбрана</span>
+      </span>
+      <span class="ctw__counters" :title="countersTitle">
+        <span class="ctw__pill">T {{ wl.activeTasksLabel }}</span>
+        <span class="ctw__pill">З {{ wl.activeRequestsLabel }}</span>
+      </span>
+      <span class="ctw__chevron" aria-hidden="true">
+        {{ collapsed ? '▲' : '▼' }}
+      </span>
+    </button>
 
-    <div v-if="task" class="current-task__body">
-      <div class="current-task__name">{{ task.title }}</div>
-      <div class="current-task__tags">
-        <span class="tag" :class="priorityClass(task.priority)">
-          {{ priorityLabel(task.priority) }}
-        </span>
-        <span class="tag tag--accent">{{ task.status_name }}</span>
-        <span v-if="task.is_overdue" class="tag tag--danger">просрочено</span>
-      </div>
-      <div v-if="task.client_username" class="current-task__row">
-        <span class="muted">Клиент:</span>
-        <b>{{ task.client_username }}</b>
-      </div>
-      <div v-if="task.property_title" class="current-task__row">
-        <span class="muted">Объект:</span>
-        <b>{{ task.property_title }}</b>
-      </div>
-      <div v-if="task.due_date" class="current-task__row">
-        <span class="muted">Срок:</span>
-        <b>{{ formatDate(task.due_date) }}</b>
-      </div>
-      <div class="current-task__actions">
-        <router-link v-if="task.request"
-                     :to="`/requests/${task.request}`"
-                     class="btn btn--sm">
-          К заявке №{{ task.request }}
+    <!-- Раскрывающееся тело. -->
+    <div v-if="!collapsed" class="ctw__body">
+      <template v-if="task">
+        <div class="ctw__tags">
+          <span class="ctw__tag" :class="priorityClass(task.priority)">
+            {{ priorityLabel(task.priority) }}
+          </span>
+          <span class="ctw__tag ctw__tag--accent">{{ task.status_name }}</span>
+          <span v-if="task.is_overdue" class="ctw__tag ctw__tag--danger">
+            просрочено
+          </span>
+        </div>
+
+        <dl class="ctw__meta">
+          <template v-if="task.client_username">
+            <dt>Клиент</dt><dd>{{ task.client_username }}</dd>
+          </template>
+          <template v-if="task.property_title">
+            <dt>Объект</dt><dd>{{ task.property_title }}</dd>
+          </template>
+          <template v-if="task.due_date">
+            <dt>Срок</dt><dd>{{ formatDate(task.due_date) }}</dd>
+          </template>
+        </dl>
+
+        <div class="ctw__actions">
+          <router-link v-if="task.request"
+                       :to="`/requests/${task.request}`"
+                       class="ctw__btn ctw__btn--primary">
+            Заявка №{{ task.request }}
+          </router-link>
+          <button class="ctw__btn" :disabled="busy" @click="pause">
+            Пауза
+          </button>
+          <button class="ctw__btn ctw__btn--accent" :disabled="busy"
+                  @click="complete">
+            Завершить
+          </button>
+        </div>
+      </template>
+
+      <div v-else class="ctw__empty">
+        <span>У вас нет задачи «В работе».</span>
+        <router-link to="/tasks" class="ctw__btn ctw__btn--primary">
+          Взять задачу
         </router-link>
-        <router-link to="/tasks" class="btn btn--sm btn--ghost">
-          Все задачи
-        </router-link>
-        <button class="btn btn--sm btn--ghost" :disabled="busy"
-                @click="pause">Пауза</button>
-        <button class="btn btn--sm btn--accent" :disabled="busy"
-                @click="complete">Завершить</button>
       </div>
-    </div>
 
-    <div v-else class="current-task__empty">
-      <div class="muted">У вас нет задачи «В работе».</div>
-      <router-link to="/tasks" class="btn btn--sm">
-        Взять задачу
-      </router-link>
-    </div>
-
-    <div v-if="limitMessage" class="current-task__warn">
-      {{ limitMessage }}
+      <div v-if="limitMessage" class="ctw__warn">{{ limitMessage }}</div>
     </div>
   </aside>
 </template>
@@ -80,6 +81,8 @@ import api from '../api'
 const auth = useAuthStore()
 const wl = useWorkloadStore()
 const busy = ref(false)
+// Пользователь может свернуть/развернуть карточку. По умолчанию — развёрнута.
+const collapsed = ref(false)
 
 const task = computed(() => wl.currentTask)
 
@@ -92,23 +95,24 @@ const dotClass = computed(() => {
 const widgetClass = computed(() => ({
   'is-overloaded': wl.isOverloaded,
   'is-empty': !task.value,
+  'is-collapsed': collapsed.value,
 }))
+
+const countersTitle = computed(
+  () => `Задачи: ${wl.activeTasksLabel}, заявки: ${wl.activeRequestsLabel}`,
+)
 
 const limitMessage = computed(() => {
   const w = wl.workload
   if (w.active_requests >= w.max_active_requests
       && w.active_tasks >= w.max_active_tasks) {
-    return `Лимит исчерпан: ${w.active_tasks}/${w.max_active_tasks} задач, `
-      + `${w.active_requests}/${w.max_active_requests} заявок. `
-      + 'Завершите текущие, чтобы брать новые.'
+    return 'Лимит исчерпан. Завершите текущие задачи/заявки.'
   }
   if (w.active_requests >= w.max_active_requests) {
-    return `Заявок в работе ${w.active_requests}/${w.max_active_requests}. `
-      + 'Закройте одну, чтобы взять следующую.'
+    return `Заявок ${w.active_requests}/${w.max_active_requests} — лимит.`
   }
   if (w.active_tasks >= w.max_active_tasks) {
-    return `Задач в работе ${w.active_tasks}/${w.max_active_tasks}. `
-      + 'Завершите одну, чтобы добавить новую.'
+    return `Задач ${w.active_tasks}/${w.max_active_tasks} — лимит.`
   }
   return ''
 })
@@ -122,8 +126,8 @@ function priorityLabel (p) {
   return ({ low: 'Низкий', normal: 'Обычный', high: 'Высокий' })[p] || p
 }
 function priorityClass (p) {
-  if (p === 'high') return 'tag--danger'
-  if (p === 'low') return 'tag--panel'
+  if (p === 'high') return 'ctw__tag--danger'
+  if (p === 'low') return 'ctw__tag--muted'
   return ''
 }
 
@@ -144,7 +148,6 @@ async function complete () {
   } finally { busy.value = false }
 }
 
-// При логине/выходе — сбрасываем либо тянем свежие данные.
 watch(() => auth.isAuthenticated, (v) => {
   if (v && auth.isStaff) wl.refresh()
   else wl.reset()
@@ -154,84 +157,135 @@ onMounted(() => { if (auth.isStaff) wl.refresh() })
 </script>
 
 <style scoped>
-.current-task {
-  position: sticky; top: 12px; z-index: 30;
-  margin: 12px 16px 0;
-  background: var(--c-panel, #fff);
-  border: 1px solid var(--c-border, #e3e9e7);
-  border-left: 4px solid var(--c-accent, #1fa39a);
-  border-radius: var(--r-sm, 10px);
-  padding: 12px 16px;
-  box-shadow: var(--shadow-1, 0 1px 2px rgba(16,24,23,.06));
+/* Плавающая карточка в правом нижнем углу. Фиксированная ширина,
+   не растягивается во всю строку, не мешает футеру (который теперь
+   обычный flex-child внизу документа). */
+.ctw {
+  position: fixed;
+  right: 20px; bottom: 20px;
+  width: min(360px, calc(100vw - 32px));
+  z-index: 60;
+  background: #ffffff;
+  color: #1e2a28;
+  border-radius: 14px;
+  border: 1px solid #e3e9e7;
+  box-shadow: 0 14px 32px rgba(16, 24, 23, .18),
+              0 2px 6px rgba(16, 24, 23, .06);
+  overflow: hidden;
+  font-size: 13px;
+}
+.ctw.is-overloaded { border-color: #e7b7b1; }
+
+/* ---- Шапка-кликабельная ---- */
+.ctw__head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #0f3a33;      /* фирменный тёмно-зелёный */
+  color: #fff;
+  border: none; cursor: pointer; text-align: left;
+  font: inherit;
+}
+.ctw__head:hover { background: #134a41; }
+
+.ctw__dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #8aa5a0; flex-shrink: 0;
+}
+.ctw__dot.is-active  { background: #3ddbc7; box-shadow: 0 0 0 3px rgba(61,219,199,.25); }
+.ctw__dot.is-overdue { background: #ff7a6b; box-shadow: 0 0 0 3px rgba(255,122,107,.22); }
+.ctw__dot.is-idle    { background: #8aa5a0; }
+
+.ctw__label {
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 0;
+}
+.ctw__label b { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+.ctw__subtle {
+  font-size: 13px; font-weight: 500;
+  color: rgba(255,255,255,.85);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.ctw__counters { display: inline-flex; gap: 4px; }
+.ctw__pill {
+  font-size: 11px; font-weight: 700;
+  padding: 3px 8px; border-radius: 999px;
+  background: rgba(255,255,255,.15); color: #fff;
+}
+.ctw.is-overloaded .ctw__pill { background: #ff7a6b; color: #fff; }
+
+.ctw__chevron { font-size: 10px; opacity: .75; }
+
+/* ---- Раскрывающееся тело ---- */
+.ctw__body {
+  padding: 12px 14px 14px;
   display: flex; flex-direction: column; gap: 10px;
-}
-.current-task.is-overloaded { border-left-color: #c2554a; }
-.current-task.is-empty { border-left-color: #a0a6a4; }
-
-.current-task__head {
-  display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 10px;
-}
-.current-task__title {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: 14px;
-}
-.current-task__dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  background: #a0a6a4; display: inline-block;
-}
-.current-task__dot.is-active { background: #1fa39a; animation: pulse 1.6s infinite; }
-.current-task__dot.is-overdue { background: #c2554a; }
-.current-task__dot.is-idle { background: #a0a6a4; }
-
-.current-task__meta {
-  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
-}
-.current-task__pill {
-  background: #f1f5f4; color: #234240;
-  padding: 3px 10px; border-radius: 999px; font-size: 12px;
-  font-weight: 600;
-}
-.current-task.is-overloaded .current-task__pill {
-  background: #fdece9; color: #9a3b32;
-}
-.current-task__refresh {
-  background: transparent; border: 1px solid transparent;
-  border-radius: 6px; width: 26px; height: 26px;
-  cursor: pointer; color: #456460;
-}
-.current-task__refresh:hover:not(:disabled) {
-  background: #f1f5f4;
+  background: #ffffff;
 }
 
-.current-task__body {
-  display: flex; flex-direction: column; gap: 6px;
+.ctw__tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ctw__tag {
+  font-size: 11px; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px;
+  background: #eef4f2; color: #234240;
 }
-.current-task__name {
-  font-weight: 600; font-size: 15px;
-}
-.current-task__tags {
-  display: inline-flex; gap: 6px; flex-wrap: wrap;
-}
-.current-task__row { font-size: 13px; }
-.current-task__actions {
-  display: inline-flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
-}
+.ctw__tag--accent  { background: #0f3a33; color: #fff; }
+.ctw__tag--danger  { background: #fdece9; color: #9a3b32; }
+.ctw__tag--muted   { background: #e6e9e8; color: #546664; }
 
-.current-task__empty {
+.ctw__meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.ctw__meta dt { color: #6a7a77; font-weight: 500; }
+.ctw__meta dd { margin: 0; font-weight: 600; color: #1e2a28; }
+
+.ctw__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ctw__btn {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: inherit; font-size: 12px; font-weight: 600;
+  padding: 7px 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid #dce3e1;
+  background: #ffffff; color: #1e2a28;
+  text-decoration: none;
+}
+.ctw__btn:hover:not(:disabled) { background: #f3f6f5; }
+.ctw__btn:disabled { opacity: .5; cursor: not-allowed; }
+.ctw__btn--primary {
+  background: #0f3a33; border-color: #0f3a33; color: #fff;
+}
+.ctw__btn--primary:hover:not(:disabled) { background: #134a41; }
+.ctw__btn--accent  {
+  background: #1fa39a; border-color: #1fa39a; color: #fff;
+}
+.ctw__btn--accent:hover:not(:disabled) { background: #188a82; }
+
+.ctw__empty {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; flex-wrap: wrap;
+  color: #6a7a77;
 }
-.current-task__warn {
+
+.ctw__warn {
   background: #fdece9; color: #9a3b32;
-  padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  padding: 6px 10px; border-radius: 8px;
+  font-size: 12px; font-weight: 500;
 }
 
-@keyframes pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(31,163,154,.45); }
-  70%  { box-shadow: 0 0 0 8px rgba(31,163,154,0);   }
-  100% { box-shadow: 0 0 0 0 rgba(31,163,154,0);     }
+/* На узких экранах — растянуть по ширине. */
+@media (max-width: 520px) {
+  .ctw {
+    left: 12px; right: 12px; bottom: 12px;
+    width: auto;
+  }
 }
-
-.tag--danger { background: #fdece9; color: #9a3b32; }
 </style>

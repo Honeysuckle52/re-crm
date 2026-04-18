@@ -124,7 +124,10 @@ input, select, textarea { font: inherit; }
 /* ---- Общая сетка ---- */
 /* нижний отступ освобождает место под фиксированным футером
    (капсула 48px + круглая кнопка «дом» 48px/2 + запас) */
-.layout { padding: 0 16px 140px; }
+/* main получает flex:1 из .app-shell — padding-bottom оставляем
+   только под плавающий виджет текущей задачи (~120px), чтобы он
+   не перекрывал последний блок страницы. */
+.layout { padding: 0 16px 120px; }
 .grid { display: grid; gap: 16px; }
 .grid--2 { grid-template-columns: repeat(2, 1fr); }
 .grid--3 { grid-template-columns: repeat(3, 1fr); }
@@ -207,19 +210,17 @@ input, select, textarea { font: inherit; }
   background: var(--c-paper); border-radius: var(--r-md);
 }
 
-/* ---- Footer (прижат к нижней части окна просмотра) ---- */
+/* ---- Footer (прижат к нижней части документа через flex-shell) ---- */
 .footer {
-  position: fixed;
-  left: 16px; right: 16px; bottom: 16px;
+  position: relative;
+  margin: 48px 16px 16px;
   display: flex; justify-content: space-between; align-items: center;
   background: var(--c-panel); color: #fff;
   padding: 18px 32px; border-radius: var(--r-pill);
-  margin: 0; box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-2);
   letter-spacing: .1em; text-transform: uppercase; font-size: 12px;
-  z-index: 40;
 }
 .footer__home {
-  /* круглая кнопка вынесена над капсулой независимо от position: fixed у родителя */
   position: absolute;
   top: -24px; left: 50%; transform: translateX(-50%);
   width: 48px; height: 48px; border-radius: 50%;
@@ -229,7 +230,6 @@ input, select, textarea { font: inherit; }
 }
 @media (max-width: 720px) {
   .footer { padding: 14px 20px; font-size: 11px; letter-spacing: .06em; }
-  .layout { padding-bottom: 120px; }
 }
 
 /* ---- Вспомогательное ---- */
