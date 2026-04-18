@@ -465,13 +465,29 @@ class PropertyDocument(models.Model):
 # ====== ЗАЯВКИ, СДЕЛКИ, ПРОСМОТРЫ, ЗАДАЧИ ==================================
 
 class Request(models.Model):
-    """Заявка клиента на подбор недвижимости."""
+    """
+    Заявка клиента на подбор/покупку/аренду недвижимости.
+
+    Два сценария подачи:
+      * «быстрая заявка» с карточки объекта — заполняется поле ``property``;
+      * «заявка на подбор» в личном кабинете — указываются только критерии.
+    Дополнительно агент может предлагать клиенту варианты через
+    :class:`RequestPropertyMatch`.
+    """
     client = models.ForeignKey(User, on_delete=models.PROTECT,
                                related_name='client_requests',
                                limit_choices_to={'user_type': 'client'})
+    # Агент назначается сотрудником после подачи заявки клиентом,
+    # поэтому поле опциональное — до «взятия в работу» агента нет.
     agent = models.ForeignKey(User, on_delete=models.PROTECT,
                               related_name='agent_requests',
+                              blank=True, null=True,
                               limit_choices_to={'user_type': 'employee'})
+    # Конкретный объект, привязанный к заявке (если клиент нажал
+    # «Оставить заявку» на странице конкретной квартиры/дома).
+    property = models.ForeignKey('Property', on_delete=models.PROTECT,
+                                 related_name='direct_requests',
+                                 blank=True, null=True)
 
     operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
                                        related_name='requests')
@@ -502,6 +518,42 @@ class Request(models.Model):
 
     def __str__(self):
         return f'Заявка №{self.pk} от {self.client.username}'
+
+
+class RequestPropertyMatch(models.Model):
+    """
+    Вариант объекта, предложенный агентом по заявке клиента.
+
+    Позволяет вести «подборку» — несколько объектов, которые агент
+    отправил клиенту на рассмотрение. Клиент не может редактировать
+    эту таблицу, но видит её в деталях своей заявки.
+    """
+    request = models.ForeignKey(Request, on_delete=models.CASCADE,
+                                related_name='matches')
+    property = models.ForeignKey('Property', on_delete=models.PROTECT,
+                                 related_name='request_matches')
+    agent = models.ForeignKey(User, on_delete=models.PROTECT,
+                              related_name='proposed_matches',
+                              limit_choices_to={'user_type': 'employee'})
+    agent_note = models.TextField(blank=True, null=True)
+    is_offered = models.BooleanField(default=True,
+                                     help_text='Предложено клиенту')
+    is_rejected = models.BooleanField(default=False,
+                                      help_text='Клиент отказался')
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'request_property_matches'
+        verbose_name = 'Вариант по заявке'
+        verbose_name_plural = 'Варианты по заявкам'
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['request', 'property'],
+                                    name='unique_request_property_match'),
+        ]
+
+    def __str__(self):
+        return f'Заявка №{self.request_id} ↔ объект №{self.property_id}'
 
 
 class Deal(models.Model):

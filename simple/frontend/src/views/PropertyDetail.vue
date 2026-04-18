@@ -11,13 +11,50 @@
             {{ property.full_address }}
           </div>
         </div>
-        <div v-if="auth.isStaff" class="row" style="gap: 8px">
-          <router-link :to="`/properties/${property.id}/edit`" class="btn btn--sm">
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button v-if="!auth.isStaff"
+                  class="btn btn--accent"
+                  @click="showRequestForm = true">
+            Оставить заявку
+          </button>
+          <router-link v-if="auth.isStaff"
+                       :to="`/properties/${property.id}/edit`" class="btn btn--sm">
             Редактировать
           </router-link>
-          <button class="btn btn--danger btn--sm" @click="remove">Удалить</button>
+          <button v-if="auth.isStaff" class="btn btn--danger btn--sm"
+                  @click="remove">Удалить</button>
         </div>
       </div>
+    </div>
+
+    <!-- Модальное окно подачи заявки клиентом -->
+    <div v-if="showRequestForm" class="modal" role="dialog"
+         @click.self="showRequestForm = false">
+      <form class="panel panel--light stack modal__card"
+            @submit.prevent="submitRequest">
+        <div class="row row--between">
+          <h2 class="h3">Заявка на объект</h2>
+          <button type="button" class="btn btn--sm btn--ghost"
+                  style="color: var(--c-ink)"
+                  @click="showRequestForm = false">×</button>
+        </div>
+        <div class="muted">
+          Объект: <b>{{ property.title || 'Объект №' + property.id }}</b>.
+          Агент свяжется с вами после получения заявки.
+        </div>
+        <div class="field">
+          <label>Пожелания / комментарий</label>
+          <textarea class="textarea" v-model="requestForm.description" rows="4"
+                    placeholder="Удобное время для связи, условия осмотра и т. д.">
+          </textarea>
+        </div>
+        <div v-if="requestError" class="error">{{ requestError }}</div>
+        <div class="row" style="justify-content: flex-end; gap: 8px">
+          <button type="button" class="btn btn--sm"
+                  @click="showRequestForm = false">Отмена</button>
+          <button type="submit" class="btn btn--accent">Отправить заявку</button>
+        </div>
+      </form>
     </div>
 
     <!-- Галерея фотографий -->
@@ -105,7 +142,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
@@ -116,6 +153,29 @@ const auth = useAuthStore()
 const property = ref(null)
 const statuses = ref([])
 const history = ref([])
+
+// --- подача заявки клиентом -------------------------------------------
+const showRequestForm = ref(false)
+const requestError = ref('')
+const requestForm = reactive({ description: '' })
+
+async function submitRequest () {
+  requestError.value = ''
+  try {
+    await api.post('/requests/', {
+      operation_type: property.value.operation_type,
+      property: property.value.id,
+      description: requestForm.description,
+    })
+    showRequestForm.value = false
+    requestForm.description = ''
+    router.push('/requests')
+  } catch (err) {
+    requestError.value = err.response?.data
+      ? Object.values(err.response.data).flat().join(' ')
+      : 'Не удалось отправить заявку.'
+  }
+}
 
 async function load() {
   const [p, s, h] = await Promise.all([
@@ -183,4 +243,15 @@ onMounted(load)
   cursor: pointer; font-size: 18px; line-height: 1;
 }
 .gallery__del:hover { background: rgba(0,0,0,.75); }
+
+.modal {
+  position: fixed; inset: 0; z-index: 80;
+  background: rgba(11, 37, 36, 0.55);
+  display: grid; place-items: center;
+  padding: 16px;
+}
+.modal__card {
+  width: 100%; max-width: 520px;
+  max-height: calc(100vh - 32px); overflow: auto;
+}
 </style>

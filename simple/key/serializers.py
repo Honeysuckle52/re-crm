@@ -374,29 +374,78 @@ class PropertySerializer(serializers.ModelSerializer):
         return instance
 
 
-# ---------- Заявки, сделки, просмотры, задачи -----------------------------
+# ---------- Заяв��и, сделки, просмотры, задачи -----------------------------
+
+class RequestPropertyMatchSerializer(serializers.ModelSerializer):
+    """Вариант объекта, предложенный агентом по заявке."""
+    property_title = serializers.CharField(source='property.title',
+                                           read_only=True)
+    property_price = serializers.FloatField(source='property.price',
+                                            read_only=True)
+    agent_username = serializers.CharField(source='agent.username',
+                                           read_only=True)
+
+    class Meta:
+        model = models.RequestPropertyMatch
+        fields = ['id', 'request', 'property', 'property_title',
+                  'property_price', 'agent', 'agent_username',
+                  'agent_note', 'is_offered', 'is_rejected', 'created_at']
+        read_only_fields = ['created_at', 'agent']
+
 
 class RequestSerializer(serializers.ModelSerializer):
+    """
+    Заявка клиента.
+
+    Поле ``client`` автоматически подставляется сервером, когда заявку
+    подаёт клиент — ему не нужно (и он не имеет права) выбирать его
+    вручную. Поле ``agent`` — опциональное: пустая заявка попадает
+    в «неразобранное», откуда сотрудник забирает её действием
+    ``POST /requests/{id}/take/``.
+    """
+    client = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(user_type='client'),
+        required=False, allow_null=True,
+    )
+    agent = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(user_type='employee'),
+        required=False, allow_null=True,
+    )
+    property = serializers.PrimaryKeyRelatedField(
+        queryset=models.Property.objects.all(),
+        required=False, allow_null=True,
+    )
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
+    property_title = serializers.CharField(source='property.title',
+                                           read_only=True)
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
+    status_code = serializers.CharField(source='status.code', read_only=True)
+    matches = RequestPropertyMatchSerializer(many=True, read_only=True)
+    can_close = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Request
         fields = [
-            'id', 'client', 'client_username', 'agent', 'agent_username',
+            'id', 'client', 'client_username',
+            'agent', 'agent_username',
+            'property', 'property_title',
             'operation_type', 'operation_type_name',
-            'status', 'status_name',
+            'status', 'status_name', 'status_code',
             'property_type', 'min_price', 'max_price',
             'min_area', 'max_area', 'rooms_count',
             'address_preferences', 'description',
+            'matches', 'can_close',
             'created_at', 'updated_at', 'closed_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'closed_at']
+
+    def get_can_close(self, obj) -> bool:
+        return bool(obj.status and obj.status.code not in {'closed', 'cancelled'})
 
 
 class DealSerializer(serializers.ModelSerializer):
@@ -441,6 +490,7 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     status_name = serializers.CharField(source='status.name', read_only=True)
+    status_code = serializers.CharField(source='status.code', read_only=True)
     assignee_username = serializers.CharField(source='assignee.username',
                                               read_only=True)
     created_by_username = serializers.CharField(source='created_by.username',
@@ -449,18 +499,30 @@ class TaskSerializer(serializers.ModelSerializer):
                                             read_only=True)
     property_title = serializers.CharField(source='property.title',
                                            read_only=True)
+    request_client_username = serializers.CharField(
+        source='request.client.username', read_only=True, default=None,
+    )
     priority_display = serializers.CharField(source='get_priority_display',
                                              read_only=True)
+    is_overdue = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Task
         fields = ['id', 'title', 'description', 'priority', 'priority_display',
-                  'status', 'status_name',
+                  'status', 'status_name', 'status_code',
                   'assignee', 'assignee_username',
                   'created_by', 'created_by_username',
                   'client', 'client_username',
                   'property', 'property_title',
-                  'request', 'deal',
-                  'due_date', 'completed_at',
+                  'request', 'request_client_username', 'deal',
+                  'due_date', 'completed_at', 'is_overdue',
                   'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at', 'created_by']
+
+    def get_is_overdue(self, obj) -> bool:
+        from django.utils import timezone
+        if not obj.due_date or obj.completed_at:
+            return False
+        if obj.status and obj.status.code in {'done', 'cancelled'}:
+            return False
+        return obj.due_date < timezone.now()

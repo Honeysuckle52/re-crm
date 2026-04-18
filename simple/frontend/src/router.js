@@ -23,6 +23,8 @@ const routes = [
 
   { path: '/requests', name: 'requests',
     component: () => import('./views/Requests.vue') },
+  { path: '/requests/:id', name: 'request-detail',
+    component: () => import('./views/RequestDetail.vue') },
   { path: '/tasks', name: 'tasks',
     component: () => import('./views/Tasks.vue'),
     meta: { staff: true } },

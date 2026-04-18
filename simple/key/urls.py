@@ -34,6 +34,8 @@ router.register('property-documents', views.PropertyDocumentViewSet)
 
 # Бизнес-процессы
 router.register('requests', views.RequestViewSet)
+router.register('request-matches', views.RequestPropertyMatchViewSet,
+                basename='request-matches')
 router.register('deals', views.DealViewSet)
 router.register('viewings', views.PropertyViewingViewSet)
 router.register('tasks', views.TaskViewSet)

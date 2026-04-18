@@ -9,6 +9,7 @@ from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -377,9 +378,19 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
 # ====== Заявки, сделки, просмотры, задачи =================================
 
 class RequestViewSet(viewsets.ModelViewSet):
+    """
+    Заявки клиентов.
+
+    Правила доступа:
+      * клиент видит и создаёт только свои заявки; закрыть может только
+        свою и только в неоконечном статусе;
+      * сотрудник видит все заявки. Может взять в работу неназначенную
+        заявку (``POST /requests/{id}/take/``), прикрепить объект
+        (``POST /requests/{id}/attach_property/``) и закрыть любую.
+    """
     queryset = models.Request.objects.select_related(
-        'client', 'agent', 'operation_type', 'status'
-    ).all()
+        'client', 'agent', 'operation_type', 'status', 'property',
+    ).prefetch_related('matches__property', 'matches__agent').all()
     serializer_class = serializers.RequestSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
@@ -390,19 +401,154 @@ class RequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(client=user)
-        if self.request.query_params.get('status'):
-            qs = qs.filter(status_id=self.request.query_params['status'])
+
+        params = self.request.query_params
+        if params.get('status'):
+            qs = qs.filter(status_id=params['status'])
+        if params.get('status_code'):
+            qs = qs.filter(status__code=params['status_code'])
+        # «scope=unassigned» — заявки без агента (для вкладки сотрудника).
+        scope = params.get('scope')
+        if scope == 'unassigned' and user.is_employee:
+            qs = qs.filter(agent__isnull=True)
+        elif scope == 'mine' and user.is_employee:
+            qs = qs.filter(agent=user)
         return qs
+
+    def perform_create(self, serializer):
+        """
+        Автозаполнение при подаче заявки клиентом.
+
+        Клиент не имеет права указывать ``client`` (подставляем его из
+        запроса) и не может назначить себе агента.
+        """
+        user = self.request.user
+        extra = {}
+        if user.is_authenticated and user.is_client:
+            extra['client'] = user
+            extra['agent'] = None
+        elif not serializer.validated_data.get('client'):
+            raise ValidationError(
+                {'client': 'Укажите клиента заявки.'}
+            )
+        serializer.save(**extra)
 
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
+        """
+        Закрыть заявку.
+
+        Клиент может закрыть только свою заявку (отсечение происходит
+        в ``get_queryset``). Повторное закрытие не допускается.
+        """
         req = self.get_object()
+        if req.status and req.status.code in {'closed', 'cancelled'}:
+            return Response(
+                {'detail': 'Заявка уже закрыта.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         closed = models.RequestStatus.objects.filter(code='closed').first()
         if closed:
             req.status = closed
         req.closed_at = timezone.now()
         req.save()
         return Response(serializers.RequestSerializer(req).data)
+
+    @action(detail=True, methods=['post'])
+    def take(self, request, pk=None):
+        """
+        Сотрудник берёт заявку в работу.
+
+        Назначает себя агентом и переводит статус в «в обработке».
+        Сигнал ``request_taken_create_task`` автоматически создаёт
+        задачу «Связаться с клиентом».
+        """
+        if not request.user.is_employee:
+            return Response(
+                {'detail': 'Доступно только сотрудникам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        req = self.get_object()
+        if req.agent_id and req.agent_id != request.user.id:
+            return Response(
+                {'detail': 'Заявка уже взята другим сотрудником.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        req.agent = request.user
+        processing = models.RequestStatus.objects.filter(
+            code='processing').first()
+        if processing:
+            req.status = processing
+        req.save()
+        return Response(serializers.RequestSerializer(req).data)
+
+    @action(detail=True, methods=['post'], url_path='attach_property')
+    def attach_property(self, request, pk=None):
+        """
+        Добавить вариант объекта в подборку по заявке (только сотрудник).
+
+        Ожидает ``property_id`` и опционально ``agent_note``.
+        """
+        if not request.user.is_employee:
+            return Response(
+                {'detail': 'Доступно только сотрудникам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        req = self.get_object()
+        property_id = request.data.get('property_id')
+        if not property_id:
+            return Response({'detail': 'Не указан объект.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        match, created = models.RequestPropertyMatch.objects.get_or_create(
+            request=req, property_id=property_id,
+            defaults={'agent': request.user,
+                      'agent_note': request.data.get('agent_note', '')},
+        )
+        if not created:
+            match.is_rejected = False
+            match.is_offered = True
+            if request.data.get('agent_note') is not None:
+                match.agent_note = request.data['agent_note']
+            match.save()
+        return Response(
+            serializers.RequestPropertyMatchSerializer(match).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=['post'], url_path='detach_property')
+    def detach_property(self, request, pk=None):
+        """Удалить вариант из подборки по заявке."""
+        if not request.user.is_employee:
+            return Response(
+                {'detail': 'Доступно только сотрудникам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        req = self.get_object()
+        match_id = request.data.get('match_id')
+        deleted, _ = req.matches.filter(pk=match_id).delete()
+        if not deleted:
+            return Response({'detail': 'Вариант не найден.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
+    """Только чтение подборки; модификация — через действия RequestViewSet."""
+    queryset = models.RequestPropertyMatch.objects.select_related(
+        'property', 'agent', 'request'
+    ).all()
+    serializer_class = serializers.RequestPropertyMatchSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(request__client=user)
+        request_id = self.request.query_params.get('request')
+        if request_id:
+            qs = qs.filter(request_id=request_id)
+        return qs
 
 
 class DealViewSet(viewsets.ModelViewSet):
