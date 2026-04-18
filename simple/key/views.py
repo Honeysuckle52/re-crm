@@ -9,6 +9,7 @@ from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -33,8 +34,9 @@ class RegisterView(APIView):
     Регистрация нового пользователя.
 
     Принимаются только ``username``, ``email``, ``phone`` и ``password``.
-    Тип пользователя всегда ``client``, роль не назначается — это делает
-    администратор или менеджер агентства через отдельный эндпоинт.
+    Тип пользователя всегда ``client``, должность не назначается —
+    это делает администратор или менеджер агентства через отдельный
+    эндпоинт ``/users/{id}/assign_role/``.
     """
     permission_classes = [AllowAny]
 
@@ -47,7 +49,7 @@ class RegisterView(APIView):
 
 
 class LoginView(TokenObtainPairView):
-    """Получение JWT-пары ``access`` / ``refresh``."""
+    """Получение пары токенов ``access`` / ``refresh``."""
     permission_classes = [AllowAny]
 
 
@@ -167,8 +169,8 @@ class DadataSuggestAddressView(APIView):
             results = client.suggest_address(query, count=count)
         except Exception as exc:  # pragma: no cover
             return Response(
-                {'error': 'Сервис подсказок адресов временно недоступен.',
-                 'detail': str(exc)},
+                {'detail': 'Сервис подсказок адресов временно недоступен.',
+                 'error': str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response({'results': results})
@@ -180,8 +182,8 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     Управление пользователями.
 
-    Просмотр и назначение ролей/типа доступны только администратору и
-    менеджеру. Агент видит список для выбора в заявках/сделках.
+    Просмотр списка доступен сотрудникам. Назначение роли/типа —
+    только администратору и менеджеру.
     """
     queryset = User.objects.select_related('role').all()
     serializer_class = serializers.UserSerializer
@@ -200,20 +202,18 @@ class UserViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_permissions(self):
-        # Запись (создание, обновление, удаление, назначение роли)
-        # разрешена только администратору и менеджеру.
         if self.action in {'create', 'update', 'partial_update',
                            'destroy', 'assign_role'}:
             return [IsAdminOrManager()]
         return super().get_permissions()
 
-    @action(detail=True, methods=['post'], url_path='assign-role')
+    @action(detail=True, methods=['post'], url_path='assign_role')
     def assign_role(self, request, pk=None):
         """
-        Назначить пользователю тип и роль.
+        Назначить пользователю тип учётной записи и должность.
 
-        Только администратор или менеджер. Принимает ``user_type``,
-        ``role`` (id роли) и/или ``is_active``.
+        Доступно только администратору или менеджеру. Принимает
+        поля ``user_type``, ``role_id`` и/или ``is_active``.
         """
         target = self.get_object()
         serializer = serializers.UserRoleAssignSerializer(data=request.data)
@@ -244,7 +244,6 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
-        # Клиент видит только свой профиль
         if user.is_authenticated and user.is_client:
             qs = qs.filter(user=user)
         return qs
@@ -268,13 +267,10 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
         if params.get('operation_type'):
             qs = qs.filter(operation_type_id=params['operation_type'])
-
         if params.get('status'):
             qs = qs.filter(status_id=params['status'])
-
         if params.get('rooms'):
             qs = qs.filter(rooms_count=params['rooms'])
-
         if params.get('min_price'):
             qs = qs.filter(price__gte=params['min_price'])
         if params.get('max_price'):
@@ -282,7 +278,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    @action(detail=True, methods=['post'], url_path='change-status')
+    @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
         """Смена статуса объекта с записью в историю."""
         property_obj = self.get_object()
@@ -309,6 +305,40 @@ class PropertyViewSet(viewsets.ModelViewSet):
             serializers.PropertyStatusHistorySerializer(qs, many=True).data
         )
 
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='upload_photo',
+        parser_classes=[MultiPartParser, FormParser, JSONParser],
+        permission_classes=[IsEmployee],
+    )
+    def upload_photo(self, request, pk=None):
+        """
+        Загрузить фото объекта.
+
+        Принимает либо файл в поле ``image`` (multipart/form-data),
+        либо внешний URL в поле ``url`` (application/json).
+        """
+        property_obj = self.get_object()
+        image = request.FILES.get('image')
+        url = request.data.get('url')
+        if not image and not url:
+            return Response(
+                {'detail': 'Нужно передать файл image или ссылку url.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        photo = models.PropertyPhoto.objects.create(
+            property=property_obj,
+            image=image if image else None,
+            url=url if not image else '',
+            order=property_obj.photos.count(),
+        )
+        return Response(
+            serializers.PropertyPhotoSerializer(
+                photo, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
 
 class PropertyFeatureViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyFeature.objects.all()
@@ -320,11 +350,12 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     """
     Фото объекта. Поддерживает два формата загрузки:
       * multipart/form-data с полем ``image`` — файл;
-      * application/json с полем ``url`` — внешний URL.
+      * application/json с полем ``url`` — внешняя ссылка.
     """
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
     permission_classes = [IsEmployee]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
 
 class PropertyDocumentViewSet(viewsets.ModelViewSet):
@@ -388,6 +419,18 @@ class DealViewSet(viewsets.ModelViewSet):
             qs = qs.filter(client=user)
         return qs
 
+    @action(detail=True, methods=['post'], url_path='change_status')
+    def change_status(self, request, pk=None):
+        """Смена статуса сделки (воронка продаж)."""
+        deal = self.get_object()
+        status_id = request.data.get('status_id')
+        if not status_id:
+            return Response({'detail': 'Не указан статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        deal.status_id = status_id
+        deal.save()
+        return Response(serializers.DealSerializer(deal).data)
+
 
 class PropertyViewingViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyViewing.objects.select_related(
@@ -435,9 +478,25 @@ class TaskViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @action(detail=True, methods=['post'], url_path='change_status')
+    def change_status(self, request, pk=None):
+        """Смена статуса задачи."""
+        task = self.get_object()
+        status_id = request.data.get('status_id')
+        if not status_id:
+            return Response({'detail': 'Не указан статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        task.status_id = status_id
+        # Если статус «выполнено» — проставим время завершения
+        new_status = models.TaskStatus.objects.filter(pk=status_id).first()
+        if new_status and new_status.code == 'done':
+            task.completed_at = timezone.now()
+        task.save()
+        return Response(serializers.TaskSerializer(task).data)
+
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        """Отметить задачу как выполненную."""
+        """Быстрая отметка задачи как выполненной."""
         task = self.get_object()
         done = models.TaskStatus.objects.filter(code='done').first()
         if done:

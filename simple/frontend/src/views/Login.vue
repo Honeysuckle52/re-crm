@@ -1,8 +1,8 @@
 <template>
   <section class="auth">
     <div class="panel auth__card">
-      <div class="hero__eyebrow">SIMPLE CRM</div>
-      <h1 class="auth__title">Вход</h1>
+      <div class="hero__eyebrow">РИЭЛТ</div>
+      <h1 class="auth__title">Вход в систему</h1>
       <p class="muted" style="color: rgba(255,255,255,.7)">
         Введите логин и пароль, чтобы продолжить работу
       </p>
@@ -22,7 +22,7 @@
         </button>
       </form>
       <div class="row row--between" style="margin-top: 12px">
-        <span class="muted" style="color: rgba(255,255,255,.6)">Нет аккаунта?</span>
+        <span class="muted" style="color: rgba(255,255,255,.6)">Нет учётной записи?</span>
         <router-link to="/register" class="btn btn--ghost btn--sm">
           Регистрация
         </router-link>

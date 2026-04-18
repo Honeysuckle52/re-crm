@@ -11,7 +11,7 @@
             {{ property.full_address }}
           </div>
         </div>
-        <div class="row" style="gap: 8px">
+        <div v-if="auth.isStaff" class="row" style="gap: 8px">
           <router-link :to="`/properties/${property.id}/edit`" class="btn btn--sm">
             Редактировать
           </router-link>
@@ -20,25 +20,48 @@
       </div>
     </div>
 
+    <!-- Галерея фотографий -->
+    <div class="panel panel--light">
+      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
+        <h2 class="h3">Фотографии</h2>
+        <label v-if="auth.isStaff" class="btn btn--sm">
+          Загрузить фото
+          <input type="file" accept="image/*" multiple @change="uploadPhotos" hidden />
+        </label>
+      </div>
+      <div v-if="property.photos?.length" class="gallery">
+        <div v-for="ph in property.photos" :key="ph.id" class="gallery__item">
+          <img :src="ph.image_url" :alt="property.title || 'Фото объекта'" />
+          <button v-if="auth.isStaff" class="gallery__del"
+                  @click="removePhoto(ph)" title="Удалить">
+            ×
+          </button>
+        </div>
+      </div>
+      <div v-else class="muted" style="margin-top: 8px">
+        Фотографии ещё не загружены.
+      </div>
+    </div>
+
     <div class="grid grid--2">
       <div class="panel panel--light">
         <h2 class="h3">Параметры</h2>
         <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Цена"          :value="formatMoney(property.price) + ' ₽'" />
-          <InfoRow label="Цена за м²"    :value="property.price_per_sqm
+          <InfoRow label="Стоимость"        :value="formatMoney(property.price) + ' ₽'" />
+          <InfoRow label="Стоимость за м²"  :value="property.price_per_sqm
                                                   ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
-          <InfoRow label="Общая площадь" :value="property.area_total ? property.area_total + ' м²' : '—'" />
-          <InfoRow label="Жилая площадь" :value="property.area_living ? property.area_living + ' м²' : '—'" />
-          <InfoRow label="Кухня"         :value="property.area_kitchen ? property.area_kitchen + ' м²' : '—'" />
-          <InfoRow label="Комнат"        :value="property.rooms_count || '—'" />
-          <InfoRow label="Этаж"          :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
-          <InfoRow label="Статус"        :value="property.status_name" />
+          <InfoRow label="Общая площадь"    :value="property.area_total ? property.area_total + ' м²' : '—'" />
+          <InfoRow label="Жилая площадь"    :value="property.area_living ? property.area_living + ' м²' : '—'" />
+          <InfoRow label="Площадь кухни"    :value="property.area_kitchen ? property.area_kitchen + ' м²' : '—'" />
+          <InfoRow label="Количество комнат":value="property.rooms_count || '—'" />
+          <InfoRow label="Этаж / всего"     :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
+          <InfoRow label="Статус"           :value="property.status_name" />
         </div>
       </div>
 
       <div class="panel panel--light">
         <h2 class="h3">Описание</h2>
-        <p style="white-space: pre-wrap">{{ property.description || 'Нет описания.' }}</p>
+        <p style="white-space: pre-wrap">{{ property.description || 'Описание не заполнено.' }}</p>
         <h2 class="h3" style="margin-top: 16px">Характеристики</h2>
         <div v-if="property.feature_values?.length" class="row" style="flex-wrap: wrap; gap: 6px">
           <span v-for="fv in property.feature_values" :key="fv.feature"
@@ -50,9 +73,9 @@
       </div>
     </div>
 
-    <div class="panel panel--light">
+    <div v-if="auth.isStaff" class="panel panel--light">
       <div class="row row--between">
-        <h2 class="h3">Смена статуса</h2>
+        <h2 class="h3">Смена статуса объекта</h2>
       </div>
       <div class="row" style="gap: 10px; flex-wrap: wrap; margin-top: 12px">
         <button v-for="s in statuses" :key="s.id"
@@ -65,7 +88,7 @@
     </div>
 
     <div class="panel panel--light" v-if="history.length">
-      <h2 class="h3">История статусов</h2>
+      <h2 class="h3">История изменений статуса</h2>
       <table class="table">
         <thead><tr><th>Дата</th><th>Статус</th><th>Сотрудник</th></tr></thead>
         <tbody>
@@ -86,8 +109,10 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
+import { useAuthStore } from '../store/auth'
 
 const route = useRoute(); const router = useRouter()
+const auth = useAuthStore()
 const property = ref(null)
 const statuses = ref([])
 const history = ref([])
@@ -96,7 +121,7 @@ async function load() {
   const [p, s, h] = await Promise.all([
     api.get(`/properties/${route.params.id}/`),
     api.get('/property-statuses/'),
-    api.get(`/properties/${route.params.id}/history/`),
+    api.get(`/properties/${route.params.id}/history/`).catch(() => ({ data: [] })),
   ])
   property.value = p.data
   statuses.value = s.data.results || s.data
@@ -106,6 +131,26 @@ async function load() {
 async function changeStatus(id) {
   await api.post(`/properties/${route.params.id}/change_status/`,
                  { status_id: id })
+  await load()
+}
+
+async function uploadPhotos(e) {
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
+  for (const file of files) {
+    const fd = new FormData()
+    fd.append('image', file)
+    await api.post(`/properties/${route.params.id}/upload_photo/`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  }
+  e.target.value = ''
+  await load()
+}
+
+async function removePhoto(photo) {
+  if (!confirm('Удалить фотографию?')) return
+  await api.delete(`/property-photos/${photo.id}/`)
   await load()
 }
 
@@ -119,3 +164,23 @@ function formatMoney(v) { return new Intl.NumberFormat('ru-RU').format(v || 0) }
 
 onMounted(load)
 </script>
+
+<style scoped>
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px; margin-top: 12px;
+}
+.gallery__item {
+  position: relative; aspect-ratio: 4/3; overflow: hidden;
+  border-radius: var(--r-sm); background: #f1f5f4;
+}
+.gallery__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gallery__del {
+  position: absolute; top: 6px; right: 6px;
+  width: 26px; height: 26px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.55); color: #fff;
+  cursor: pointer; font-size: 18px; line-height: 1;
+}
+.gallery__del:hover { background: rgba(0,0,0,.75); }
+</style>
