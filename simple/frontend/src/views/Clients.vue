@@ -143,7 +143,7 @@ async function saveAssign() {
   try {
     await api.post(`/users/${assignUser.value.id}/assign_role/`, {
       user_type: assignForm.user_type,
-      role_id: assignForm.user_type === 'employee' ? assignForm.role_id : null,
+      role: assignForm.user_type === 'employee' ? assignForm.role_id : null,
     })
     assignOpen.value = false
     await load()
