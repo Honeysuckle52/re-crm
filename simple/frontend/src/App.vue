@@ -1,9 +1,8 @@
 <template>
-  <div>
+  <!-- Sticky-footer через flex: TopBar сверху, main растягивается,
+       AppFooter всегда в конце документа и скроллится вместе со страницей. -->
+  <div class="app-shell">
     <TopBar v-if="auth.isAuthenticated" />
-    <!-- Виджет «Текущая задача» — только для сотрудников.
-         Показывает активную задачу в работе и индикатор лимитов. -->
-    <CurrentTaskWidget v-if="auth.isAuthenticated && auth.isStaff" />
     <main class="layout">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
@@ -12,6 +11,8 @@
       </router-view>
     </main>
     <AppFooter v-if="auth.isAuthenticated" />
+    <!-- Компактная плавающая карточка текущей задачи — только для сотрудников. -->
+    <CurrentTaskWidget v-if="auth.isAuthenticated && auth.isStaff" />
   </div>
 </template>
 
@@ -27,4 +28,13 @@ const auth = useAuthStore()
 <style>
 .fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Корневой шелл — классический sticky-footer layout. */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell > .layout { flex: 1 0 auto; }
+.app-shell > .footer { flex-shrink: 0; }
 </style>
