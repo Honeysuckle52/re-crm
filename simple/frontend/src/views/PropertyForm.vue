@@ -8,10 +8,13 @@
     </div>
 
     <form class="panel panel--light stack" @submit.prevent="submit">
+      <!-- Основные параметры -->
+      <h2 class="h3">Основные параметры</h2>
       <div class="grid grid--2">
         <div class="field">
           <label>Заголовок</label>
-          <input class="input" v-model="form.title" required />
+          <input class="input" v-model="form.title" required
+                 placeholder="Например: 2-комнатная на Ленина" />
         </div>
         <div class="field">
           <label>Тип операции</label>
@@ -24,19 +27,21 @@
 
         <div class="field">
           <label>Цена, ₽</label>
-          <input class="input" type="number" step="0.01" v-model.number="form.price" required />
+          <input class="input" type="number" step="0.01"
+                 v-model.number="form.price" required />
         </div>
         <div class="field">
           <label>Цена за м²</label>
-          <input class="input" type="number" step="0.01" v-model.number="form.price_per_sqm" />
+          <input class="input" type="number" step="0.01"
+                 v-model.number="form.price_per_sqm" />
         </div>
 
         <div class="field">
-          <label>Комнат</label>
+          <label>Количество комнат</label>
           <input class="input" type="number" v-model.number="form.rooms_count" />
         </div>
         <div class="field">
-          <label>Этаж / всего</label>
+          <label>Этаж / всего этажей</label>
           <div class="row">
             <input class="input" type="number" v-model.number="form.floor_number" />
             <input class="input" type="number" v-model.number="form.total_floors" />
@@ -45,66 +50,100 @@
 
         <div class="field">
           <label>Общая площадь, м²</label>
-          <input class="input" type="number" step="0.01" v-model.number="form.area_total" />
+          <input class="input" type="number" step="0.01"
+                 v-model.number="form.area_total" />
         </div>
         <div class="field">
-          <label>Жилая, м²</label>
-          <input class="input" type="number" step="0.01" v-model.number="form.area_living" />
+          <label>Жилая площадь, м²</label>
+          <input class="input" type="number" step="0.01"
+                 v-model.number="form.area_living" />
         </div>
       </div>
 
-      <!-- Адрес: сначала выбираем город/улицу/дом, затем квартиру -->
-      <div class="grid grid--3">
-        <div class="field">
-          <label>Город</label>
-          <select class="select" v-model.number="addr.city" @change="loadStreets">
-            <option value="">—</option>
-            <option v-for="c in addr.cities" :key="c.id" :value="c.id">
-              {{ c.name }}
-            </option>
-          </select>
+      <!-- Адрес через DaData -->
+      <h2 class="h3" style="margin-top: 8px">Адрес</h2>
+      <p class="muted">
+        Начните вводить адрес — подсказки подгружаются из сервиса DaData.
+        Выберите нужную строку, и поля будут заполнены автоматически.
+      </p>
+      <AddressAutocomplete
+        v-model="addressQuery"
+        label="Поиск по адресу"
+        placeholder="Город, улица, дом, квартира…"
+        @pick="onAddressPick"
+      />
+      <div v-if="addressPicked" class="row" style="gap: 12px; flex-wrap: wrap">
+        <span class="tag tag--accent">{{ addressPicked.value }}</span>
+        <span v-if="addressPicked.postal_code" class="tag">
+          Индекс: {{ addressPicked.postal_code }}
+        </span>
+        <span v-if="addressPicked.geo_lat && addressPicked.geo_lon" class="tag">
+          {{ addressPicked.geo_lat.toFixed(4) }}, {{ addressPicked.geo_lon.toFixed(4) }}
+        </span>
+      </div>
+      <div v-else-if="existingAddress" class="muted">
+        Текущий адрес: {{ existingAddress }}
+      </div>
+
+      <!-- Характеристики -->
+      <h2 class="h3" style="margin-top: 8px">Характеристики</h2>
+      <div class="row" style="flex-wrap: wrap; gap: 8px">
+        <label v-for="f in dict.features" :key="f.id" class="chip-check">
+          <input type="checkbox" :value="f.id" v-model="form.feature_ids" />
+          <span>{{ f.name }}</span>
+        </label>
+        <span v-if="!dict.features.length" class="muted">
+          Справочник характеристик пуст. Запустите команду
+          <code>seed_dictionaries</code>.
+        </span>
+      </div>
+
+      <!-- Фотографии -->
+      <h2 class="h3" style="margin-top: 8px">Фотографии</h2>
+      <p class="muted">
+        Сервис подсказок адресов не предоставляет изображения, поэтому
+        фото и описание добавляются сотрудником вручную. Можно загрузить
+        файлы или указать ссылки на внешние изображения.
+      </p>
+      <div class="grid grid--3" v-if="photos.length">
+        <div v-for="(p, i) in photos" :key="p.id || ('new-' + i)"
+             class="photo-tile">
+          <img :src="p.image_url || p.preview || p.url" alt="Фото объекта" />
+          <div class="photo-tile__overlay">
+            <label class="tag tag--panel" style="cursor: pointer">
+              <input type="checkbox" v-model="p.is_cover"
+                     @change="setCover(p)" style="display: none" />
+              {{ p.is_cover ? 'Обложка' : 'Сделать обложкой' }}
+            </label>
+            <button class="btn btn--danger btn--sm" type="button"
+                    @click="removePhoto(p, i)">
+              Удалить
+            </button>
+          </div>
         </div>
-        <div class="field">
-          <label>Улица</label>
-          <select class="select" v-model.number="addr.street"
-                  @change="loadHouses" :disabled="!addr.city">
-            <option value="">—</option>
-            <option v-for="s in addr.streets" :key="s.id" :value="s.id">
-              {{ s.street_type }} {{ s.name }}
-            </option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Дом</label>
-          <select class="select" v-model.number="addr.house"
-                  @change="loadAddresses" :disabled="!addr.street">
-            <option value="">—</option>
-            <option v-for="h in addr.houses" :key="h.id" :value="h.id">
-              д. {{ h.house_number }}
-            </option>
-          </select>
+      </div>
+      <div class="row" style="gap: 12px; flex-wrap: wrap">
+        <label class="btn btn--sm" style="cursor: pointer">
+          Загрузить файл
+          <input type="file" accept="image/*" multiple
+                 style="display: none" @change="onFilesSelected" />
+        </label>
+        <div class="row" style="gap: 8px; flex: 1; min-width: 240px">
+          <input class="input" v-model="newPhotoUrl"
+                 placeholder="или вставьте ссылку на изображение" />
+          <button class="btn btn--sm" type="button" @click="addPhotoByUrl">
+            Добавить ссылку
+          </button>
         </div>
       </div>
 
-      <div class="grid grid--2">
-        <div class="field">
-          <label>Адрес (квартира/офис)</label>
-          <select class="select" v-model.number="form.address" required
-                  :disabled="!addr.house">
-            <option value="">—</option>
-            <option v-for="a in addr.addresses" :key="a.id" :value="a.id">
-              {{ a.full_address }}
-            </option>
-          </select>
-        </div>
-        <AddressAutocomplete v-model="addr.fiasQuery"
-                             label="Поиск по ФИАС"
-                             placeholder="Москва, Ленина 1…" />
-      </div>
-
+      <!-- Описание -->
+      <h2 class="h3" style="margin-top: 8px">Описание</h2>
       <div class="field">
-        <label>Описание</label>
-        <textarea class="textarea" v-model="form.description" rows="5"></textarea>
+        <label>Описание объекта</label>
+        <textarea class="textarea" v-model="form.description" rows="5"
+                  placeholder="Расскажите об объекте: состояние, инфраструктура, транспорт…">
+        </textarea>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -124,71 +163,193 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
 
-const route = useRoute(); const router = useRouter()
+const route = useRoute()
+const router = useRouter()
 const isEdit = computed(() => !!route.params.id)
 
 const form = reactive({
-  title: '', operation_type: 1, status: 1, address: '',
+  title: '', operation_type: 1, status: 1,
+  address: null,
   price: null, price_per_sqm: null,
   area_total: null, area_living: null, area_kitchen: null,
   rooms_count: null, floor_number: null, total_floors: null,
   description: '',
+  feature_ids: [],
 })
-const addr = reactive({
-  cities: [], streets: [], houses: [], addresses: [],
-  city: '', street: '', house: '', fiasQuery: '',
-})
-const dict = reactive({ operations: [] })
-const loading = ref(false); const error = ref('')
 
-async function loadStreets() {
-  addr.streets = []; addr.houses = []; addr.addresses = []
-  addr.street = ''; addr.house = ''; form.address = ''
-  if (!addr.city) return
-  const { data } = await api.get('/streets/', { params: { city: addr.city } })
-  addr.streets = data.results || data
+const dict = reactive({ operations: [], features: [] })
+const addressQuery = ref('')
+const addressPicked = ref(null)
+const existingAddress = ref('')
+const photos = ref([])
+const pendingFiles = ref([])  // новые файлы, ожидающие загрузки после создания
+const removedPhotoIds = ref([])
+const newPhotoUrl = ref('')
+const loading = ref(false)
+const error = ref('')
+
+function onAddressPick(r) {
+  addressPicked.value = r
 }
-async function loadHouses() {
-  addr.houses = []; addr.addresses = []
-  addr.house = ''; form.address = ''
-  if (!addr.street) return
-  const { data } = await api.get('/houses/', { params: { street: addr.street } })
-  addr.houses = data.results || data
+
+function onFilesSelected(e) {
+  const files = Array.from(e.target.files || [])
+  for (const file of files) {
+    const preview = URL.createObjectURL(file)
+    const photo = { file, preview, is_cover: false, _new: true }
+    photos.value.push(photo)
+    pendingFiles.value.push(photo)
+  }
+  e.target.value = ''
 }
-async function loadAddresses() {
-  addr.addresses = []; form.address = ''
-  if (!addr.house) return
-  const { data } = await api.get('/addresses/', { params: { house: addr.house } })
-  addr.addresses = (data.results || data).filter(a => a.house === addr.house)
+
+function addPhotoByUrl() {
+  const u = newPhotoUrl.value.trim()
+  if (!u) return
+  photos.value.push({ url: u, image_url: u, is_cover: false, _new: true, _fromUrl: true })
+  newPhotoUrl.value = ''
+}
+
+function setCover(target) {
+  photos.value.forEach(p => { p.is_cover = (p === target) })
+}
+
+function removePhoto(p, index) {
+  if (p.id) removedPhotoIds.value.push(p.id)
+  photos.value.splice(index, 1)
+}
+
+async function uploadPhotos(propertyId) {
+  // 1) загружаем файлы
+  for (const p of pendingFiles.value) {
+    const fd = new FormData()
+    fd.append('property', propertyId)
+    fd.append('image', p.file)
+    fd.append('is_cover', p.is_cover ? 'true' : 'false')
+    await api.post('/property-photos/', fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } })
+  }
+  pendingFiles.value = []
+
+  // 2) прикрепляем ссылки, добавленные через URL
+  for (const p of photos.value.filter(x => x._new && x._fromUrl)) {
+    await api.post('/property-photos/', {
+      property: propertyId,
+      url: p.url,
+      is_cover: p.is_cover,
+    })
+  }
+
+  // 3) удаляем отмеченные на удаление
+  for (const id of removedPhotoIds.value) {
+    await api.delete(`/property-photos/${id}/`)
+  }
+  removedPhotoIds.value = []
 }
 
 async function submit() {
   loading.value = true; error.value = ''
   try {
-    const payload = { ...form }
+    const payload = {
+      title: form.title,
+      operation_type: form.operation_type,
+      status: form.status,
+      price: form.price,
+      price_per_sqm: form.price_per_sqm,
+      area_total: form.area_total,
+      area_living: form.area_living,
+      area_kitchen: form.area_kitchen,
+      rooms_count: form.rooms_count,
+      floor_number: form.floor_number,
+      total_floors: form.total_floors,
+      description: form.description,
+      feature_ids: form.feature_ids,
+    }
+    if (addressPicked.value) {
+      payload.address_data = addressPicked.value
+    } else if (form.address) {
+      payload.address = form.address
+    } else if (!isEdit.value) {
+      throw new Error('Выберите адрес из подсказок.')
+    }
+
     const url = isEdit.value
       ? `/properties/${route.params.id}/` : '/properties/'
     const method = isEdit.value ? 'put' : 'post'
     const { data } = await api[method](url, payload)
+
+    await uploadPhotos(data.id)
+
     router.push(`/properties/${data.id}`)
   } catch (e) {
-    error.value = JSON.stringify(e.response?.data || e.message)
+    const data = e.response?.data
+    if (typeof data === 'object' && data) {
+      error.value = Object.entries(data)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+        .join('; ')
+    } else {
+      error.value = e.message || 'Не удалось сохранить объект.'
+    }
   } finally {
     loading.value = false
   }
 }
 
 onMounted(async () => {
-  const [o, c] = await Promise.all([
+  const [o, f] = await Promise.all([
     api.get('/operation-types/'),
-    api.get('/cities/'),
+    api.get('/property-features/'),
   ])
   dict.operations = o.data.results || o.data
-  addr.cities = c.data.results || c.data
+  dict.features = f.data.results || f.data
 
   if (isEdit.value) {
     const { data } = await api.get(`/properties/${route.params.id}/`)
-    Object.assign(form, data)
+    Object.assign(form, {
+      title: data.title,
+      operation_type: data.operation_type,
+      status: data.status,
+      address: data.address,
+      price: data.price,
+      price_per_sqm: data.price_per_sqm,
+      area_total: data.area_total,
+      area_living: data.area_living,
+      area_kitchen: data.area_kitchen,
+      rooms_count: data.rooms_count,
+      floor_number: data.floor_number,
+      total_floors: data.total_floors,
+      description: data.description,
+      feature_ids: (data.feature_values || []).map(fv => fv.feature),
+    })
+    existingAddress.value = data.full_address || ''
+    photos.value = (data.photos || []).map(p => ({ ...p }))
   }
 })
 </script>
+
+<style scoped>
+.chip-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: var(--r-pill);
+  background: var(--c-paper-2); color: var(--c-ink-soft);
+  font-size: 13px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.chip-check input { accent-color: var(--c-accent); }
+.chip-check:has(input:checked) {
+  background: rgba(31,163,154,.14);
+  color: var(--c-accent);
+  border-color: rgba(31,163,154,.4);
+}
+.photo-tile {
+  position: relative; border-radius: var(--r-sm); overflow: hidden;
+  background: var(--c-paper-2); aspect-ratio: 4/3;
+}
+.photo-tile img { width: 100%; height: 100%; object-fit: cover; }
+.photo-tile__overlay {
+  position: absolute; inset: auto 0 0 0;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px;
+  background: linear-gradient(to top, rgba(14,58,56,.85), transparent);
+}
+</style>

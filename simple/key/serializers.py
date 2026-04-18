@@ -1,4 +1,4 @@
-"""DRF-сериализаторы приложения `key`."""
+"""Сериализаторы DRF приложения ``key``."""
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
@@ -28,6 +28,18 @@ class RequestStatusSerializer(serializers.ModelSerializer):
         fields = ['id', 'code', 'name']
 
 
+class DealStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.DealStatus
+        fields = ['id', 'code', 'name', 'order']
+
+
+class TaskStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.TaskStatus
+        fields = ['id', 'code', 'name', 'order']
+
+
 class UserRoleSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.UserRole
@@ -39,7 +51,7 @@ class UserRoleSerializer(serializers.ModelSerializer):
 class CitySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.City
-        fields = ['id', 'name', 'region', 'fias_id']
+        fields = ['id', 'name', 'region', 'external_id']
 
 
 class StreetSerializer(serializers.ModelSerializer):
@@ -47,14 +59,14 @@ class StreetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Street
-        fields = ['id', 'city', 'city_name', 'name', 'street_type', 'fias_id']
+        fields = ['id', 'city', 'city_name', 'name', 'street_type', 'external_id']
 
 
 class HouseSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.House
         fields = ['id', 'street', 'house_number', 'building',
-                  'structure', 'postal_code', 'fias_id']
+                  'structure', 'postal_code', 'external_id']
 
 
 class AddressSerializer(serializers.ModelSerializer):
@@ -72,30 +84,62 @@ class AddressSerializer(serializers.ModelSerializer):
 # ---------- Пользователи и профили ----------------------------------------
 
 class UserSerializer(serializers.ModelSerializer):
+    """Полное представление пользователя."""
     role_name = serializers.CharField(source='role.name', read_only=True)
+    role_code = serializers.CharField(source='role.code', read_only=True)
+    user_type_display = serializers.CharField(source='get_user_type_display',
+                                              read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone', 'user_type',
-                  'role', 'role_name', 'is_active', 'is_email_verified',
+        fields = ['id', 'username', 'email', 'phone',
+                  'user_type', 'user_type_display',
+                  'role', 'role_name', 'role_code',
+                  'is_active', 'is_email_verified',
                   'is_phone_verified', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, validators=[validate_password])
+    """
+    Самостоятельная регистрация.
+
+    Пользователь НЕ выбирает ни ``user_type``, ни ``role`` — оба поля
+    заполняются автоматически: тип — клиент, роль — отсутствует.
+    Назначение сотрудника и роли делает администратор или менеджер
+    через эндпоинт ``/api/users/{id}/assign_role/``.
+    """
+    password = serializers.CharField(write_only=True,
+                                     validators=[validate_password])
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'phone', 'password',
-                  'user_type', 'role']
+        fields = ['username', 'email', 'phone', 'password']
 
     def create(self, validated_data):
         password = validated_data.pop('password')
-        user = User(**validated_data)
+        user = User(
+            user_type='client',
+            role=None,
+            is_staff=False,
+            is_superuser=False,
+            **validated_data,
+        )
         user.set_password(password)
         user.save()
         return user
+
+
+class UserRoleAssignSerializer(serializers.Serializer):
+    """Эндпоинт назначения типа и роли пользователя администратором."""
+    user_type = serializers.ChoiceField(
+        choices=User.USER_TYPE_CHOICES, required=False,
+    )
+    role = serializers.PrimaryKeyRelatedField(
+        queryset=models.UserRole.objects.all(),
+        required=False, allow_null=True,
+    )
+    is_active = serializers.BooleanField(required=False)
 
 
 class EmployeeProfileSerializer(serializers.ModelSerializer):
@@ -138,10 +182,26 @@ class PropertyFeatureValueSerializer(serializers.ModelSerializer):
 
 
 class PropertyPhotoSerializer(serializers.ModelSerializer):
+    """
+    Фото объекта.
+
+    Поле ``image_url`` всегда содержит итоговую ссылку, по которой можно
+    отобразить фото: либо ссылка на загруженный файл, либо внешний URL.
+    """
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = models.PropertyPhoto
-        fields = ['id', 'property', 'url', 'uploaded_at']
-        read_only_fields = ['uploaded_at']
+        fields = ['id', 'property', 'image', 'url', 'image_url',
+                  'caption', 'is_cover', 'uploaded_at']
+        read_only_fields = ['uploaded_at', 'image_url']
+
+    def get_image_url(self, obj) -> str | None:
+        if obj.image:
+            request = self.context.get('request')
+            url = obj.image.url
+            return request.build_absolute_uri(url) if request else url
+        return obj.url or None
 
 
 class PropertyDocumentSerializer(serializers.ModelSerializer):
@@ -156,24 +216,67 @@ class PropertyDocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ['uploaded_at']
 
 
+class AddressNestedWriteSerializer(serializers.Serializer):
+    """
+    Адрес в формате «единой строки» из DaData для записи.
+
+    Фронтенд может передавать полный набор полей, а бэкенд создаст
+    (или найдёт) иерархию City → Street → House → Address.
+    """
+    value = serializers.CharField(max_length=500)
+    region = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    street = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    street_type = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    house = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    block = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    flat = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    postal_code = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    geo_lat = serializers.FloatField(required=False, allow_null=True)
+    geo_lon = serializers.FloatField(required=False, allow_null=True)
+    city_external_id = serializers.CharField(required=False, allow_blank=True,
+                                             allow_null=True)
+    street_external_id = serializers.CharField(required=False, allow_blank=True,
+                                               allow_null=True)
+    house_external_id = serializers.CharField(required=False, allow_blank=True,
+                                              allow_null=True)
+
+
 class PropertySerializer(serializers.ModelSerializer):
+    """
+    Сериализатор объекта.
+
+    Для удобства фронтенда поддерживается два варианта указания адреса:
+      1) ``address`` — id уже существующего ``Address``;
+      2) ``address_data`` — объект с полями DaData, из которого сервер
+         построит иерархию City → Street → House → Address.
+    """
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
     full_address = serializers.SerializerMethodField()
     photos = PropertyPhotoSerializer(many=True, read_only=True)
     feature_values = PropertyFeatureValueSerializer(many=True, read_only=True)
+    feature_ids = serializers.PrimaryKeyRelatedField(
+        queryset=models.PropertyFeature.objects.all(),
+        many=True, required=False, write_only=True,
+    )
+    address_data = AddressNestedWriteSerializer(required=False, write_only=True)
+    address = serializers.PrimaryKeyRelatedField(
+        queryset=models.Address.objects.all(), required=False,
+    )
 
     class Meta:
         model = models.Property
         fields = [
             'id', 'title', 'operation_type', 'operation_type_name',
-            'status', 'status_name', 'address', 'full_address',
+            'status', 'status_name',
+            'address', 'address_data', 'full_address',
             'coordinates_lat', 'coordinates_lon',
             'price', 'price_per_sqm',
             'area_total', 'area_living', 'area_kitchen',
             'rooms_count', 'floor_number', 'total_floors',
-            'description', 'photos', 'feature_values',
+            'description', 'photos', 'feature_values', 'feature_ids',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
@@ -181,8 +284,97 @@ class PropertySerializer(serializers.ModelSerializer):
     def get_full_address(self, obj) -> str:
         return str(obj.address)
 
+    # --- создание/обновление с построением адресной иерархии ----------
 
-# ---------- Заявки, сделки, просмотры -------------------------------------
+    def _resolve_address(self, address_data: dict) -> models.Address:
+        """Найти или создать Address → House → Street → City по данным DaData."""
+        city_name = (address_data.get('city') or '').strip() or 'Не указан'
+        region = (address_data.get('region') or '').strip() or None
+        city_ext = address_data.get('city_external_id') or None
+
+        city, _ = models.City.objects.get_or_create(
+            name=city_name,
+            defaults={'region': region, 'external_id': city_ext},
+        )
+        if region and not city.region:
+            city.region = region
+        if city_ext and not city.external_id:
+            city.external_id = city_ext
+        city.save()
+
+        street_name = (address_data.get('street') or '').strip() or '—'
+        street_type = (address_data.get('street_type') or '').strip() or None
+        street_ext = address_data.get('street_external_id') or None
+
+        street, _ = models.Street.objects.get_or_create(
+            city=city, name=street_name,
+            defaults={'street_type': street_type, 'external_id': street_ext},
+        )
+        if street_type and not street.street_type:
+            street.street_type = street_type
+        if street_ext and not street.external_id:
+            street.external_id = street_ext
+        street.save()
+
+        house_number = (address_data.get('house') or '').strip() or '—'
+        block = (address_data.get('block') or '').strip() or None
+        postal = (address_data.get('postal_code') or '').strip() or None
+        house_ext = address_data.get('house_external_id') or None
+
+        house, _ = models.House.objects.get_or_create(
+            street=street, house_number=house_number, building=block,
+            defaults={'postal_code': postal, 'external_id': house_ext},
+        )
+        if postal and not house.postal_code:
+            house.postal_code = postal
+        if house_ext and not house.external_id:
+            house.external_id = house_ext
+        house.save()
+
+        flat = (address_data.get('flat') or '').strip() or None
+        address, _ = models.Address.objects.get_or_create(
+            house=house, apartment_number=flat,
+        )
+        return address
+
+    def _apply_features(self, instance: models.Property, feature_ids):
+        if feature_ids is None:
+            return
+        existing = {v.feature_id: v for v in instance.feature_values.all()}
+        wanted_ids = {f.id for f in feature_ids}
+        for fid in wanted_ids - set(existing):
+            models.PropertyFeatureValue.objects.create(
+                property=instance, feature_id=fid,
+            )
+        for fid in set(existing) - wanted_ids:
+            existing[fid].delete()
+
+    def create(self, validated_data):
+        address_data = validated_data.pop('address_data', None)
+        feature_ids = validated_data.pop('feature_ids', None)
+        if address_data and not validated_data.get('address'):
+            validated_data['address'] = self._resolve_address(address_data)
+            if address_data.get('geo_lat') is not None and not validated_data.get('coordinates_lat'):
+                validated_data['coordinates_lat'] = address_data['geo_lat']
+            if address_data.get('geo_lon') is not None and not validated_data.get('coordinates_lon'):
+                validated_data['coordinates_lon'] = address_data['geo_lon']
+        if not validated_data.get('address'):
+            raise serializers.ValidationError({'address': 'Адрес обязателен.'})
+        instance = super().create(validated_data)
+        self._apply_features(instance, feature_ids)
+        return instance
+
+    def update(self, instance, validated_data):
+        address_data = validated_data.pop('address_data', None)
+        feature_ids = validated_data.pop('feature_ids', None)
+        if address_data:
+            validated_data['address'] = self._resolve_address(address_data)
+        instance = super().update(instance, validated_data)
+        self._apply_features(instance, feature_ids)
+        return instance
+
+
+# ---------- Заявки, сделки, просмотры, задачи -----------------------------
 
 class RequestSerializer(serializers.ModelSerializer):
     client_username = serializers.CharField(source='client.username',
@@ -212,13 +404,20 @@ class DealSerializer(serializers.ModelSerializer):
                                            read_only=True)
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
+    status_name = serializers.CharField(source='status.name', read_only=True)
+    agent_username = serializers.CharField(source='agent.username',
+                                           read_only=True)
+    client_username = serializers.CharField(source='client.username',
+                                            read_only=True)
 
     class Meta:
         model = models.Deal
         fields = ['id', 'deal_number', 'property', 'property_title',
-                  'agent', 'client', 'operation_type', 'operation_type_name',
+                  'agent', 'agent_username', 'client', 'client_username',
+                  'operation_type', 'operation_type_name',
+                  'status', 'status_name',
                   'price_final', 'commission_percent', 'commission_amount',
-                  'deal_date']
+                  'deal_date', 'notes']
 
 
 class PropertyStatusHistorySerializer(serializers.ModelSerializer):
@@ -238,3 +437,30 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
         fields = ['id', 'property', 'client', 'agent',
                   'scheduled_date', 'notes', 'created_at']
         read_only_fields = ['created_at']
+
+
+class TaskSerializer(serializers.ModelSerializer):
+    status_name = serializers.CharField(source='status.name', read_only=True)
+    assignee_username = serializers.CharField(source='assignee.username',
+                                              read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username',
+                                                read_only=True)
+    client_username = serializers.CharField(source='client.username',
+                                            read_only=True)
+    property_title = serializers.CharField(source='property.title',
+                                           read_only=True)
+    priority_display = serializers.CharField(source='get_priority_display',
+                                             read_only=True)
+
+    class Meta:
+        model = models.Task
+        fields = ['id', 'title', 'description', 'priority', 'priority_display',
+                  'status', 'status_name',
+                  'assignee', 'assignee_username',
+                  'created_by', 'created_by_username',
+                  'client', 'client_username',
+                  'property', 'property_title',
+                  'request', 'deal',
+                  'due_date', 'completed_at',
+                  'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'created_by']

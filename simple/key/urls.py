@@ -1,4 +1,4 @@
-"""URL-маршруты приложения `key`."""
+"""URL-маршруты приложения ``key``."""
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
@@ -11,6 +11,8 @@ router = DefaultRouter()
 router.register('operation-types', views.OperationTypeViewSet)
 router.register('property-statuses', views.PropertyStatusViewSet)
 router.register('request-statuses', views.RequestStatusViewSet)
+router.register('deal-statuses', views.DealStatusViewSet)
+router.register('task-statuses', views.TaskStatusViewSet)
 router.register('user-roles', views.UserRoleViewSet)
 
 # Адреса
@@ -30,10 +32,11 @@ router.register('property-features', views.PropertyFeatureViewSet)
 router.register('property-photos', views.PropertyPhotoViewSet)
 router.register('property-documents', views.PropertyDocumentViewSet)
 
-# Бизнес
+# Бизнес-процессы
 router.register('requests', views.RequestViewSet)
 router.register('deals', views.DealViewSet)
 router.register('viewings', views.PropertyViewingViewSet)
+router.register('tasks', views.TaskViewSet)
 
 urlpatterns = [
     # Аутентификация (JWT)
@@ -43,10 +46,12 @@ urlpatterns = [
     path('auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('auth/me/', views.MeView.as_view(), name='me'),
 
-    # ФИАС
-    path('fias/search/', views.FIASSearchView.as_view(), name='fias_search'),
+    # Подсказки адресов DaData
+    path('dadata/suggest-address/',
+         views.DadataSuggestAddressView.as_view(),
+         name='dadata_suggest_address'),
 
-    # Дашборд
+    # Сводка для дашборда
     path('dashboard/stats/', views.DashboardStatsView.as_view(),
          name='dashboard_stats'),
 

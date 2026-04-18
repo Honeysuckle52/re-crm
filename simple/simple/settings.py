@@ -1,5 +1,6 @@
 """
-Django settings for simple project (CRM/ERP недвижимости).
+Настройки проекта «Учётная система агентства недвижимости».
+Django 6 + DRF + JWT + PostgreSQL + django-vite + Vue 3.
 """
 from datetime import timedelta
 from pathlib import Path
@@ -27,7 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # 3rd party
+    # сторонние
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -35,7 +36,7 @@ INSTALLED_APPS = [
     'django_vite',
     'drf_spectacular',
 
-    # local
+    # локальные
     'key',
 ]
 
@@ -71,21 +72,21 @@ TEMPLATES = [
 WSGI_APPLICATION = 'simple.wsgi.application'
 ASGI_APPLICATION = 'simple.asgi.application'
 
-# --- Database (PostgreSQL) --------------------------------------------------
+# --- База данных (PostgreSQL) -----------------------------------------------
 
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "re_crm",
-        "USER": "postgres",
-        "PASSWORD": "postgre",
-        "HOST": "localhost",
-        "PORT": "5432",
+        "NAME": os.getenv('DB_NAME', 're_crm'),
+        "USER": os.getenv('DB_USER', 'postgres'),
+        "PASSWORD": os.getenv('DB_PASSWORD', 'postgre'),
+        "HOST": os.getenv('DB_HOST', 'localhost'),
+        "PORT": os.getenv('DB_PORT', '5432'),
         "OPTIONS": {"client_encoding": "UTF8"},
     }
 }
 
-# --- Auth -------------------------------------------------------------------
+# --- Аутентификация ---------------------------------------------------------
 
 AUTH_USER_MODEL = 'key.User'
 
@@ -96,14 +97,14 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# --- i18n -------------------------------------------------------------------
+# --- Локализация ------------------------------------------------------------
 
 LANGUAGE_CODE = 'ru-ru'
 TIME_ZONE = 'Europe/Moscow'
 USE_I18N = True
 USE_TZ = True
 
-# --- Static & Media ---------------------------------------------------------
+# --- Статика и медиа --------------------------------------------------------
 
 VITE_ASSETS_DIR = BASE_DIR / "frontend" / "dist" / ".vite"
 
@@ -148,9 +149,9 @@ SIMPLE_JWT = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Simple CRM/ERP недвижимости',
-    'DESCRIPTION': 'API управления объектами недвижимости и заявками клиентов',
-    'VERSION': '1.0.0',
+    'TITLE': 'Учётная система агентства недвижимости',
+    'DESCRIPTION': 'API управления объектами недвижимости, заявками и сделками',
+    'VERSION': '1.1.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
@@ -176,7 +177,18 @@ DJANGO_VITE = {
     }
 }
 
-# --- FIAS -------------------------------------------------------------------
+# --- DaData (подсказки адресов) --------------------------------------------
+#
+# Используется открытый API подсказок DaData. Ключ хранится ТОЛЬКО на сервере
+# и в браузер не передаётся — запросы идут через прокси-эндпоинт
+# /api/dadata/suggest-address/. Значение по умолчанию — ключ из ТЗ,
+# на продакшне обязательно переопределяйте через переменную окружения.
 
-FIAS_API_URL = os.getenv('FIAS_API_URL', 'https://fias-public-service.nalog.ru/api/spas/v2.0')
-FIAS_API_TOKEN = os.getenv('FIAS_API_TOKEN', '')
+DADATA_API_URL = os.getenv(
+    'DADATA_API_URL',
+    'https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address',
+)
+DADATA_API_KEY = os.getenv(
+    'DADATA_API_KEY',
+    '8ceded5bba84e0bd3f20cd7a36057324dc680563',
+)

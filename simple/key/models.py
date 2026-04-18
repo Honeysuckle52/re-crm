@@ -1,9 +1,12 @@
 """
-ORM-модели приложения `key`.
+ORM-модели приложения ``key``.
 
-Полностью повторяют 3НФ-схему PostgreSQL из проектной документации:
-справочники, адресная иерархия (совместимая с ФИАС), пользователи,
-профили, объекты недвижимости, заявки, сделки, история статусов, просмотры.
+Соответствуют 3НФ-схеме БД учётной системы агентства недвижимости:
+справочники, адресная иерархия, пользователи, профили, объекты, заявки,
+сделки, история статусов, просмотры, задачи сотрудников.
+
+Адресные идентификаторы хранятся в поле ``external_id`` — это GUID из
+реестра, который возвращает сервис подсказок DaData.
 """
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
@@ -54,8 +57,40 @@ class RequestStatus(models.Model):
         return self.name
 
 
+class DealStatus(models.Model):
+    """Статус сделки — стадия воронки продаж."""
+    code = models.CharField(max_length=20, unique=True)
+    name = models.CharField(max_length=50)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'deal_statuses'
+        verbose_name = 'Статус сделки'
+        verbose_name_plural = 'Статусы сделок'
+        ordering = ['order']
+
+    def __str__(self):
+        return self.name
+
+
+class TaskStatus(models.Model):
+    """Статус задачи сотрудника."""
+    code = models.CharField(max_length=20, unique=True)
+    name = models.CharField(max_length=50)
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'task_statuses'
+        verbose_name = 'Статус задачи'
+        verbose_name_plural = 'Статусы задач'
+        ordering = ['order']
+
+    def __str__(self):
+        return self.name
+
+
 class UserRole(models.Model):
-    """Роль сотрудника в системе."""
+    """Роль сотрудника в системе (администратор / менеджер / агент)."""
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=50)
     description = models.TextField(blank=True, null=True)
@@ -69,14 +104,16 @@ class UserRole(models.Model):
         return self.name
 
 
-# ====== АДРЕСА (иерархия, совместимая с ФИАС) ==============================
+# ====== АДРЕСА (иерархия) ==================================================
 
 class City(models.Model):
-    """Город / населённый пункт (объект ФИАС уровня 4)."""
+    """Город / населённый пункт."""
     name = models.CharField(max_length=100)
     region = models.CharField(max_length=100, blank=True, null=True)
-    fias_id = models.UUIDField(blank=True, null=True, db_index=True,
-                               help_text='Object GUID из ФИАС')
+    external_id = models.UUIDField(
+        blank=True, null=True, db_index=True,
+        help_text='Внешний идентификатор адресного реестра (из DaData)',
+    )
 
     class Meta:
         db_table = 'cities'
@@ -89,11 +126,11 @@ class City(models.Model):
 
 
 class Street(models.Model):
-    """Улица (объект ФИАС уровня 7)."""
+    """Улица."""
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='streets')
     name = models.CharField(max_length=150)
     street_type = models.CharField(max_length=20, blank=True, null=True)
-    fias_id = models.UUIDField(blank=True, null=True, db_index=True)
+    external_id = models.UUIDField(blank=True, null=True, db_index=True)
 
     class Meta:
         db_table = 'streets'
@@ -105,13 +142,13 @@ class Street(models.Model):
 
 
 class House(models.Model):
-    """Дом (объект ФИАС уровня 8)."""
+    """Дом / строение."""
     street = models.ForeignKey(Street, on_delete=models.CASCADE, related_name='houses')
     house_number = models.CharField(max_length=20)
     building = models.CharField(max_length=10, blank=True, null=True)
     structure = models.CharField(max_length=10, blank=True, null=True)
     postal_code = models.CharField(max_length=10, blank=True, null=True)
-    fias_id = models.UUIDField(blank=True, null=True, db_index=True)
+    external_id = models.UUIDField(blank=True, null=True, db_index=True)
 
     class Meta:
         db_table = 'houses'
@@ -128,7 +165,7 @@ class House(models.Model):
 
 
 class Address(models.Model):
-    """Полный адрес (дом + квартира/этаж)."""
+    """Полный адрес: дом + квартира/этаж/подъезд."""
     house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='addresses')
     apartment_number = models.CharField(max_length=20, blank=True, null=True)
     entrance = models.IntegerField(blank=True, null=True)
@@ -157,9 +194,9 @@ class UserManager(BaseUserManager):
 
     def create_user(self, username, email, password=None, **extra):
         if not username:
-            raise ValueError('Username обязателен')
+            raise ValueError('Логин обязателен')
         if not email:
-            raise ValueError('Email обязателен')
+            raise ValueError('Электронная почта обязательна')
         email = self.normalize_email(email)
         user = self.model(username=username, email=email, **extra)
         user.set_password(password)
@@ -175,7 +212,12 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """Единая таблица пользователей (сотрудники и клиенты)."""
+    """
+    Единая таблица пользователей: сотрудники и клиенты.
+
+    Тип пользователя и роль назначает администратор/менеджер — при
+    самостоятельной регистрации всегда создаётся клиент без роли.
+    """
     USER_TYPE_CHOICES = [
         ('employee', 'Сотрудник'),
         ('client', 'Клиент'),
@@ -185,7 +227,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(max_length=255, unique=True)
     phone = models.CharField(max_length=20, unique=True, blank=True, null=True)
 
-    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES,
+                                 default='client')
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL,
                              blank=True, null=True, related_name='users')
 
@@ -212,6 +255,32 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f'{self.username} ({self.get_user_type_display()})'
+
+    # --- утилиты прав доступа ------------------------------------------
+
+    @property
+    def role_code(self) -> str | None:
+        return self.role.code if self.role_id else None
+
+    @property
+    def is_admin_role(self) -> bool:
+        return self.is_superuser or self.role_code == 'admin'
+
+    @property
+    def is_manager_role(self) -> bool:
+        return self.role_code == 'manager'
+
+    @property
+    def is_admin_or_manager(self) -> bool:
+        return self.is_admin_role or self.is_manager_role
+
+    @property
+    def is_employee(self) -> bool:
+        return self.user_type == 'employee'
+
+    @property
+    def is_client(self) -> bool:
+        return self.user_type == 'client'
 
 
 # ====== ПРОФИЛИ =============================================================
@@ -315,7 +384,7 @@ class Property(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return self.title or f'Объект #{self.pk}'
+        return self.title or f'Объект №{self.pk}'
 
 
 class PropertyFeature(models.Model):
@@ -351,16 +420,27 @@ class PropertyFeatureValue(models.Model):
 
 
 class PropertyPhoto(models.Model):
-    """Фотография объекта."""
+    """
+    Фотография объекта.
+
+    Изображение загружает сотрудник агентства — DaData возвращает только
+    адресные данные, а визуальный контент заполняется вручную. Допустимы
+    оба варианта: загрузка файла (``image``) или внешний URL (``url``).
+    """
     property = models.ForeignKey(Property, on_delete=models.CASCADE,
                                  related_name='photos')
-    url = models.TextField()
+    image = models.ImageField(upload_to='properties/%Y/%m/',
+                              blank=True, null=True)
+    url = models.TextField(blank=True, null=True)
+    caption = models.CharField(max_length=255, blank=True, null=True)
+    is_cover = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = 'property_photos'
         verbose_name = 'Фото объекта'
         verbose_name_plural = 'Фото объектов'
+        ordering = ['-is_cover', '-uploaded_at']
 
 
 class PropertyDocument(models.Model):
@@ -382,7 +462,7 @@ class PropertyDocument(models.Model):
         verbose_name_plural = 'Документы объектов'
 
 
-# ====== ЗАЯВКИ И СДЕЛКИ ====================================================
+# ====== ЗАЯВКИ, СДЕЛКИ, ПРОСМОТРЫ, ЗАДАЧИ ==================================
 
 class Request(models.Model):
     """Заявка клиента на подбор недвижимости."""
@@ -421,11 +501,11 @@ class Request(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'Заявка #{self.pk} от {self.client.username}'
+        return f'Заявка №{self.pk} от {self.client.username}'
 
 
 class Deal(models.Model):
-    """Сделка (продажа/аренда)."""
+    """Сделка (продажа / аренда) — воронка продаж."""
     deal_number = models.CharField(max_length=50, unique=True)
     property = models.ForeignKey(Property, on_delete=models.PROTECT,
                                  related_name='deals')
@@ -437,6 +517,9 @@ class Deal(models.Model):
                                limit_choices_to={'user_type': 'client'})
     operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
                                        related_name='deals')
+    status = models.ForeignKey(DealStatus, on_delete=models.PROTECT,
+                               related_name='deals',
+                               blank=True, null=True)
 
     price_final = models.FloatField()
     commission_percent = models.DecimalField(max_digits=5, decimal_places=2,
@@ -444,6 +527,7 @@ class Deal(models.Model):
     commission_amount = models.FloatField(blank=True, null=True)
 
     deal_date = models.DateField()
+    notes = models.TextField(blank=True, null=True)
 
     class Meta:
         db_table = 'deals'
@@ -491,3 +575,55 @@ class PropertyViewing(models.Model):
         verbose_name = 'Просмотр объекта'
         verbose_name_plural = 'Просмотры объектов'
         ordering = ['-scheduled_date']
+
+
+class Task(models.Model):
+    """
+    Задача сотрудника (звонок, показ, подготовка документов и т. п.).
+
+    Универсальная CRM-сущность: задача может быть связана с клиентом,
+    объектом, заявкой или сделкой — любой из этих связей достаточно.
+    """
+    PRIORITY_CHOICES = [
+        ('low',    'Низкий'),
+        ('normal', 'Обычный'),
+        ('high',   'Высокий'),
+    ]
+
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES,
+                                default='normal')
+    status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
+                               related_name='tasks')
+
+    assignee = models.ForeignKey(User, on_delete=models.PROTECT,
+                                 related_name='assigned_tasks',
+                                 limit_choices_to={'user_type': 'employee'})
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT,
+                                   related_name='created_tasks')
+
+    client = models.ForeignKey(User, on_delete=models.SET_NULL,
+                               blank=True, null=True,
+                               related_name='client_tasks',
+                               limit_choices_to={'user_type': 'client'})
+    property = models.ForeignKey(Property, on_delete=models.SET_NULL,
+                                 blank=True, null=True, related_name='tasks')
+    request = models.ForeignKey(Request, on_delete=models.SET_NULL,
+                                blank=True, null=True, related_name='tasks')
+    deal = models.ForeignKey(Deal, on_delete=models.SET_NULL,
+                             blank=True, null=True, related_name='tasks')
+
+    due_date = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'tasks'
+        verbose_name = 'Задача'
+        verbose_name_plural = 'Задачи'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title

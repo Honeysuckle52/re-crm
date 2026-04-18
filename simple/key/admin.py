@@ -33,6 +33,8 @@ class UserAdmin(BaseUserAdmin):
 admin.site.register(models.OperationType)
 admin.site.register(models.PropertyStatus)
 admin.site.register(models.RequestStatus)
+admin.site.register(models.DealStatus)
+admin.site.register(models.TaskStatus)
 admin.site.register(models.UserRole)
 admin.site.register(models.City)
 admin.site.register(models.Street)
@@ -46,6 +48,7 @@ admin.site.register(models.PropertyFeature)
 class PropertyPhotoInline(admin.TabularInline):
     model = models.PropertyPhoto
     extra = 1
+    fields = ('image', 'url', 'caption', 'is_cover')
 
 
 class PropertyFeatureValueInline(admin.TabularInline):
@@ -72,8 +75,17 @@ class RequestAdmin(admin.ModelAdmin):
 @admin.register(models.Deal)
 class DealAdmin(admin.ModelAdmin):
     list_display = ('deal_number', 'property', 'client', 'agent',
-                    'price_final', 'deal_date')
+                    'status', 'price_final', 'deal_date')
+    list_filter = ('status', 'operation_type')
     search_fields = ('deal_number',)
+
+
+@admin.register(models.Task)
+class TaskAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'status', 'priority', 'assignee',
+                    'due_date', 'created_at')
+    list_filter = ('status', 'priority', 'assignee')
+    search_fields = ('title', 'description')
 
 
 admin.site.register(models.PropertyStatusHistory)
