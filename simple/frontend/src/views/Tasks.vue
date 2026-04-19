@@ -184,14 +184,22 @@
               <span v-if="t.is_overdue" class="tag overdue">просрочено</span>
             </td>
             <td>
-              <span class="tag tag--accent">{{ t.status_name }}</span>
-              <div v-if="t.is_auto_closed"
-                   class="auto-closed-badge" title="Задача закрыта автоматически">
-                авто
-              </div>
-              <div v-if="t.assignee === auth.user?.id && t.status_code === 'in_progress'"
-                   class="muted" style="font-size: 11px; margin-top: 2px">
-                вы сейчас выполняете
+              <div class="status-cell">
+                <span class="tag tag--accent">{{ t.status_name }}</span>
+                <!-- Компактный бейдж «вы» вместо длинной подписи
+                     «вы сейчас выполняете» — визуально в одной системе
+                     с .tag, не шумит и не ломает ширину колонки. -->
+                <span
+                  v-if="t.assignee === auth.user?.id && t.status_code === 'in_progress'"
+                  class="tag tag--you"
+                  title="Эта задача сейчас в работе у вас">
+                  вы
+                </span>
+                <span v-if="t.is_auto_closed"
+                      class="tag tag--auto"
+                      title="Задача закрыта автоматически">
+                  авто
+                </span>
               </div>
             </td>
             <td class="task-actions">
@@ -513,7 +521,45 @@ onMounted(async () => {
   background: #e8f4f3; color: #1a5a52; font-size: 11px;
 }
 
-/* Индикатор автозакрытия */
+/* Ячейка статуса: статус + вспомогательные бейджи в ряд,
+   аккуратно переносятся на новую строку при узкой колонке. */
+.status-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+/* «вы» — подсветка того, что задача в работе у текущего пользователя.
+   Визуально в одной системе с .tag--accent, но с заметной точкой-маркером
+   слева, чтобы отличаться от самого статуса. */
+.tag--you {
+  background: var(--c-panel); color: #fff;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: .04em; text-transform: uppercase;
+  padding: 3px 10px 3px 18px;
+  position: relative;
+}
+.tag--you::before {
+  content: '';
+  position: absolute;
+  left: 8px; top: 50%;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 2px rgba(31,163,154,.35);
+}
+
+/* Индикатор автозакрытия — тот же .tag стиль. */
+.tag--auto {
+  background: rgba(21, 101, 192, .12);
+  color: #1565c0;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+
+/* Legacy — оставлено на случай использования в других местах. */
 .auto-closed-badge {
   display: inline-block;
   font-size: 10px; font-weight: 700;
