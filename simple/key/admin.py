@@ -82,10 +82,36 @@ class DealAdmin(admin.ModelAdmin):
 
 @admin.register(models.Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ('id', 'title', 'status', 'priority', 'assignee',
-                    'due_date', 'created_at')
-    list_filter = ('status', 'priority', 'assignee')
+    list_display = ('id', 'title', 'kind', 'status', 'priority', 'assignee',
+                    'auto_close_rule', 'due_date', 'completed_at',
+                    'created_at')
+    list_filter = ('status', 'kind', 'priority', 'auto_close_rule',
+                   'assignee')
     search_fields = ('title', 'description')
+    readonly_fields = ('duration_sec', 'result')
+
+
+@admin.register(models.EmployeeKPI)
+class EmployeeKPIAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'period', 'kind',
+                    'completed_count', 'auto_closed_count',
+                    'overdue_count', 'total_duration_sec')
+    list_filter = ('kind', 'period', 'employee')
+    search_fields = ('employee__username',)
+    date_hierarchy = 'period'
+
+
+@admin.register(models.OutgoingEmail)
+class OutgoingEmailAdmin(admin.ModelAdmin):
+    list_display = ('id', 'template', 'to_email', 'status', 'attempts',
+                    'related_request', 'related_task', 'sent_at',
+                    'created_at')
+    list_filter = ('status', 'template')
+    search_fields = ('to_email', 'subject')
+    readonly_fields = ('template', 'to_email', 'to_user', 'subject',
+                       'body_text', 'body_html',
+                       'related_task', 'related_request', 'related_property',
+                       'attempts', 'created_at', 'sent_at')
 
 
 admin.site.register(models.PropertyStatusHistory)

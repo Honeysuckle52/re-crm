@@ -647,11 +647,54 @@ class Task(models.Model):
 
     Универсальная CRM-сущность: задача может быть связана с клиентом,
     объектом, заявкой или сделкой — любой из этих связей достаточно.
+
+    Поля ``kind`` и ``auto_close_rule`` используются движком доменных
+    событий (``key/events.py`` + ``key/signals.py``) для автозакрытия
+    задач по факту наступления бизнес-события, например, когда агент
+    подобрал клиенту подходящий объект.
     """
     PRIORITY_CHOICES = [
         ('low',    'Низкий'),
         ('normal', 'Обычный'),
         ('high',   'Высокий'),
+    ]
+
+    # --- Типы (виды) задач -------------------------------------------------
+    # Набор типов нужен, чтобы движок автозакрытия понимал, какие именно
+    # задачи закрываются при наступлении события ("поиск клиента для
+    # объекта" / "подбор объектов для клиента" / "показ" и т. п.).
+    KIND_CALL            = 'call'
+    KIND_CLIENT_SEARCH   = 'client_search'
+    KIND_PROPERTY_SEARCH = 'property_search'
+    KIND_VIEWING         = 'viewing'
+    KIND_DOCUMENTS       = 'documents'
+    KIND_FOLLOW_UP       = 'follow_up'
+    KIND_OTHER           = 'other'
+    KIND_CHOICES = [
+        (KIND_CALL,            'Звонок клиенту'),
+        (KIND_CLIENT_SEARCH,   'Поиск клиентов для объекта'),
+        (KIND_PROPERTY_SEARCH, 'Подбор объектов для клиента'),
+        (KIND_VIEWING,         'Показ объекта'),
+        (KIND_DOCUMENTS,       'Подготовка документов'),
+        (KIND_FOLLOW_UP,       'Повторный контакт'),
+        (KIND_OTHER,           'Прочее'),
+    ]
+
+    # --- Коды авто-закрытия ------------------------------------------------
+    # Если поле не пустое — задача закрывается движком событий при
+    # наступлении соответствующего доменного факта. Пустое значение
+    # означает: «задача завершается только вручную».
+    AUTO_CLOSE_ON_CLIENT_MATCHED   = 'on_client_matched'
+    AUTO_CLOSE_ON_PROPERTY_MATCHED = 'on_property_matched'
+    AUTO_CLOSE_ON_VIEWING_DONE     = 'on_viewing_done'
+    AUTO_CLOSE_ON_DEAL_CREATED     = 'on_deal_created'
+    AUTO_CLOSE_ON_REQUEST_CLOSED   = 'on_request_closed'
+    AUTO_CLOSE_CHOICES = [
+        (AUTO_CLOSE_ON_CLIENT_MATCHED,   'Когда подобран клиент для объекта'),
+        (AUTO_CLOSE_ON_PROPERTY_MATCHED, 'Когда подобран объект для клиента'),
+        (AUTO_CLOSE_ON_VIEWING_DONE,     'Когда показ проведён'),
+        (AUTO_CLOSE_ON_DEAL_CREATED,     'Когда создана сделка'),
+        (AUTO_CLOSE_ON_REQUEST_CLOSED,   'Когда заявка закрыта'),
     ]
 
     title = models.CharField(max_length=255)
@@ -660,6 +703,21 @@ class Task(models.Model):
                                 default='normal')
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
                                related_name='tasks')
+
+    kind = models.CharField(
+        max_length=30, choices=KIND_CHOICES, default=KIND_OTHER,
+        db_index=True,
+        help_text='Тип задачи — используется для автозакрытия и статистики.',
+    )
+    auto_close_rule = models.CharField(
+        max_length=40, choices=AUTO_CLOSE_CHOICES,
+        blank=True, null=True,
+        help_text='Код доменного события, автоматически закрывающего задачу.',
+    )
+    result = models.JSONField(
+        default=dict, blank=True,
+        help_text='Результат выполнения (что именно сделано, автор, контекст).',
+    )
 
     assignee = models.ForeignKey(User, on_delete=models.PROTECT,
                                  related_name='assigned_tasks',
@@ -680,6 +738,9 @@ class Task(models.Model):
 
     due_date = models.DateTimeField(blank=True, null=True)
     completed_at = models.DateTimeField(blank=True, null=True)
+    # Фактическая длительность выполнения задачи в секундах (для KPI).
+    # Считается при завершении: ``completed_at - created_at``.
+    duration_sec = models.PositiveIntegerField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -688,6 +749,126 @@ class Task(models.Model):
         verbose_name = 'Задача'
         verbose_name_plural = 'Задачи'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['assignee', 'status']),
+            models.Index(fields=['request', 'kind']),
+            models.Index(fields=['property', 'kind']),
+        ]
 
     def __str__(self):
         return self.title
+
+    # ------------------------------------------------------------------
+    # Хелперы терминального состояния. Используются и API-слоем, и
+    # обработчиками доменных событий, чтобы не дублировать проверку
+    # «задача уже завершена».
+    # ------------------------------------------------------------------
+    TERMINAL_STATUS_CODES: tuple[str, ...] = ('done', 'cancelled')
+
+    @property
+    def is_terminal(self) -> bool:
+        return bool(self.status_id and self.status
+                    and self.status.code in self.TERMINAL_STATUS_CODES)
+
+
+# ====== СТАТИСТИКА СОТРУДНИКОВ И ЖУРНАЛ ПИСЕМ ==============================
+
+class EmployeeKPI(models.Model):
+    """
+    Дневной агрегат KPI сотрудника по типу задач.
+
+    Обновляется атомарно в момент завершения задачи (``F('…') + 1``) —
+    это дешевле, чем каждый раз пересчитывать из таблицы задач.
+    Одна строка = (сотрудник, дата, тип задачи).
+    """
+    employee = models.ForeignKey(User, on_delete=models.CASCADE,
+                                 related_name='kpi_rows',
+                                 limit_choices_to={'user_type': 'employee'})
+    period = models.DateField(
+        help_text='Дата, к которой относится запись (день завершения задачи).',
+    )
+    kind = models.CharField(max_length=30, choices=Task.KIND_CHOICES,
+                            default=Task.KIND_OTHER)
+
+    completed_count = models.PositiveIntegerField(default=0)
+    auto_closed_count = models.PositiveIntegerField(default=0)
+    overdue_count = models.PositiveIntegerField(default=0)
+    total_duration_sec = models.BigIntegerField(default=0)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'employee_kpi'
+        verbose_name = 'KPI сотрудника'
+        verbose_name_plural = 'KPI сотрудников'
+        unique_together = [('employee', 'period', 'kind')]
+        indexes = [
+            models.Index(fields=['employee', 'period']),
+        ]
+        ordering = ['-period', 'employee_id']
+
+    def __str__(self):
+        return f'{self.employee_id} · {self.period} · {self.kind}'
+
+
+class OutgoingEmail(models.Model):
+    """
+    Журнал писем, отправленных клиентам из CRM.
+
+    Нужен для аудита («точно ли ушло?»), ручных ретраев при SMTP-сбое
+    и связывания письма с задачей/заявкой, из-за которой оно было
+    отправлено. Реальная отправка делается фоном в ``mailing.py``
+    через ``transaction.on_commit``.
+    """
+    STATUS_QUEUED = 'queued'
+    STATUS_SENT = 'sent'
+    STATUS_FAILED = 'failed'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_QUEUED,    'В очереди'),
+        (STATUS_SENT,      'Отправлено'),
+        (STATUS_FAILED,    'Ошибка'),
+        (STATUS_CANCELLED, 'Отменено'),
+    ]
+
+    template = models.CharField(max_length=60,
+                                help_text='Код шаблона письма')
+    to_email = models.EmailField()
+    to_user = models.ForeignKey(User, on_delete=models.SET_NULL,
+                                null=True, blank=True,
+                                related_name='incoming_emails')
+    subject = models.CharField(max_length=255)
+    body_text = models.TextField()
+    body_html = models.TextField(blank=True)
+
+    related_task = models.ForeignKey(Task, on_delete=models.SET_NULL,
+                                     null=True, blank=True,
+                                     related_name='outgoing_emails')
+    related_request = models.ForeignKey(Request, on_delete=models.SET_NULL,
+                                        null=True, blank=True,
+                                        related_name='outgoing_emails')
+    related_property = models.ForeignKey(Property, on_delete=models.SET_NULL,
+                                         null=True, blank=True,
+                                         related_name='outgoing_emails')
+
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES,
+                              default=STATUS_QUEUED)
+    error = models.TextField(blank=True, null=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'outgoing_emails'
+        verbose_name = 'Исходящее письмо'
+        verbose_name_plural = 'Исходящие письма'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['related_request']),
+            models.Index(fields=['related_task']),
+        ]
+
+    def __str__(self):
+        return f'{self.template} → {self.to_email} ({self.get_status_display()})'

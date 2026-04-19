@@ -39,6 +39,8 @@ router.register('request-matches', views.RequestPropertyMatchViewSet,
 router.register('deals', views.DealViewSet)
 router.register('viewings', views.PropertyViewingViewSet)
 router.register('tasks', views.TaskViewSet)
+router.register('outgoing-emails', views.OutgoingEmailViewSet,
+                basename='outgoing-emails')
 
 urlpatterns = [
     # Аутентификация (JWT)

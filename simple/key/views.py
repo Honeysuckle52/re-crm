@@ -16,7 +16,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from . import business_rules, models, serializers
+from datetime import date
+
+from . import business_rules, events, kpi, mailing, models, serializers, task_actions
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
 from .permissions import (
@@ -27,6 +29,16 @@ from .permissions import (
 )
 
 User = get_user_model()
+
+
+def _parse_date(raw: str | None) -> date | None:
+    """Безопасно парсит YYYY-MM-DD из query-параметра."""
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 # ====== Аутентификация =====================================================
@@ -245,6 +257,9 @@ class UserViewSet(viewsets.ModelViewSet):
         Срез текущей загрузки сотрудника: сколько задач/заявок
         сейчас в работе и каковы лимиты. Используется виджетом в TopBar
         и формами назначения, чтобы заранее показывать «лимит исчерпан».
+
+        Дополнительно отдаём ``today`` — короткую KPI-сводку по
+        выполненным задачам за сегодня (показывается в виджете).
         """
         if not request.user.is_employee:
             return Response({
@@ -259,8 +274,16 @@ class UserViewSet(viewsets.ModelViewSet):
                 'can_take_request': False,
                 'can_take_task': False,
                 'can_start_task': False,
+                'today': {
+                    'completed_today': 0,
+                    'auto_closed_today': 0,
+                    'overdue_today': 0,
+                    'avg_duration_sec': 0,
+                },
             })
-        return Response(business_rules.snapshot_for(request.user).as_dict())
+        snapshot = business_rules.snapshot_for(request.user).as_dict()
+        snapshot['today'] = kpi.today_snapshot(request.user.pk)
+        return Response(snapshot)
 
     @action(detail=True, methods=['get'], url_path='workload',
             permission_classes=[IsAdminOrManager])
@@ -272,7 +295,37 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': 'Учитывается только загрузка сотрудников.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        return Response(business_rules.snapshot_for(target).as_dict())
+        data = business_rules.snapshot_for(target).as_dict()
+        data['today'] = kpi.today_snapshot(target.pk)
+        return Response(data)
+
+    @action(detail=False, methods=['get'], url_path='me/kpi',
+            permission_classes=[IsAuthenticated])
+    def my_kpi(self, request):
+        """KPI текущего пользователя за указанный интервал (или 30 дней)."""
+        if not request.user.is_employee:
+            return Response(kpi.kpi_for_range(request.user.pk))
+        return Response(kpi.kpi_for_range(
+            request.user.pk,
+            date_from=_parse_date(request.query_params.get('from')),
+            date_to=_parse_date(request.query_params.get('to')),
+        ))
+
+    @action(detail=True, methods=['get'], url_path='kpi',
+            permission_classes=[IsAdminOrManager])
+    def user_kpi(self, request, pk=None):
+        """KPI конкретного сотрудника — только руководителям."""
+        target = self.get_object()
+        if not target.is_employee:
+            return Response(
+                {'detail': 'KPI доступен только для сотрудников.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(kpi.kpi_for_range(
+            target.pk,
+            date_from=_parse_date(request.query_params.get('from')),
+            date_to=_parse_date(request.query_params.get('to')),
+        ))
 
 
 class EmployeeProfileViewSet(viewsets.ModelViewSet):
@@ -557,8 +610,10 @@ class RequestViewSet(viewsets.ModelViewSet):
         """
         Закрыть заявку.
 
-        Клиент может закрыть только свою заявку (отсечение происходит
-        в ``get_queryset``). Повторное закрытие не допускается.
+        После закрытия отправляет доменное событие ``request_closed``,
+        которое в :mod:`key.signals` автоматически завершает все
+        оставшиеся по заявке задачи (в едином стиле с остальной
+        автоматикой).
         """
         req = self.get_object()
         if req.status and req.status.code in {'closed', 'cancelled'}:
@@ -571,7 +626,52 @@ class RequestViewSet(viewsets.ModelViewSet):
             req.status = closed
         req.closed_at = timezone.now()
         req.save()
+        events.request_closed.send(sender=models.Request, request=req,
+                                   actor=request.user)
         return Response(serializers.RequestSerializer(req).data)
+
+    @action(detail=True, methods=['post'], url_path='accept_match')
+    def accept_match(self, request, pk=None):
+        """
+        Отметить конкретный вариант из подборки как подтверждённый
+        клиентом (или агентом по факту общения с клиентом).
+
+        Запускает доменное событие ``request_client_matched`` → в
+        :mod:`key.signals` автоматически закрываются задачи «Подбор
+        объектов / Поиск клиентов» по этой заявке, пишется KPI и
+        запускается отправка письма клиенту.
+        """
+        if not request.user.is_employee:
+            return Response(
+                {'detail': 'Доступно только сотрудникам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        req = self.get_object()
+        match_id = request.data.get('match_id')
+        if not match_id:
+            return Response({'detail': 'Не указан match_id.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        match = (models.RequestPropertyMatch.objects
+                 .select_related('property', 'agent', 'request')
+                 .filter(pk=match_id, request=req)
+                 .first())
+        if match is None:
+            return Response({'detail': 'Вариант не найден.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        match.is_rejected = False
+        match.is_offered = True
+        match.save(update_fields=['is_rejected', 'is_offered'])
+
+        events.request_client_matched.send(
+            sender=models.RequestPropertyMatch,
+            request=req,
+            property=match.property,
+            agent=match.agent or request.user,
+            match=match,
+        )
+        return Response(
+            serializers.RequestPropertyMatchSerializer(match).data,
+        )
 
     @action(detail=True, methods=['post'])
     def take(self, request, pk=None):
@@ -854,14 +954,37 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        """Быстрая отметка задачи как выполненной."""
+        """
+        Отметить задачу как выполненную.
+
+        Делегирует бизнес-логику в :func:`task_actions.complete_task`:
+        смена статуса + запись KPI + фиксация ``result`` — всё в одной
+        транзакции. Идемпотентно: повторный вызов для уже завершённой
+        задачи возвращает её текущее состояние без повторной записи
+        статистики.
+
+        Принимает опциональное тело ``{ "result": { ... } }`` — агент
+        может рассказать, что именно сделано (звонок / показ / подбор).
+        """
         task = self.get_object()
-        done = models.TaskStatus.objects.filter(code='done').first()
-        if done:
-            task.status = done
-        task.completed_at = timezone.now()
-        task.save()
-        return Response(serializers.TaskSerializer(task).data)
+        if (task.assignee_id != request.user.id
+                and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя завершать чужую задачу.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        result = request.data.get('result') or {}
+        if not isinstance(result, dict):
+            return Response(
+                {'detail': 'Поле result должно быть объектом.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        completed, was_closed_now = task_actions.complete_task(
+            task, actor=request.user, auto_closed=False, result=result,
+        )
+        payload = serializers.TaskSerializer(completed).data
+        payload['was_closed_now'] = was_closed_now
+        return Response(payload)
 
     @action(detail=False, methods=['get'])
     def current(self, request):
@@ -882,6 +1005,80 @@ class TaskViewSet(viewsets.ModelViewSet):
         if task is None:
             return Response(None)
         return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=False, methods=['get'], url_path='next_up')
+    def next_up(self, request):
+        """
+        «Что делать дальше»: активные задачи сотрудника в порядке
+        приоритета / срока. Используется виджетом, когда у сотрудника
+        нет задачи в работе и нужно предложить взять следующую.
+        """
+        if not request.user.is_employee:
+            return Response([])
+        qs = (models.Task.objects
+              .select_related('status', 'request', 'client', 'property')
+              .filter(assignee=request.user,
+                      status__code__in=business_rules.ACTIVE_TASK_STATUS_CODES)
+              .order_by(
+                  # высокий приоритет — в начало
+                  '-priority',
+                  # ближайший дедлайн — в начало, null'ы в конце
+                  'due_date',
+              )[:5])
+        data = serializers.TaskSerializer(qs, many=True).data
+        return Response(data)
+
+
+# ====== Журнал исходящих писем ============================================
+
+class OutgoingEmailViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Журнал писем, отправленных клиентам (автоматические уведомления
+    о подобранных объектах и т. п.). Только для сотрудников: сотрудник
+    видит письма по своим задачам/заявкам, менеджер — все.
+    """
+    queryset = models.OutgoingEmail.objects.select_related(
+        'to_user', 'related_task', 'related_request', 'related_property'
+    ).all()
+    serializer_class = serializers.OutgoingEmailSerializer
+    permission_classes = [IsEmployee]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at', 'sent_at', 'status']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and not user.is_admin_or_manager:
+            qs = qs.filter(
+                Q(related_task__assignee=user)
+                | Q(related_request__agent=user)
+            )
+        params = self.request.query_params
+        if params.get('status'):
+            qs = qs.filter(status=params['status'])
+        if params.get('related_task'):
+            qs = qs.filter(related_task_id=params['related_task'])
+        if params.get('related_request'):
+            qs = qs.filter(related_request_id=params['related_request'])
+        return qs
+
+    @action(detail=True, methods=['post'])
+    def retry(self, request, pk=None):
+        """Ручная повторная отправка для писем в статусах failed/cancelled."""
+        email = self.get_object()
+        if email.status == models.OutgoingEmail.STATUS_SENT:
+            return Response(
+                {'detail': 'Письмо уже отправлено.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not email.to_email:
+            return Response(
+                {'detail': 'У письма нет адреса получателя.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        mailing.resend(email)
+        email.refresh_from_db()
+        return Response(serializers.OutgoingEmailSerializer(email).data)
 
 
 # ====== Сводка для главного экрана ========================================

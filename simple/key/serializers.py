@@ -554,20 +554,31 @@ class TaskSerializer(serializers.ModelSerializer):
     )
     priority_display = serializers.CharField(source='get_priority_display',
                                              read_only=True)
+    kind_display = serializers.CharField(source='get_kind_display',
+                                         read_only=True)
+    auto_close_rule_display = serializers.CharField(
+        source='get_auto_close_rule_display', read_only=True, default=None,
+    )
     is_overdue = serializers.SerializerMethodField()
+    is_auto_closed = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Task
-        fields = ['id', 'title', 'description', 'priority', 'priority_display',
+        fields = ['id', 'title', 'description',
+                  'kind', 'kind_display',
+                  'auto_close_rule', 'auto_close_rule_display',
+                  'priority', 'priority_display',
                   'status', 'status_name', 'status_code',
                   'assignee', 'assignee_username',
                   'created_by', 'created_by_username',
                   'client', 'client_username',
                   'property', 'property_title',
                   'request', 'request_client_username', 'deal',
-                  'due_date', 'completed_at', 'is_overdue',
+                  'due_date', 'completed_at', 'duration_sec',
+                  'result', 'is_overdue', 'is_auto_closed',
                   'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at', 'created_by']
+        read_only_fields = ['created_at', 'updated_at', 'created_by',
+                            'completed_at', 'duration_sec', 'result']
 
     def get_is_overdue(self, obj) -> bool:
         from django.utils import timezone
@@ -576,3 +587,33 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.status and obj.status.code in {'done', 'cancelled'}:
             return False
         return obj.due_date < timezone.now()
+
+    def get_is_auto_closed(self, obj) -> bool:
+        return bool((obj.result or {}).get('auto_closed'))
+
+
+class EmployeeKPISerializer(serializers.ModelSerializer):
+    kind_display = serializers.CharField(source='get_kind_display',
+                                         read_only=True)
+
+    class Meta:
+        model = models.EmployeeKPI
+        fields = ['id', 'employee', 'period',
+                  'kind', 'kind_display',
+                  'completed_count', 'auto_closed_count',
+                  'overdue_count', 'total_duration_sec',
+                  'updated_at']
+
+
+class OutgoingEmailSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display',
+                                           read_only=True)
+
+    class Meta:
+        model = models.OutgoingEmail
+        fields = ['id', 'template', 'to_email', 'to_user',
+                  'subject', 'body_text',
+                  'related_task', 'related_request', 'related_property',
+                  'status', 'status_display', 'error', 'attempts',
+                  'created_at', 'sent_at']
+        read_only_fields = fields

@@ -188,7 +188,46 @@ DADATA_API_URL = os.getenv(
     'DADATA_API_URL',
     'https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address',
 )
-DADATA_API_KEY = os.getenv(
-    'DADATA_API_KEY',
-    '8ceded5bba84e0bd3f20cd7a36057324dc680563',
+DADATA_API_KEY = os.getenv('DADATA_API_KEY', '')
+
+# --- Email (SMTP) ----------------------------------------------------------
+#
+# Рабочий почтовый ящик агентства для автоматических писем клиентам.
+# Все параметры читаются из переменных окружения, чтобы не хранить
+# пароли в репозитории.
+#
+#   EMAIL_HOST           — SMTP-сервер провайдера (например, smtp.yandex.ru)
+#   EMAIL_PORT           — 465 для SSL, 587 для STARTTLS
+#   EMAIL_USE_SSL        — True для 465
+#   EMAIL_USE_TLS        — True для 587
+#   EMAIL_HOST_USER      — логин (обычно полный адрес ящика)
+#   EMAIL_HOST_PASSWORD  — «пароль приложения», не основной пароль
+#   DEFAULT_FROM_EMAIL   — адрес-отправитель («Агентство <info@...>»)
+#   AGENCY_REPLY_TO      — куда клиент ответит (обычно = EMAIL_HOST_USER)
+#
+# Если EMAIL_HOST не задан — автоматически включается консольный backend
+# (письма пишутся в stdout), чтобы разработчик видел тело письма без
+# настройки SMTP.
+
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'False').lower() == 'true'
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '15'))
+
+DEFAULT_FROM_EMAIL = os.getenv(
+    'DEFAULT_FROM_EMAIL',
+    EMAIL_HOST_USER or 'noreply@example.com',
+)
+AGENCY_REPLY_TO = os.getenv('AGENCY_REPLY_TO', EMAIL_HOST_USER)
+AGENCY_NAME = os.getenv('AGENCY_NAME', 'Агентство недвижимости')
+# Внешний публичный URL — подставляется в ссылки в письмах.
+AGENCY_PUBLIC_URL = os.getenv('AGENCY_PUBLIC_URL', 'http://localhost:5173')
+
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend'
+    if EMAIL_HOST else
+    'django.core.mail.backends.console.EmailBackend'
 )
