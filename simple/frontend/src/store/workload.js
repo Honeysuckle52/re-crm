@@ -26,6 +26,11 @@ const DEFAULT_WORKLOAD = {
   can_start_task: true,
 }
 
+// Общий таймер debounce для bumpAfterAction — живёт на уровне модуля,
+// чтобы несколько последовательных мутаций (например, «take» + «start»)
+// свернулись в один refresh.
+let _bumpTimer = null
+
 export const useWorkloadStore = defineStore('workload', {
   state: () => ({
     workload: { ...DEFAULT_WORKLOAD },
@@ -68,6 +73,26 @@ export const useWorkloadStore = defineStore('workload', {
       this.workload = { ...DEFAULT_WORKLOAD }
       this.currentTask = null
       this.lastSyncAt = null
+    },
+
+    /**
+     * Дёрнуть refresh после серверной мутации (take / start / pause /
+     * complete / accept_match). Делает это с небольшой задержкой, чтобы
+     * бэкенд успел отработать сигналы/триггеры, и коалесцирует несколько
+     * подряд идущих вызовов в один запрос.
+     *
+     * Вызывается из `src/api/tasks.js` — виджет CurrentTaskWidget,
+     * страницы Tasks/Requests/RequestDetail автоматически увидят
+     * актуальные данные без ручного refresh().
+     *
+     * @param {{ delayMs?: number }} [opts]
+     */
+    bumpAfterAction({ delayMs = 400 } = {}) {
+      if (_bumpTimer) clearTimeout(_bumpTimer)
+      _bumpTimer = setTimeout(() => {
+        _bumpTimer = null
+        this.refresh()
+      }, Math.max(0, delayMs))
     },
   },
 })
