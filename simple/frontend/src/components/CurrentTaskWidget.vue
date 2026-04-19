@@ -317,10 +317,24 @@ const floatStyle = computed(() => ({
 // ---------------------------------------------------------------------------
 // Жизненный цикл
 // ---------------------------------------------------------------------------
-watch(() => auth.isAuthenticated, (v) => {
-  if (v && auth.isStaff) wl.refresh()
-  else wl.reset()
-})
+// Следим за связкой (id пользователя, staff-флаг).
+// Ранее стоял watch по `isAuthenticated`, из-за чего при смене аккаунта
+// (logout → login под другим пользователем) виджет мог показать данные
+// предыдущего юзера: на момент тика `auth.user` ещё грузится через
+// fetchMe(), isStaff=false, и refresh() просто не вызывался.
+//
+// Теперь:
+//   - любой переход user.id (null↔A, A↔B) триггерит reset(),
+//     чтобы мгновенно стереть задачу/счётчики прошлого пользователя;
+//   - как только isStaff становится true (fetchMe завершился) — refresh().
+watch(
+  () => [auth.user?.id ?? null, auth.isStaff],
+  ([newId, newStaff], [oldId] = [null, false]) => {
+    if (newId !== oldId) wl.reset()
+    if (newStaff && newId) wl.refresh()
+  },
+  { immediate: false },
+)
 
 onMounted(() => {
   if (auth.isStaff) wl.refresh()
@@ -348,32 +362,44 @@ onBeforeUnmount(() => {
   /* bottom задаётся инлайново через :style — он подстраивается под футер. */
 }
 
-/* ---------- FAB (полностью скрытый режим) ---------- */
+/* ---------- FAB (полностью скрытый режим) ----------
+   Всегда используем фирменный тёмно-изумрудный (var(--c-panel)),
+   даже в состоянии перегрузки/просрочки. Тревогу показывает только
+   маленький бейдж — кнопка остаётся на бренде. */
 .ctw-fab {
   width: 48px; height: 48px; border-radius: 50%;
-  border: none; cursor: pointer;
-  background: #0f3a33; color: #fff;
-  box-shadow: 0 10px 24px rgba(16, 24, 23, .25),
-              0 2px 6px rgba(16, 24, 23, .12);
+  border: none; cursor: pointer; position: relative;
+  background: var(--c-panel, #0e3a38);
+  color: var(--c-paper, #fff);
+  box-shadow: var(--shadow-2, 0 10px 24px rgba(10, 40, 38, .18));
   display: inline-flex; align-items: center; justify-content: center;
-  transition: transform .15s ease, background .15s ease;
+  transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
 }
-.ctw-fab:hover { background: #134a41; transform: translateY(-1px); }
-.ctw-fab.is-overloaded,
-.ctw-fab.is-overdue { background: #c34a3d; }
+.ctw-fab:hover {
+  background: var(--c-panel-2, #124b48);
+  transform: translateY(-1px);
+}
+.ctw-fab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-2, 0 10px 24px rgba(10, 40, 38, .18)),
+              0 0 0 3px rgba(31, 163, 154, .35);
+}
 .ctw-fab__icon { display: inline-flex; }
 .ctw-fab__badge {
   position: absolute;
   top: 4px; right: 4px;
   min-width: 14px; height: 14px; padding: 0 4px;
   border-radius: 999px;
-  background: #ff7a6b; color: #fff;
+  background: var(--c-accent, #1fa39a); color: #fff;
   font-size: 10px; font-weight: 700; line-height: 14px;
   text-align: center;
-  box-shadow: 0 0 0 2px #0f3a33;
+  box-shadow: 0 0 0 2px var(--c-panel, #0e3a38);
 }
+/* Тревожное состояние — красим только бейдж, сама кнопка остаётся фирменной. */
 .ctw-fab.is-overloaded .ctw-fab__badge,
-.ctw-fab.is-overdue   .ctw-fab__badge { box-shadow: 0 0 0 2px #c34a3d; }
+.ctw-fab.is-overdue   .ctw-fab__badge {
+  background: var(--c-danger, #c2554a);
+}
 
 /* ---------- Карточка (summary + expanded) ---------- */
 .ctw {
@@ -388,12 +414,14 @@ onBeforeUnmount(() => {
   font-size: 13px;
   transition: bottom .18s ease;
 }
-.ctw.is-overloaded { border-color: #e7b7b1; }
+.ctw.is-overloaded { border-color: rgba(194, 85, 74, .35); }
 
-/* Шапка: основная кнопка + close рядом. */
+/* Шапка: основная кнопка + close рядом.
+   Используем фирменный тёмно-изумрудный (var(--c-panel)) — тот же цвет,
+   что у FAB и навигации. */
 .ctw__head {
   display: flex; align-items: stretch;
-  background: #0f3a33;
+  background: var(--c-panel, #0e3a38);
   color: #fff;
 }
 .ctw__head-main {
@@ -445,7 +473,10 @@ onBeforeUnmount(() => {
   padding: 3px 8px; border-radius: 999px;
   background: rgba(255,255,255,.15); color: #fff;
 }
-.ctw.is-overloaded .ctw__pill { background: #ff7a6b; color: #fff; }
+.ctw.is-overloaded .ctw__pill {
+  background: var(--c-danger, #c2554a);
+  color: #fff;
+}
 
 .ctw__chevron { font-size: 10px; opacity: .75; }
 
@@ -462,8 +493,8 @@ onBeforeUnmount(() => {
   padding: 3px 9px; border-radius: 999px;
   background: #eef4f2; color: #234240;
 }
-.ctw__tag--accent  { background: #0f3a33; color: #fff; }
-.ctw__tag--danger  { background: #fdece9; color: #9a3b32; }
+.ctw__tag--accent  { background: var(--c-panel, #0e3a38); color: #fff; }
+.ctw__tag--danger  { background: rgba(194, 85, 74, .14); color: var(--c-danger, #9a3b32); }
 .ctw__tag--muted   { background: #e6e9e8; color: #546664; }
 
 .ctw__meta {
@@ -490,13 +521,20 @@ onBeforeUnmount(() => {
 .ctw__btn:hover:not(:disabled) { background: #f3f6f5; }
 .ctw__btn:disabled { opacity: .5; cursor: not-allowed; }
 .ctw__btn--primary {
-  background: #0f3a33; border-color: #0f3a33; color: #fff;
+  background: var(--c-panel, #0e3a38);
+  border-color: var(--c-panel, #0e3a38);
+  color: #fff;
 }
-.ctw__btn--primary:hover:not(:disabled) { background: #134a41; }
+.ctw__btn--primary:hover:not(:disabled) {
+  background: var(--c-panel-2, #124b48);
+  border-color: var(--c-panel-2, #124b48);
+}
 .ctw__btn--accent  {
-  background: #1fa39a; border-color: #1fa39a; color: #fff;
+  background: var(--c-accent, #1fa39a);
+  border-color: var(--c-accent, #1fa39a);
+  color: #fff;
 }
-.ctw__btn--accent:hover:not(:disabled) { background: #188a82; }
+.ctw__btn--accent:hover:not(:disabled) { filter: brightness(.92); }
 
 .ctw__empty {
   display: flex; align-items: center; justify-content: space-between;
@@ -505,9 +543,12 @@ onBeforeUnmount(() => {
 }
 
 .ctw__warn {
-  background: #fdece9; color: #9a3b32;
-  padding: 6px 10px; border-radius: 8px;
+  background: rgba(194, 85, 74, .10);
+  color: var(--c-danger, #9a3b32);
+  border-left: 3px solid var(--c-danger, #c2554a);
+  padding: 8px 10px; border-radius: 8px;
   font-size: 12px; font-weight: 500;
+  line-height: 1.35;
 }
 
 /* На узких экранах — растянуть по ширине. */

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../api'
+import { useWorkloadStore } from './workload'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -63,6 +64,11 @@ export const useAuthStore = defineStore('auth', {
       this.refresh = null
       localStorage.removeItem('access')
       localStorage.removeItem('refresh')
+      // Дополнительно сбрасываем виджет текущей задачи, чтобы после
+      // смены аккаунта не оставались счётчики/задача предыдущего юзера.
+      // Оборачиваем в try — на самом раннем этапе (до createPinia/мounting)
+      // стор может быть недоступен, и это нормально.
+      try { useWorkloadStore().reset() } catch (_e) { /* no-op */ }
     },
   },
 })
