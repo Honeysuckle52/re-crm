@@ -1,0 +1,20 @@
+Здравствуйте, {{ client_name }}!
+
+По вашей заявке №{{ request.pk }} подобран подходящий объект:
+
+{{ property.title }}
+{% if property.price %}Цена: {{ property.price }} руб.{% endif %}
+{% if property.rooms_count %}Количество комнат: {{ property.rooms_count }}{% endif %}
+{% if property.area_total %}Общая площадь: {{ property.area_total }} м².{% endif %}
+
+Подробнее: {{ property_url }}
+
+Ваш агент{% if agent_name %} — {{ agent_name }}{% endif %}.
+{% if agent_email %}E-mail для связи: {{ agent_email }}{% endif %}
+{% if agent_phone %}Телефон: {{ agent_phone }}{% endif %}
+
+Вы можете ответить прямо на это письмо — оно придёт вашему агенту.
+
+--
+{{ agency_name }}
+{{ public_url }}

@@ -663,6 +663,52 @@ class RequestViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=['post'], url_path='confirm_property')
+    def confirm_property(self, request, pk=None):
+        """
+        Подтвердить вариант из подборки.
+
+        Это действие:
+        1. Помечает вариант как подтверждённый
+        2. Автоматически закрывает задачи типа 'property_search' по заявке
+        3. Создаёт исходящее письмо клиенту
+        4. Записывает результат в статистику сотрудника
+        """
+        if not request.user.is_employee:
+            return Response(
+                {'detail': 'Доступно только сотрудникам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        req = self.get_object()
+        match_id = request.data.get('match_id')
+        if not match_id:
+            return Response({'detail': 'Не указан match_id.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        match = req.matches.filter(pk=match_id).first()
+        if not match:
+            return Response({'detail': 'Вариант не найден.'},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # Помечаем как предложенный/подтверждённый
+        match.is_offered = True
+        match.is_rejected = False
+        match.save(update_fields=['is_offered', 'is_rejected'])
+
+        # Отправляем сигнал для автозакрытия задач и создания письма
+        from .signals import property_match_confirmed
+        property_match_confirmed.send(
+            sender=self.__class__,
+            match=match,
+            confirmed_by=request.user,
+        )
+
+        return Response({
+            'detail': 'Вариант подтверждён. Задачи подбора закрыты, '
+                      'письмо клиенту поставлено в очередь.',
+            'match': serializers.RequestPropertyMatchSerializer(match).data,
+        })
+
 
 class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
     """Только чтение подборки; модификация — через действия RequestViewSet."""
@@ -751,6 +797,10 @@ class TaskViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status_id=self.request.query_params['status'])
         if self.request.query_params.get('assignee'):
             qs = qs.filter(assignee_id=self.request.query_params['assignee'])
+        if self.request.query_params.get('task_type'):
+            qs = qs.filter(task_type=self.request.query_params['task_type'])
+        if self.request.query_params.get('request'):
+            qs = qs.filter(request_id=self.request.query_params['request'])
         return qs
 
     def perform_create(self, serializer):
@@ -854,12 +904,21 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        """Быстрая отметка задачи как выполненной."""
+        """
+        Отметка задачи как выполненной.
+
+        Опционально принимает ``result`` — текстовое описание результата
+        выполнения задачи, которое сохраняется для статистики.
+        """
         task = self.get_object()
         done = models.TaskStatus.objects.filter(code='done').first()
         if done:
             task.status = done
         task.completed_at = timezone.now()
+        # Сохраняем результат, если передан
+        result = request.data.get('result')
+        if result:
+            task.result = result
         task.save()
         return Response(serializers.TaskSerializer(task).data)
 
@@ -882,6 +941,47 @@ class TaskViewSet(viewsets.ModelViewSet):
         if task is None:
             return Response(None)
         return Response(serializers.TaskSerializer(task).data)
+
+
+# ====== Исходящие письма ==================================================
+
+class OutgoingEmailViewSet(viewsets.ModelViewSet):
+    """
+    Очередь исходящих писем.
+
+    Только для сотрудников и администраторов. Позволяет просматривать
+    очередь, повторно отправлять неудавшиеся письма.
+    """
+    queryset = models.OutgoingEmail.objects.select_related(
+        'recipient', 'sender', 'task', 'request', 'property',
+    ).all()
+    serializer_class = serializers.OutgoingEmailSerializer
+    permission_classes = [IsEmployee]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at', 'sent_at']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get('status'):
+            qs = qs.filter(status=params['status'])
+        if params.get('request'):
+            qs = qs.filter(request_id=params['request'])
+        return qs
+
+    @action(detail=True, methods=['post'])
+    def retry(self, request, pk=None):
+        """Повторная попытка отправки неудавшегося письма."""
+        email = self.get_object()
+        if email.status != 'failed':
+            return Response(
+                {'detail': 'Можно повторить только неудавшиеся письма.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        email.status = 'pending'
+        email.error_message = None
+        email.save(update_fields=['status', 'error_message'])
+        return Response(serializers.OutgoingEmailSerializer(email).data)
 
 
 # ====== Сводка для главного экрана ========================================
