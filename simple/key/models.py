@@ -654,10 +654,24 @@ class Task(models.Model):
         ('high',   'Высокий'),
     ]
 
+    TASK_TYPE_CHOICES = [
+        ('contact_client', 'Связаться с клиентом'),
+        ('property_search', 'Подбор объектов'),
+        ('showing', 'Показ объекта'),
+        ('documents', 'Подготовка документов'),
+        ('call', 'Звонок'),
+        ('other', 'Прочее'),
+    ]
+
+    # Коды статусов, при которых задача считается завершённой
+    TERMINAL_STATUS_CODES = ('done', 'cancelled')
+
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES,
                                 default='normal')
+    task_type = models.CharField(max_length=30, choices=TASK_TYPE_CHOICES,
+                                 default='other', db_index=True)
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
                                related_name='tasks')
 
@@ -680,6 +694,10 @@ class Task(models.Model):
 
     due_date = models.DateTimeField(blank=True, null=True)
     completed_at = models.DateTimeField(blank=True, null=True)
+    result = models.TextField(blank=True, null=True,
+                              help_text='Результат выполнения задачи')
+    is_auto_closed = models.BooleanField(default=False,
+                                         help_text='Закрыта автоматически системой')
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -691,3 +709,62 @@ class Task(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def is_completed(self):
+        """Проверяет, завершена ли задача."""
+        return (self.status_id is not None
+                and self.status.code in self.TERMINAL_STATUS_CODES)
+
+    @property
+    def task_type_display(self):
+        """Человекочитаемое название типа задачи."""
+        return dict(self.TASK_TYPE_CHOICES).get(self.task_type, self.task_type)
+
+
+class OutgoingEmail(models.Model):
+    """
+    Очередь исходящих писем клиентам.
+
+    Используется для автоматических уведомлений (например, при
+    подтверждении варианта подборки) и ручной отправки из CRM.
+    Статус отслеживается для повторных попыток и логирования.
+    """
+    STATUS_CHOICES = [
+        ('pending', 'Ожидает отправки'),
+        ('sent', 'Отправлено'),
+        ('failed', 'Ошибка отправки'),
+    ]
+
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE,
+                                  related_name='outgoing_emails',
+                                  limit_choices_to={'user_type': 'client'})
+    sender = models.ForeignKey(User, on_delete=models.SET_NULL,
+                               blank=True, null=True,
+                               related_name='sent_emails',
+                               limit_choices_to={'user_type': 'employee'})
+    subject = models.CharField(max_length=255)
+    body = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
+                              default='pending', db_index=True)
+
+    # Связи с бизнес-объектами (опциональные)
+    task = models.ForeignKey(Task, on_delete=models.SET_NULL,
+                             blank=True, null=True, related_name='emails')
+    request = models.ForeignKey(Request, on_delete=models.SET_NULL,
+                                blank=True, null=True, related_name='emails')
+    property = models.ForeignKey(Property, on_delete=models.SET_NULL,
+                                 blank=True, null=True, related_name='emails')
+
+    error_message = models.TextField(blank=True, null=True)
+    sent_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'outgoing_emails'
+        verbose_name = 'Исходящее письмо'
+        verbose_name_plural = 'Исходящие письма'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.subject} → {self.recipient.email}'

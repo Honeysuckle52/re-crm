@@ -26,6 +26,13 @@
       </div>
     </div>
 
+    <!-- Уведомления (тосты) -->
+    <Transition name="toast">
+      <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
+        {{ toast.message }}
+      </div>
+    </Transition>
+
     <div class="grid grid--2">
       <!-- Параметры заявки -->
       <div class="panel panel--light">
@@ -94,9 +101,20 @@
             <div v-if="m.agent_note" style="font-size: 13px">
               «{{ m.agent_note }}»
             </div>
+            <div v-if="m.is_offered && !m.is_rejected" class="confirmed-badge">
+              Подтверждён
+            </div>
           </div>
-          <button v-if="auth.isStaff" class="btn btn--sm btn--danger"
-                  @click="detachProperty(m)">Убрать</button>
+          <div v-if="auth.isStaff" class="match-actions">
+            <button class="btn btn--sm btn--accent"
+                    :disabled="confirmingId === m.id"
+                    @click="confirmProperty(m)"
+                    title="Подтвердить выбор клиента (закроет задачи подбора и отправит письмо)">
+              Подтвердить
+            </button>
+            <button class="btn btn--sm btn--danger"
+                    @click="detachProperty(m)">Убрать</button>
+          </div>
         </div>
       </div>
       <div v-else class="muted" style="margin-top: 12px">
@@ -115,13 +133,22 @@
       <div v-if="requestTasks.length" class="stack" style="margin-top: 12px">
         <div v-for="t in requestTasks" :key="t.id" class="task-row">
           <div class="stack" style="gap: 2px; flex: 1">
-            <b>{{ t.title }}</b>
+            <div class="row" style="gap: 8px; align-items: center">
+              <b>{{ t.title }}</b>
+              <span v-if="t.is_auto_closed" class="auto-badge" title="Закрыта автоматически">
+                авто
+              </span>
+            </div>
             <div class="muted" style="font-size: 12px">
+              <span class="tag tag--type">{{ t.task_type_display || t.task_type }}</span>
               Исполнитель: {{ t.assignee_username }} ·
               Срок: {{ t.due_date ? formatDate(t.due_date) : '—' }}
               <span v-if="t.is_overdue" class="tag" style="background: #fee; color: #c2554a">
                 просрочено
               </span>
+            </div>
+            <div v-if="t.result" class="result-text">
+              Результат: {{ t.result }}
             </div>
           </div>
           <span class="tag tag--accent">{{ t.status_name }}</span>
@@ -136,7 +163,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
@@ -151,6 +178,16 @@ const availableProperties = ref([])
 const requestTasks = ref([])
 const attachPropertyId = ref(null)
 const attachNote = ref('')
+const confirmingId = ref(null)
+
+// Тост-уведомления
+const toast = reactive({ show: false, message: '', type: 'success' })
+function showToast(message, type = 'success') {
+  toast.message = message
+  toast.type = type
+  toast.show = true
+  setTimeout(() => { toast.show = false }, 5000)
+}
 
 const statusClass = computed(() => {
   const code = request.value?.status_code
@@ -180,33 +217,68 @@ async function load () {
 }
 
 async function takeRequest () {
-  await api.post(`/requests/${route.params.id}/take/`)
-  await load()
+  try {
+    await api.post(`/requests/${route.params.id}/take/`)
+    showToast('Заявка взята в работу')
+    await load()
+  } catch (err) {
+    showToast(err.response?.data?.detail || 'Не удалось взять заявку', 'error')
+  }
 }
 
 async function closeRequest () {
   if (!confirm('Закрыть заявку?')) return
-  await api.post(`/requests/${route.params.id}/close/`)
-  await load()
+  try {
+    await api.post(`/requests/${route.params.id}/close/`)
+    showToast('Заявка закрыта')
+    await load()
+  } catch (err) {
+    showToast(err.response?.data?.detail || 'Не удалось закрыть заявку', 'error')
+  }
 }
 
 async function attachProperty () {
   if (!attachPropertyId.value) return
-  await api.post(`/requests/${route.params.id}/attach_property/`, {
-    property_id: attachPropertyId.value,
-    agent_note: attachNote.value,
-  })
-  attachPropertyId.value = null
-  attachNote.value = ''
-  await load()
+  try {
+    await api.post(`/requests/${route.params.id}/attach_property/`, {
+      property_id: attachPropertyId.value,
+      agent_note: attachNote.value,
+    })
+    attachPropertyId.value = null
+    attachNote.value = ''
+    showToast('Объект добавлен в подборку')
+    await load()
+  } catch (err) {
+    showToast(err.response?.data?.detail || 'Не удалось добавить объект', 'error')
+  }
 }
 
 async function detachProperty (m) {
   if (!confirm('Убрать объект из подборки?')) return
-  await api.post(`/requests/${route.params.id}/detach_property/`, {
-    match_id: m.id,
-  })
-  await load()
+  try {
+    await api.post(`/requests/${route.params.id}/detach_property/`, {
+      match_id: m.id,
+    })
+    showToast('Объект убран из подборки')
+    await load()
+  } catch (err) {
+    showToast(err.response?.data?.detail || 'Не удалось убрать объект', 'error')
+  }
+}
+
+async function confirmProperty (m) {
+  confirmingId.value = m.id
+  try {
+    const resp = await api.post(`/requests/${route.params.id}/confirm_property/`, {
+      match_id: m.id,
+    })
+    showToast(resp.data.detail || 'Вариант подтверждён, задачи закрыты, письмо отправлено')
+    await load()
+  } catch (err) {
+    showToast(err.response?.data?.detail || 'Не удалось подтвердить вариант', 'error')
+  } finally {
+    confirmingId.value = null
+  }
 }
 
 function formatMoney (v) {
@@ -230,10 +302,63 @@ onMounted(load)
   background: var(--c-paper-2); padding: 12px 16px;
   border-radius: var(--r-sm);
 }
+.match-actions {
+  display: flex; gap: 6px; flex-shrink: 0;
+}
 .task-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; background: var(--c-paper-2);
   border-radius: var(--r-sm);
 }
 .select--sm, .input { font-size: 13px; }
+
+/* Подтверждённый бейдж */
+.confirmed-badge {
+  display: inline-block;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase;
+  background: #c8e6c9; color: #2e7d32;
+  padding: 2px 8px; border-radius: 4px;
+  margin-top: 4px;
+}
+
+/* Автозакрытие */
+.auto-badge {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase;
+  background: #e3f2fd; color: #1565c0;
+  padding: 2px 6px; border-radius: 4px;
+}
+
+/* Тип задачи */
+.tag--type {
+  background: #e8f4f3; color: #1a5a52; font-size: 10px;
+  margin-right: 6px;
+}
+
+/* Результат задачи */
+.result-text {
+  font-size: 12px; color: #546e7a;
+  margin-top: 4px; font-style: italic;
+}
+
+/* Тосты */
+.toast {
+  position: fixed;
+  top: 20px; right: 20px;
+  z-index: 1000;
+  padding: 14px 20px;
+  border-radius: 8px;
+  font-size: 14px; font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,.15);
+  max-width: 400px;
+}
+.toast--success { background: #0f3a33; color: #fff; }
+.toast--error { background: #c2554a; color: #fff; }
+.toast-enter-active, .toast-leave-active {
+  transition: all .3s ease;
+}
+.toast-enter-from, .toast-leave-to {
+  opacity: 0; transform: translateX(30px);
+}
 </style>

@@ -554,20 +554,22 @@ class TaskSerializer(serializers.ModelSerializer):
     )
     priority_display = serializers.CharField(source='get_priority_display',
                                              read_only=True)
+    task_type_display = serializers.CharField(read_only=True)
     is_overdue = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Task
         fields = ['id', 'title', 'description', 'priority', 'priority_display',
+                  'task_type', 'task_type_display',
                   'status', 'status_name', 'status_code',
                   'assignee', 'assignee_username',
                   'created_by', 'created_by_username',
                   'client', 'client_username',
                   'property', 'property_title',
                   'request', 'request_client_username', 'deal',
-                  'due_date', 'completed_at', 'is_overdue',
-                  'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at', 'created_by']
+                  'due_date', 'completed_at', 'result', 'is_auto_closed',
+                  'is_overdue', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'is_auto_closed']
 
     def get_is_overdue(self, obj) -> bool:
         from django.utils import timezone
@@ -576,3 +578,23 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.status and obj.status.code in {'done', 'cancelled'}:
             return False
         return obj.due_date < timezone.now()
+
+
+class OutgoingEmailSerializer(serializers.ModelSerializer):
+    """Сериализатор исходящих писем."""
+    recipient_username = serializers.CharField(source='recipient.username',
+                                               read_only=True)
+    recipient_email = serializers.CharField(source='recipient.email',
+                                            read_only=True)
+    sender_username = serializers.CharField(source='sender.username',
+                                            read_only=True)
+    status_display = serializers.CharField(source='get_status_display',
+                                           read_only=True)
+
+    class Meta:
+        model = models.OutgoingEmail
+        fields = ['id', 'recipient', 'recipient_username', 'recipient_email',
+                  'sender', 'sender_username', 'subject', 'body',
+                  'status', 'status_display', 'task', 'request', 'property',
+                  'error_message', 'sent_at', 'created_at']
+        read_only_fields = ['created_at', 'sent_at']
