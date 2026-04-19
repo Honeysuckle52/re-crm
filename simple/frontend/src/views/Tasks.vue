@@ -35,6 +35,14 @@
           <input class="input" v-model="form.title" required />
         </div>
         <div class="field">
+          <label>Тип задачи</label>
+          <select class="select" v-model="form.kind">
+            <option v-for="k in taskKinds" :key="k.value" :value="k.value">
+              {{ k.label }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
           <label>Исполнитель</label>
           <select class="select" v-model.number="form.assignee" required>
             <option :value="null" disabled>— выберите —</option>
@@ -54,6 +62,15 @@
         <div class="field">
           <label>Срок</label>
           <input class="input" type="datetime-local" v-model="form.due_date" />
+        </div>
+        <div class="field">
+          <label>Авто-закрытие</label>
+          <select class="select" v-model="form.auto_close_rule">
+            <option :value="null">— не закрывается автоматически —</option>
+            <option v-for="r in autoCloseRules" :key="r.value" :value="r.value">
+              {{ r.label }}
+            </option>
+          </select>
         </div>
         <div class="field">
           <label>Связанная заявка</label>
@@ -88,12 +105,14 @@
         <textarea class="textarea" v-model="form.description" rows="3"></textarea>
       </div>
       <div class="row" style="justify-content: flex-end">
-        <button class="btn btn--accent" type="submit">Создать задачу</button>
+        <button class="btn btn--accent" type="submit" :disabled="creating">
+          {{ creating ? 'Создаём…' : 'Создать задачу' }}
+        </button>
       </div>
     </form>
 
-    <!-- Фильтр по статусам -->
-    <div class="panel panel--light">
+    <!-- Фильтры: по статусам + по типу -->
+    <div class="panel panel--light stack" style="gap: 10px">
       <div class="row" style="gap: 8px; flex-wrap: wrap">
         <button class="btn btn--sm"
                 :class="{ 'btn--primary': statusFilter === '' }"
@@ -107,6 +126,20 @@
           {{ s.name }} ({{ countBy(s.id) }})
         </button>
       </div>
+      <div class="row" style="gap: 8px; flex-wrap: wrap; align-items: center">
+        <span class="muted" style="font-size: 12px; text-transform: uppercase; letter-spacing: .05em">Тип:</span>
+        <button class="btn btn--sm"
+                :class="{ 'btn--primary': kindFilter === '' }"
+                @click="kindFilter = ''">
+          Любой
+        </button>
+        <button v-for="k in taskKinds" :key="k.value"
+                class="btn btn--sm"
+                :class="{ 'btn--primary': kindFilter === k.value }"
+                @click="kindFilter = k.value">
+          {{ k.label }}
+        </button>
+      </div>
     </div>
 
     <!-- Таблица задач -->
@@ -115,6 +148,7 @@
         <thead>
           <tr>
             <th>Заголовок</th>
+            <th>Тип</th>
             <th>Исполнитель</th>
             <th>Заявка</th>
             <th>Приоритет</th>
@@ -129,6 +163,16 @@
               <b>{{ t.title }}</b>
               <div class="muted" style="font-size: 12px" v-if="t.property_title">
                 Объект: {{ t.property_title }}
+              </div>
+            </td>
+            <td>
+              <span class="tag tag--panel" :title="t.auto_close_rule_display || ''">
+                {{ t.kind_display || '—' }}
+              </span>
+              <div v-if="t.auto_close_rule" class="muted"
+                   style="font-size: 11px; margin-top: 2px"
+                   :title="t.auto_close_rule_display">
+                авто-закрытие
               </div>
             </td>
             <td>{{ t.assignee_username }}</td>
@@ -154,32 +198,34 @@
                    class="muted" style="font-size: 11px; margin-top: 2px">
                 вы сейчас выполняете
               </div>
+              <div v-if="t.is_auto_closed" class="muted"
+                   style="font-size: 11px; margin-top: 2px">
+                закрыто автоматически
+              </div>
             </td>
             <td class="task-actions">
-              <!-- Быстрые переходы по статусам. «Старт» блокируется,
-                   если у сотрудника уже есть задача в работе — лимит 1. -->
               <button v-if="canStart(t)"
                       class="btn btn--sm btn--accent"
                       :disabled="!canStartBtn(t) || busyId === t.id"
                       :title="!canStartBtn(t) ? 'У сотрудника уже есть задача в работе' : 'Взять в работу'"
-                      @click="startTask(t)">
+                      @click="onStart(t)">
                 Старт
               </button>
               <button v-if="canPause(t)"
                       class="btn btn--sm"
                       :disabled="busyId === t.id"
-                      @click="pauseTask(t)">
+                      @click="onPause(t)">
                 Пауза
               </button>
               <button v-if="canComplete(t)"
                       class="btn btn--sm btn--ghost"
                       :disabled="busyId === t.id"
-                      @click="completeTask(t)">
+                      @click="openCompleteModal(t)">
                 Завершить
               </button>
               <select class="select select--sm"
                       :value="t.status"
-                      @change="changeStatus(t, $event.target.value)">
+                      @change="onChangeStatus(t, $event.target.value)">
                 <option disabled value="">Статус…</option>
                 <option v-for="s in statuses" :key="s.id" :value="s.id">
                   {{ s.name }}
@@ -191,17 +237,61 @@
       </table>
       <div v-if="!filtered.length" class="empty">Задач нет.</div>
     </div>
+
+    <!-- Модалка завершения задачи: агент фиксирует, что именно сделано.
+         Запись попадает в Task.result и в отчёты. -->
+    <div v-if="completing.task" class="modal-backdrop" @click.self="closeCompleteModal">
+      <div class="modal">
+        <h3 style="margin: 0 0 12px">Завершить задачу</h3>
+        <p class="muted" style="margin: 0 0 16px; font-size: 13px">
+          Опишите, что сделано: это попадёт в историю задачи и статистику.
+        </p>
+        <div class="field">
+          <label>Что сделано</label>
+          <textarea class="textarea" rows="3"
+                    v-model="completing.comment"
+                    placeholder="Например: провёл показ, клиент заинтересовался"></textarea>
+        </div>
+        <div class="field">
+          <label>Итог</label>
+          <select class="select" v-model="completing.outcome">
+            <option value="done">Выполнено</option>
+            <option value="partial">Частично</option>
+            <option value="not_reached">Клиент недоступен</option>
+            <option value="other">Другое</option>
+          </select>
+        </div>
+        <div class="row" style="gap: 8px; justify-content: flex-end">
+          <button class="btn" @click="closeCompleteModal"
+                  :disabled="completing.busy">Отмена</button>
+          <button class="btn btn--accent"
+                  :disabled="completing.busy"
+                  @click="confirmComplete">
+            {{ completing.busy ? 'Завершаем…' : 'Завершить' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
+import {
+  startTask as apiStartTask,
+  pauseTask as apiPauseTask,
+  completeTask as apiCompleteTask,
+  changeTaskStatus as apiChangeTaskStatus,
+  createTask as apiCreateTask,
+} from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
+import { useToasts } from '../store/toasts'
 
 const auth = useAuthStore()
 const workload = useWorkloadStore()
+const toasts = useToasts()
 
 const tasks = ref([])
 const statuses = ref([])
@@ -211,22 +301,57 @@ const requests = ref([])
 const properties = ref([])
 
 const statusFilter = ref('')
+const kindFilter = ref('')
 const showForm = ref(false)
 const busyId = ref(null)
+const creating = ref(false)
+
+// Справочники типов задач и правил авто-закрытия — дублируют choices
+// на бэкенде (Task.KIND_CHOICES / AUTO_CLOSE_CHOICES). Это нормально
+// для MVP; при желании их можно будет получить с сервера через
+// отдельный endpoint и закэшировать.
+const taskKinds = [
+  { value: 'call',            label: 'Звонок клиенту' },
+  { value: 'client_search',   label: 'Поиск клиентов для объекта' },
+  { value: 'property_search', label: 'Подбор объектов для клиента' },
+  { value: 'viewing',         label: 'Показ объекта' },
+  { value: 'documents',       label: 'Подготовка документов' },
+  { value: 'follow_up',       label: 'Повторный контакт' },
+  { value: 'other',           label: 'Прочее' },
+]
+const autoCloseRules = [
+  { value: 'on_client_matched',   label: 'Когда подобран клиент для объекта' },
+  { value: 'on_property_matched', label: 'Когда подобран объект для клиента' },
+  { value: 'on_viewing_done',     label: 'Когда показ проведён' },
+  { value: 'on_deal_created',     label: 'Когда создана сделка' },
+  { value: 'on_request_closed',   label: 'Когда заявка закрыта' },
+]
 
 const form = reactive(defaultForm())
+
+// Состояние модалки «Завершить задачу».
+const completing = reactive({
+  task: null,
+  comment: '',
+  outcome: 'done',
+  busy: false,
+})
 
 function defaultForm () {
   return {
     title: '', description: '',
+    kind: 'other', auto_close_rule: null,
     assignee: null, priority: 'normal',
     due_date: '', request: null, client: null, property: null,
   }
 }
 
 const filtered = computed(() => {
-  if (!statusFilter.value) return tasks.value
-  return tasks.value.filter((t) => t.status === statusFilter.value)
+  return tasks.value.filter((t) => {
+    if (statusFilter.value && t.status !== statusFilter.value) return false
+    if (kindFilter.value && t.kind !== kindFilter.value) return false
+    return true
+  })
 })
 
 function countBy (id) {
@@ -276,26 +401,35 @@ async function create () {
   if (!payload.request) delete payload.request
   if (!payload.client) delete payload.client
   if (!payload.property) delete payload.property
-  await api.post('/tasks/', payload)
+  if (!payload.auto_close_rule) delete payload.auto_close_rule
+
+  creating.value = true
+  const res = await apiCreateTask(payload)
+  creating.value = false
+  if (!res.ok) {
+    toasts.error(res.error || 'Не удалось создать задачу')
+    return
+  }
+  toasts.success('Задача создана')
   showForm.value = false
   Object.assign(form, defaultForm())
   await load()
 }
 
-async function changeStatus (task, statusId) {
+async function onChangeStatus (task, statusId) {
   if (!statusId) return
-  try {
-    await api.post(`/tasks/${task.id}/change_status/`,
-                   { status_id: Number(statusId) })
-  } catch (err) {
-    alert(err.response?.data?.detail || 'Не удалось изменить статус.')
+  busyId.value = task.id
+  const res = await apiChangeTaskStatus(task.id, statusId)
+  busyId.value = null
+  if (!res.ok) {
+    toasts.error(res.error || 'Не удалось изменить статус.')
+    return
   }
-  await refreshAll()
+  toasts.success('Статус обновлён')
+  await load()
 }
 
 // --- права на быстрые действия --------------------------------------------
-// Сотрудник может стартовать/паузить/завершать только свои задачи.
-// Менеджер и админ — любые (для ручного вмешательства).
 function isOwnOrManaged (task) {
   return auth.isManager || task.assignee === auth.user?.id
 }
@@ -310,47 +444,64 @@ function canComplete (task) {
   return isOwnOrManaged(task)
     && ['new', 'in_progress', 'waiting'].includes(task.status_code)
 }
-// Кнопка «Старт» становится активной только если не превышен лимит
-// параллельных in_progress-задач у конкретного сотрудника.
 function canStartBtn (task) {
   if (auth.isManager) return true
-  // Если задача уже у меня и в работе — старт не нужен.
   if (task.assignee !== auth.user?.id) return false
   return workload.workload.in_progress_tasks
       < workload.workload.max_in_progress_tasks
 }
 
-async function startTask (task) {
+async function onStart (task) {
   busyId.value = task.id
-  try {
-    await api.post(`/tasks/${task.id}/start/`)
-    await refreshAll()
-  } catch (err) {
-    alert(err.response?.data?.detail
-      || 'Нельзя стартовать задачу: превышен лимит.')
-  } finally { busyId.value = null }
-}
-async function pauseTask (task) {
-  busyId.value = task.id
-  try {
-    await api.post(`/tasks/${task.id}/pause/`)
-    await refreshAll()
-  } catch (err) {
-    alert(err.response?.data?.detail || 'Не удалось приостановить задачу.')
-  } finally { busyId.value = null }
-}
-async function completeTask (task) {
-  busyId.value = task.id
-  try {
-    await api.post(`/tasks/${task.id}/complete/`)
-    await refreshAll()
-  } catch (err) {
-    alert(err.response?.data?.detail || 'Не удалось завершить задачу.')
-  } finally { busyId.value = null }
+  const res = await apiStartTask(task.id)
+  busyId.value = null
+  if (!res.ok) {
+    toasts.error(res.error || 'Нельзя стартовать задачу: превышен лимит.')
+    return
+  }
+  toasts.success('Задача взята в работу')
+  await load()
 }
 
-async function refreshAll () {
-  await Promise.all([load(), workload.refresh()])
+async function onPause (task) {
+  busyId.value = task.id
+  const res = await apiPauseTask(task.id)
+  busyId.value = null
+  if (!res.ok) {
+    toasts.error(res.error || 'Не удалось приостановить задачу.')
+    return
+  }
+  toasts.info('Задача приостановлена')
+  await load()
+}
+
+function openCompleteModal (task) {
+  completing.task = task
+  completing.comment = ''
+  completing.outcome = 'done'
+  completing.busy = false
+}
+function closeCompleteModal () {
+  if (completing.busy) return
+  completing.task = null
+}
+async function confirmComplete () {
+  const task = completing.task
+  if (!task) return
+  completing.busy = true
+  const res = await apiCompleteTask(task.id, {
+    comment: completing.comment,
+    outcome: completing.outcome,
+    source: 'tasks_view',
+  })
+  completing.busy = false
+  if (!res.ok) {
+    toasts.error(res.error || 'Не удалось завершить задачу.')
+    return
+  }
+  toasts.success('Задача завершена, результат зафиксирован')
+  completing.task = null
+  await load()
 }
 
 onMounted(async () => {
@@ -379,5 +530,20 @@ onMounted(async () => {
 }
 .workload-banner.is-limit {
   background: rgba(194, 85, 74, .9);
+}
+
+/* --- Модалка «Завершить задачу» --- */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, .5);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; z-index: 120;
+}
+.modal {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  width: min(480px, 100%);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, .25);
 }
 </style>

@@ -95,8 +95,22 @@
               «{{ m.agent_note }}»
             </div>
           </div>
-          <button v-if="auth.isStaff" class="btn btn--sm btn--danger"
-                  @click="detachProperty(m)">Убрать</button>
+          <div v-if="auth.isStaff" class="row" style="gap: 6px; flex-wrap: wrap">
+            <!-- Ключевая точка автоматизации:
+                 Accept match → бэк отправляет событие request_client_matched,
+                 которое в signals.py закрывает связанные задачи
+                 (поиск клиентов / подбор объектов), пишет статистику
+                 сотрудника и запускает письмо клиенту. -->
+            <button class="btn btn--sm btn--accent"
+                    :disabled="busyMatchId === m.id"
+                    title="Подтвердить: клиенту подходит этот вариант. Запустит цепочку автоматических действий."
+                    @click="acceptMatch(m)">
+              {{ busyMatchId === m.id ? 'Обрабатываем…' : 'Подтвердить' }}
+            </button>
+            <button class="btn btn--sm btn--danger"
+                    :disabled="busyMatchId === m.id"
+                    @click="detachProperty(m)">Убрать</button>
+          </div>
         </div>
       </div>
       <div v-else class="muted" style="margin-top: 12px">
@@ -141,16 +155,23 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+import { useWorkloadStore } from '../store/workload'
+import { useToasts } from '../store/toasts'
+import { takeRequest as apiTakeRequest,
+         acceptRequestMatch } from '../api/tasks'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const workload = useWorkloadStore()
+const toasts = useToasts()
 
 const request = ref(null)
 const availableProperties = ref([])
 const requestTasks = ref([])
 const attachPropertyId = ref(null)
 const attachNote = ref('')
+const busyMatchId = ref(null)
 
 const statusClass = computed(() => {
   const code = request.value?.status_code
@@ -180,32 +201,72 @@ async function load () {
 }
 
 async function takeRequest () {
-  await api.post(`/requests/${route.params.id}/take/`)
+  const res = await apiTakeRequest(route.params.id)
+  if (!res.ok) {
+    toasts.error(res.error || 'Не удалось взять заявку.')
+    return
+  }
+  toasts.success('Заявка взята в работу')
   await load()
 }
 
 async function closeRequest () {
   if (!confirm('Закрыть заявку?')) return
-  await api.post(`/requests/${route.params.id}/close/`)
-  await load()
+  try {
+    await api.post(`/requests/${route.params.id}/close/`)
+    toasts.info('Заявка закрыта, связанные задачи завершены автоматически')
+    workload.bumpAfterAction()
+    await load()
+  } catch (err) {
+    toasts.error(err.response?.data?.detail || 'Не удалось закрыть заявку.')
+  }
 }
 
 async function attachProperty () {
   if (!attachPropertyId.value) return
-  await api.post(`/requests/${route.params.id}/attach_property/`, {
-    property_id: attachPropertyId.value,
-    agent_note: attachNote.value,
-  })
-  attachPropertyId.value = null
-  attachNote.value = ''
-  await load()
+  try {
+    await api.post(`/requests/${route.params.id}/attach_property/`, {
+      property_id: attachPropertyId.value,
+      agent_note: attachNote.value,
+    })
+    attachPropertyId.value = null
+    attachNote.value = ''
+    toasts.success('Вариант добавлен в подборку')
+    await load()
+  } catch (err) {
+    toasts.error(err.response?.data?.detail || 'Не удалось добавить вариант.')
+  }
 }
 
 async function detachProperty (m) {
   if (!confirm('Убрать объект из подборки?')) return
-  await api.post(`/requests/${route.params.id}/detach_property/`, {
-    match_id: m.id,
-  })
+  try {
+    await api.post(`/requests/${route.params.id}/detach_property/`, {
+      match_id: m.id,
+    })
+    await load()
+  } catch (err) {
+    toasts.error(err.response?.data?.detail || 'Не удалось убрать вариант.')
+  }
+}
+
+/**
+ * Подтвердить вариант из подборки. Бэк запускает цепочку:
+ *   - закрывает связанные задачи «Поиск клиентов / Подбор объектов»;
+ *   - пишет KPI сотрудника;
+ *   - ставит письмо клиенту в очередь (SMTP, шаблон property_matched).
+ */
+async function acceptMatch (m) {
+  busyMatchId.value = m.id
+  const res = await acceptRequestMatch(route.params.id, m.id)
+  busyMatchId.value = null
+  if (!res.ok) {
+    toasts.error(res.error || 'Не удалось подтвердить вариант.')
+    return
+  }
+  toasts.success(
+    'Вариант подтверждён. Задачи по подбору закрыты, клиенту отправлено письмо.'
+  )
   await load()
 }
 
