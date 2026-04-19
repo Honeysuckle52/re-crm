@@ -12,6 +12,13 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.db import models
 from django.utils import timezone
 
+# Псевдоним встроенного декоратора ``property``.
+# В модели ``Task`` есть поле с именем ``property`` (FK на Property),
+# которое внутри тела класса затеняет встроенный ``property``.
+# Чтобы ниже можно было объявлять вычисляемые атрибуты через ``@_property``
+# без конфликта имён, сохраняем ссылку на встроенный декоратор здесь.
+_property = property
+
 
 # ====== СПРАВОЧНИКИ =========================================================
 
@@ -710,13 +717,16 @@ class Task(models.Model):
     def __str__(self):
         return self.title
 
-    @property
+    # Используем @_property (ссылка на builtins.property),
+    # т.к. поле ``property = models.ForeignKey(...)`` выше в теле класса
+    # затенило встроенное имя ``property``.
+    @_property
     def is_completed(self):
         """Проверяет, завершена ли задача."""
         return (self.status_id is not None
                 and self.status.code in self.TERMINAL_STATUS_CODES)
 
-    @property
+    @_property
     def task_type_display(self):
         """Человекочитаемое название типа задачи."""
         return dict(self.TASK_TYPE_CHOICES).get(self.task_type, self.task_type)
