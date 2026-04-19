@@ -210,27 +210,10 @@ input, select, textarea { font: inherit; }
   background: var(--c-paper); border-radius: var(--r-md);
 }
 
-/* ---- Footer (прижат к нижней части документа через flex-shell) ---- */
-.footer {
-  position: relative;
-  margin: 48px 16px 16px;
-  display: flex; justify-content: space-between; align-items: center;
-  background: var(--c-panel); color: #fff;
-  padding: 18px 32px; border-radius: var(--r-pill);
-  box-shadow: var(--shadow-2);
-  letter-spacing: .1em; text-transform: uppercase; font-size: 12px;
-}
-.footer__home {
-  position: absolute;
-  top: -24px; left: 50%; transform: translateX(-50%);
-  width: 48px; height: 48px; border-radius: 50%;
-  background: var(--c-paper); color: var(--c-panel);
-  display: grid; place-items: center;
-  margin: 0; box-shadow: var(--shadow-1);
-}
-@media (max-width: 720px) {
-  .footer { padding: 14px 20px; font-size: 11px; letter-spacing: .06em; }
-}
+/* ---- Footer ----
+   Стили самой пилюли «РИЭЛТ» (иконка, сепаратор, типографика) описаны
+   в components/AppFooter.vue как scoped. Это предотвращает «съезд»
+   абсолютно-позиционированного круга на узких экранах. */
 
 /* ---- Вспомогательное ---- */
 .row { display: flex; align-items: center; gap: 12px; }
