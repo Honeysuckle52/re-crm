@@ -312,7 +312,15 @@ async function takeRequest (r) {
 
 async function closeRequest (r) {
   if (!confirm('Закрыть заявку?')) return
-  await api.post(`/requests/${r.id}/close/`)
+  const res = await api.post(`/requests/${r.id}/close/`)
+  // Бекенд может вернуть созданную сделку — сообщим сотруднику.
+  if (res?.data?.deal?.deal_number) {
+    const d = res.data.deal
+    alert(
+      `Заявка закрыта. На её основе создана сделка ${d.deal_number} `
+      + `в разделе «Сделки». PDF-договор готов к скачиванию.`,
+    )
+  }
   await Promise.all([load(), workload.refresh()])
 }
 

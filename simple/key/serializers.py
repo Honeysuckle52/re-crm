@@ -504,19 +504,29 @@ class DealSerializer(serializers.ModelSerializer):
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
+    status_code = serializers.CharField(source='status.code', read_only=True)
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
+    contract_url = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Deal
         fields = ['id', 'deal_number', 'property', 'property_title',
                   'agent', 'agent_username', 'client', 'client_username',
                   'operation_type', 'operation_type_name',
-                  'status', 'status_name',
+                  'status', 'status_name', 'status_code',
                   'price_final', 'commission_percent', 'commission_amount',
-                  'deal_date', 'notes']
+                  'deal_date', 'notes',
+                  'request', 'contract_url', 'contract_generated_at']
+        read_only_fields = ['request', 'contract_generated_at']
+
+    def get_contract_url(self, obj) -> str | None:
+        """Относительный API-URL для скачивания договора (или None)."""
+        if not obj.contract_file:
+            return None
+        return f'/api/deals/{obj.pk}/contract/'
 
 
 class PropertyStatusHistorySerializer(serializers.ModelSerializer):

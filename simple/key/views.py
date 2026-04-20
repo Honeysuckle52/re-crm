@@ -16,9 +16,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from django.http import FileResponse, Http404
+
 from . import business_rules, models, serializers
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
+from .deals_service import create_deal_from_request
 from .permissions import (
     IsAdminOrManager,
     IsEmployee,
@@ -559,6 +562,11 @@ class RequestViewSet(viewsets.ModelViewSet):
 
         Клиент может закрыть только свою заявку (отсечение происходит
         в ``get_queryset``). Повторное закрытие не допускается.
+
+        Побочный эффект (сотрудник): если в заявке указан конкретный
+        объект или в подборке есть подтверждённый вариант, автоматически
+        создаётся сделка (см. :func:`key.deals_service.create_deal_from_request`)
+        и генерируется PDF-договор со шрифтом DejaVuSans.
         """
         req = self.get_object()
         if req.status and req.status.code in {'closed', 'cancelled'}:
@@ -571,7 +579,16 @@ class RequestViewSet(viewsets.ModelViewSet):
             req.status = closed
         req.closed_at = timezone.now()
         req.save()
-        return Response(serializers.RequestSerializer(req).data)
+
+        # Автосоздание сделки и PDF-договора. Сам метод идемпотентен
+        # (OneToOne на Deal.request — повторные вызовы не плодят дублей)
+        # и бросает исключения только на ошибках БД, но не на «нет объекта».
+        deal = create_deal_from_request(req, actor=request.user)
+
+        payload = serializers.RequestSerializer(req).data
+        if deal is not None:
+            payload['deal'] = serializers.DealSerializer(deal).data
+        return Response(payload)
 
     @action(detail=True, methods=['post'])
     def take(self, request, pk=None):
@@ -753,6 +770,46 @@ class DealViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
         deal.status_id = status_id
         deal.save()
+        return Response(serializers.DealSerializer(deal).data)
+
+    @action(detail=True, methods=['get'], url_path='contract')
+    def contract(self, request, pk=None):
+        """
+        Скачать PDF-договор по сделке.
+
+        Если файл ещё не сгенерирован (старые «ручные» сделки до
+        внедрения автогенерации) — генерируем на лету и сохраняем.
+        """
+        deal = self.get_object()
+        if not deal.contract_file:
+            from .deals_service import _attach_contract
+            _attach_contract(deal)
+            deal.refresh_from_db()
+        if not deal.contract_file:
+            raise Http404('Договор не удалось сформировать.')
+        return FileResponse(
+            deal.contract_file.open('rb'),
+            as_attachment=True,
+            filename=f'contract-{deal.deal_number}.pdf',
+            content_type='application/pdf',
+        )
+
+    @action(detail=True, methods=['post'], url_path='regenerate_contract')
+    def regenerate_contract(self, request, pk=None):
+        """Перегенерировать PDF-договор (например, после правок сделки)."""
+        if not request.user.is_employee:
+            return Response(
+                {'detail': 'Доступно только сотрудникам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        deal = self.get_object()
+        from .deals_service import _attach_contract
+        # Удаляем старый файл, чтобы не захламлять media/.
+        if deal.contract_file:
+            deal.contract_file.delete(save=False)
+            deal.contract_file = None
+        _attach_contract(deal)
+        deal.refresh_from_db()
         return Response(serializers.DealSerializer(deal).data)
 
 

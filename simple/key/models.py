@@ -576,7 +576,15 @@ class RequestPropertyMatch(models.Model):
 
 
 class Deal(models.Model):
-    """Сделка (продажа / аренда) — воронка продаж."""
+    """
+    Сделка (продажа / аренда) — воронка продаж.
+
+    Может быть создана вручную сотрудником (:class:`DealViewSet.create`)
+    или автоматически при закрытии заявки с подтверждённым объектом
+    (см. :func:`key.deals_service.create_deal_from_request`). В последнем
+    случае поле ``request`` хранит ссылку на исходную заявку, а
+    ``contract_file`` — сгенерированный PDF-договор.
+    """
     deal_number = models.CharField(max_length=50, unique=True)
     property = models.ForeignKey(Property, on_delete=models.PROTECT,
                                  related_name='deals')
@@ -592,6 +600,15 @@ class Deal(models.Model):
                                related_name='deals',
                                blank=True, null=True)
 
+    # Исходная заявка клиента. OneToOne гарантирует, что из одной заявки
+    # не будут создаваться дубли сделок. ``null=True`` — для уже
+    # существующих «ручных» сделок, которые были созданы до внедрения
+    # связи и не имеют родительской заявки.
+    request = models.OneToOneField(
+        Request, on_delete=models.SET_NULL,
+        related_name='deal', blank=True, null=True,
+    )
+
     price_final = models.FloatField()
     commission_percent = models.DecimalField(max_digits=5, decimal_places=2,
                                              blank=True, null=True)
@@ -599,6 +616,13 @@ class Deal(models.Model):
 
     deal_date = models.DateField()
     notes = models.TextField(blank=True, null=True)
+
+    # Автосгенерированный PDF-договор (DejaVuSans, кириллица).
+    # Лежит в media/contracts/<год>/<месяц>/.
+    contract_file = models.FileField(
+        upload_to='contracts/%Y/%m/', blank=True, null=True,
+    )
+    contract_generated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = 'deals'
