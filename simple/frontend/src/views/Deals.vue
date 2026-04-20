@@ -36,12 +36,18 @@
             <th>Комиссия</th>
             <th>Статус</th>
             <th>Дата</th>
+            <th>Договор</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="d in filtered" :key="d.id">
-            <td><b>{{ d.deal_number }}</b></td>
+            <td>
+              <b>{{ d.deal_number }}</b>
+              <div v-if="d.request" class="muted" style="font-size: 11px">
+                из заявки #{{ d.request }}
+              </div>
+            </td>
             <td>{{ d.property_title || 'Объект №' + d.property }}</td>
             <td><span class="tag tag--accent">{{ d.operation_type_name }}</span></td>
             <td>{{ formatMoney(d.price_final) }}</td>
@@ -58,6 +64,19 @@
             </td>
             <td class="muted">
               {{ new Date(d.deal_date).toLocaleDateString('ru-RU') }}
+            </td>
+            <td>
+              <button v-if="d.contract_url"
+                      class="btn btn--sm"
+                      @click="downloadContract(d)">
+                Скачать PDF
+              </button>
+              <button v-else
+                      class="btn btn--sm btn--ghost"
+                      @click="regenerate(d)"
+                      title="Сгенерировать PDF-договор">
+                Сформировать
+              </button>
             </td>
             <td>
               <select class="select select--sm" :value="d.status"
@@ -106,6 +125,34 @@ async function changeStatus(deal, statusId) {
   if (!statusId) return
   await api.post(`/deals/${deal.id}/change_status/`, { status_id: Number(statusId) })
   await load()
+}
+
+async function downloadContract(deal) {
+  // Скачиваем бинарник через axios с JWT-заголовком (api.js уже
+  // проставляет Authorization), потом отдаём в <a download>.
+  try {
+    const res = await api.get(`/deals/${deal.id}/contract/`, { responseType: 'blob' })
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `contract-${deal.deal_number}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    alert('Не удалось скачать договор.')
+  }
+}
+
+async function regenerate(deal) {
+  try {
+    await api.post(`/deals/${deal.id}/regenerate_contract/`)
+    await load()
+  } catch (err) {
+    alert(err.response?.data?.detail || 'Не удалось сформировать договор.')
+  }
 }
 
 async function load() {
