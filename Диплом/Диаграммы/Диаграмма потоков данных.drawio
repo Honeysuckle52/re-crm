@@ -1,6 +1,6 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36" version="29.5.6">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36">
   <diagram name="Страница 1" id="GOqsQ83yMCCc8tBVAAom">
-    <mxGraphModel dx="1678" dy="-295" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1414" dy="-805" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -9,7 +9,7 @@
             <mxPoint x="583.5441176470586" y="1982.7794117647059" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-348" connectable="0" parent="UdnUSK5n67mowr2e_vGY-347" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Информация о сеансах" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-348" connectable="0" parent="UdnUSK5n67mowr2e_vGY-347" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Информация о объектах" vertex="1">
           <mxGeometry relative="1" x="-0.3517" y="3" as="geometry">
             <mxPoint x="-22" y="-3" as="offset" />
           </mxGeometry>
@@ -23,7 +23,7 @@
             <mxPoint x="638.5441176470586" y="1982.7794117647059" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-350" connectable="0" parent="UdnUSK5n67mowr2e_vGY-349" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Информация о местах" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-350" connectable="0" parent="UdnUSK5n67mowr2e_vGY-349" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Информация о объектах" vertex="1">
           <mxGeometry relative="1" x="0.0174" as="geometry">
             <mxPoint x="-174" y="-1" as="offset" />
           </mxGeometry>
@@ -45,7 +45,7 @@
         <mxCell id="UdnUSK5n67mowr2e_vGY-360" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-366" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-380">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-361" connectable="0" parent="UdnUSK5n67mowr2e_vGY-360" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос на просмотр афиши" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-361" connectable="0" parent="UdnUSK5n67mowr2e_vGY-360" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос на просмотр объктов" vertex="1">
           <mxGeometry relative="1" x="-0.1512" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>
@@ -60,7 +60,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-363" connectable="0" parent="UdnUSK5n67mowr2e_vGY-362" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос на выбор сеанса и места" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-363" connectable="0" parent="UdnUSK5n67mowr2e_vGY-362" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос на выбор аренда или покупка" vertex="1">
           <mxGeometry relative="1" x="0.024" y="1" as="geometry">
             <mxPoint x="-56" as="offset" />
           </mxGeometry>
@@ -104,7 +104,7 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-374" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="PDF билет" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-374" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="PDF договор" vertex="1">
           <mxGeometry height="40" width="100" x="689.5441176470588" y="2207.779411764706" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-378" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-380" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-399">
@@ -116,12 +116,12 @@
             <mxPoint x="418.54411764705856" y="2015.2794117647059" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-379" connectable="0" parent="UdnUSK5n67mowr2e_vGY-378" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос информации о сеансах&amp;nbsp;" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-379" connectable="0" parent="UdnUSK5n67mowr2e_vGY-378" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос информации о объекте&amp;nbsp;" vertex="1">
           <mxGeometry relative="1" x="0.3931" as="geometry">
             <mxPoint x="1" y="-115" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-380" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.1. Просмотр афиши" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-380" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.1. Просмотр объектов" vertex="1">
           <mxGeometry height="40" width="120" x="138.54411764705878" y="1873.7794117647059" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-381" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-383" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-399">
@@ -133,12 +133,12 @@
             <mxPoint x="418.54411764705856" y="1982.7794117647059" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-382" connectable="0" parent="UdnUSK5n67mowr2e_vGY-381" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос информации о местах" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-382" connectable="0" parent="UdnUSK5n67mowr2e_vGY-381" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Запрос информации о объектах" vertex="1">
           <mxGeometry relative="1" x="-0.1684" y="1" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-383" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.4. Выбор сеанса и места" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-383" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.4. Выбор объекта" vertex="1">
           <mxGeometry height="40" width="120" x="278.5441176470588" y="1873.7794117647059" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-384" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-386" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-407">
@@ -151,7 +151,7 @@
             <mxPoint x="-29" y="-91" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-386" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.5. Данные для заказа" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-386" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.5. Данные для заявки" vertex="1">
           <mxGeometry height="40" width="120" x="418.5441176470588" y="1873.7794117647059" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-387" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-389" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.75;entryY=1;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-366">
@@ -167,7 +167,7 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-389" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.2. Отображает расписание" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-389" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.2. Отображает стоймость" vertex="1">
           <mxGeometry height="40" width="120" x="558.5441176470588" y="1873.7794117647059" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-390" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-392" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=1;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-366">
@@ -182,7 +182,7 @@
             <mxPoint y="-4" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-392" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.3. Показывает схему зала" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-392" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.3. Показывает общую информаицю" vertex="1">
           <mxGeometry height="40" width="120" x="698.5441176470588" y="1873.7794117647059" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-393" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-395" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-366">
@@ -193,10 +193,10 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-395" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.6. Подтверждение заказа" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-395" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.6. Подтверждение сделки" vertex="1">
           <mxGeometry height="40" width="120" x="835.5441176470588" y="1873.7794117647059" as="geometry" />
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-396" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="Telegram клиента" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-396" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="email-почта" vertex="1">
           <mxGeometry height="40" width="100" x="689.5441176470588" y="2332.779411764706" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-397" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-399" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-367">
@@ -343,7 +343,7 @@
             <mxPoint as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-437" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="5.2 Управление сеансами" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-437" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="5.2 Управление заявками" vertex="1">
           <mxGeometry height="49" width="90" x="395" y="2277" as="geometry" />
         </mxCell>
       </root>

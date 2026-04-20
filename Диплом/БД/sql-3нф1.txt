@@ -1,0 +1,404 @@
+-- =========================================
+-- ЕДИНАЯ СХЕМА БД (PostgreSQL)
+-- Соответствует актуальным Django-моделям приложения key
+-- =========================================
+
+SET client_encoding TO 'UTF8';
+
+-- ====== СПРАВОЧНИКИ ======
+
+CREATE TABLE operation_types (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(10) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE property_statuses (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(10) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE request_statuses (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(15) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE deal_statuses (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    "order" SMALLINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE task_statuses (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    "order" SMALLINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE user_roles (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    description TEXT
+);
+
+-- ====== АДРЕСА (ИЕРАРХИЯ) ======
+
+CREATE TABLE cities (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    region VARCHAR(100),
+    external_id UUID,
+    CONSTRAINT cities_name_idx INDEX (name)
+);
+CREATE INDEX idx_cities_external_id ON cities(external_id);
+
+CREATE TABLE streets (
+    id SERIAL PRIMARY KEY,
+    city_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    street_type VARCHAR(20),
+    external_id UUID,
+    CONSTRAINT fk_street_city FOREIGN KEY (city_id) REFERENCES cities(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_streets_external_id ON streets(external_id);
+
+CREATE TABLE houses (
+    id SERIAL PRIMARY KEY,
+    street_id INT NOT NULL,
+    house_number VARCHAR(20) NOT NULL,
+    building VARCHAR(10),
+    structure VARCHAR(10),
+    postal_code VARCHAR(10),
+    external_id UUID,
+    CONSTRAINT fk_house_street FOREIGN KEY (street_id) REFERENCES streets(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_houses_external_id ON houses(external_id);
+
+CREATE TABLE addresses (
+    id SERIAL PRIMARY KEY,
+    house_id INT NOT NULL,
+    apartment_number VARCHAR(20),
+    entrance INT,
+    floor INT,
+    CONSTRAINT fk_address_house FOREIGN KEY (house_id) REFERENCES houses(id) ON DELETE CASCADE,
+    CONSTRAINT unique_address UNIQUE (house_id, apartment_number)
+);
+
+-- ====== ПОЛЬЗОВАТЕЛИ И ПРОФИЛИ ======
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(128) NOT NULL, -- Django хранит хеши в формате algo$salt$hash
+    email VARCHAR(255) UNIQUE NOT NULL,
+    phone VARCHAR(20) UNIQUE,
+    user_type VARCHAR(20) NOT NULL CHECK (user_type IN ('employee', 'client')),
+    role_id INT,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_staff BOOLEAN DEFAULT FALSE,
+    is_superuser BOOLEAN DEFAULT FALSE,
+    is_email_verified BOOLEAN DEFAULT FALSE,
+    is_phone_verified BOOLEAN DEFAULT FALSE,
+    last_login TIMESTAMPTZ,
+    last_ip INET,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT fk_user_role FOREIGN KEY (role_id) REFERENCES user_roles(id) ON DELETE SET NULL
+);
+
+CREATE TABLE employee_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    middle_name VARCHAR(50),
+    position VARCHAR(100),
+    department VARCHAR(100),
+    hire_date DATE,
+    internal_phone VARCHAR(20),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT fk_employee_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE client_profiles (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    middle_name VARCHAR(50),
+    birth_date DATE,
+    passport_series VARCHAR(4),
+    passport_number VARCHAR(6),
+    passport_issued_by VARCHAR(255),
+    passport_issued_date DATE,
+    passport_code VARCHAR(7),
+    registration_address TEXT,
+    actual_address TEXT,
+    preferred_contact_method VARCHAR(20),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT fk_client_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ====== ОБЪЕКТЫ И ХАРАКТЕРИСТИКИ ======
+
+CREATE TABLE properties (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255),
+    operation_type_id INT NOT NULL,
+    status_id INT NOT NULL DEFAULT 1,
+    address_id INT NOT NULL,
+    coordinates_lat NUMERIC(10, 8),
+    coordinates_lon NUMERIC(11, 8),
+    price DOUBLE PRECISION NOT NULL,
+    price_per_sqm DOUBLE PRECISION,
+    area_total NUMERIC(8, 2),
+    area_living NUMERIC(8, 2),
+    area_kitchen NUMERIC(8, 2),
+    rooms_count INT,
+    floor_number INT,
+    total_floors INT,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT fk_property_operation_type FOREIGN KEY (operation_type_id) REFERENCES operation_types(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_property_status FOREIGN KEY (status_id) REFERENCES property_statuses(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_property_address FOREIGN KEY (address_id) REFERENCES addresses(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_properties_created_at ON properties(created_at DESC);
+
+CREATE TABLE property_features (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    category VARCHAR(50)
+);
+
+CREATE TABLE property_feature_values (
+    property_id INT NOT NULL,
+    feature_id INT NOT NULL,
+    value VARCHAR(255),
+    PRIMARY KEY (property_id, feature_id),
+    CONSTRAINT fk_feature_value_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+    CONSTRAINT fk_feature_value_feature FOREIGN KEY (feature_id) REFERENCES property_features(id) ON DELETE CASCADE
+);
+
+CREATE TABLE property_photos (
+    id SERIAL PRIMARY KEY,
+    property_id INT NOT NULL,
+    image VARCHAR(255),
+    url TEXT,
+    caption VARCHAR(255),
+    is_cover BOOLEAN DEFAULT FALSE,
+    is_hidden BOOLEAN DEFAULT FALSE,
+    "order" INT NOT NULL DEFAULT 0,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_photo_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE
+);
+-- Порядок выдачи в Django: -is_cover, order, -uploaded_at
+CREATE INDEX idx_photos_ordering ON property_photos(property_id, is_cover DESC, "order", uploaded_at DESC);
+
+CREATE TABLE property_documents (
+    id SERIAL PRIMARY KEY,
+    property_id INT NOT NULL,
+    document_name VARCHAR(255) NOT NULL,
+    file_url TEXT NOT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
+    verified_by_user_id INT,
+    verified_at TIMESTAMPTZ,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_document_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+    CONSTRAINT fk_document_verified_by FOREIGN KEY (verified_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ====== ЗАЯВКИ И ВАРИАНТЫ ======
+
+CREATE TABLE requests (
+    id SERIAL PRIMARY KEY,
+    client_user_id INT NOT NULL,
+    agent_user_id INT,
+    property_id INT,
+    operation_type_id INT NOT NULL,
+    status_id INT NOT NULL DEFAULT 1,
+    property_type VARCHAR(50),
+    min_price DOUBLE PRECISION,
+    max_price DOUBLE PRECISION,
+    min_area NUMERIC(8, 2),
+    max_area NUMERIC(8, 2),
+    rooms_count INT,
+    address_preferences TEXT,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    closed_at TIMESTAMPTZ,
+    CONSTRAINT fk_request_client FOREIGN KEY (client_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_request_agent FOREIGN KEY (agent_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_request_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_request_operation_type FOREIGN KEY (operation_type_id) REFERENCES operation_types(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_request_status FOREIGN KEY (status_id) REFERENCES request_statuses(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_requests_created_at ON requests(created_at DESC);
+
+CREATE TABLE request_property_matches (
+    id SERIAL PRIMARY KEY,
+    request_id INT NOT NULL,
+    property_id INT NOT NULL,
+    agent_id INT NOT NULL,
+    agent_note TEXT,
+    is_offered BOOLEAN DEFAULT TRUE,
+    is_rejected BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_match_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+    CONSTRAINT fk_match_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_match_agent FOREIGN KEY (agent_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT unique_request_property_match UNIQUE (request_id, property_id)
+);
+
+-- ====== СДЕЛКИ ======
+
+CREATE TABLE deals (
+    id SERIAL PRIMARY KEY,
+    deal_number VARCHAR(50) UNIQUE NOT NULL,
+    property_id INT NOT NULL,
+    agent_user_id INT NOT NULL,
+    client_user_id INT NOT NULL,
+    operation_type_id INT NOT NULL,
+    status_id INT,
+    request_id INT UNIQUE,
+    price_final DOUBLE PRECISION NOT NULL,
+    commission_percent NUMERIC(5, 2),
+    commission_amount DOUBLE PRECISION,
+    deal_date DATE NOT NULL,
+    notes TEXT,
+    contract_file VARCHAR(255),
+    contract_generated_at TIMESTAMPTZ,
+    CONSTRAINT fk_deal_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_deal_agent FOREIGN KEY (agent_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_deal_client FOREIGN KEY (client_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_deal_operation_type FOREIGN KEY (operation_type_id) REFERENCES operation_types(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_deal_status FOREIGN KEY (status_id) REFERENCES deal_statuses(id) ON DELETE SET NULL,
+    CONSTRAINT fk_deal_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_deals_date ON deals(deal_date DESC);
+
+-- ====== ИСТОРИЯ, ПРОСМОТРЫ, ЗАДАЧИ, ПИСЬМА ======
+
+CREATE TABLE property_status_history (
+    id SERIAL PRIMARY KEY,
+    property_id INT NOT NULL,
+    status_id INT NOT NULL,
+    changed_by_user_id INT NOT NULL,
+    changed_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_history_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE CASCADE,
+    CONSTRAINT fk_history_status FOREIGN KEY (status_id) REFERENCES property_statuses(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_history_user FOREIGN KEY (changed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_status_history_prop ON property_status_history(property_id, changed_at DESC);
+
+CREATE TABLE property_viewings (
+    id SERIAL PRIMARY KEY,
+    property_id INT NOT NULL,
+    client_user_id INT NOT NULL,
+    agent_user_id INT NOT NULL,
+    scheduled_date TIMESTAMPTZ NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_viewing_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_viewing_client FOREIGN KEY (client_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_viewing_agent FOREIGN KEY (agent_user_id) REFERENCES users(id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_viewings_scheduled ON property_viewings(scheduled_date DESC);
+
+CREATE TABLE tasks (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    priority VARCHAR(10) NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high')),
+    task_type VARCHAR(30) NOT NULL DEFAULT 'other',
+    status_id INT NOT NULL,
+    assignee_id INT NOT NULL,
+    created_by_id INT NOT NULL,
+    client_id INT,
+    property_id INT,
+    request_id INT,
+    deal_id INT,
+    due_date TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    result TEXT,
+    is_auto_closed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    CONSTRAINT fk_task_status FOREIGN KEY (status_id) REFERENCES task_statuses(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_task_assignee FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_task_creator FOREIGN KEY (created_by_id) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_task_client FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_task_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL,
+    CONSTRAINT fk_task_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE SET NULL,
+    CONSTRAINT fk_task_deal FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_tasks_assignee ON tasks(assignee_id);
+CREATE INDEX idx_tasks_created_at ON tasks(created_at DESC);
+
+CREATE TABLE outgoing_emails (
+    id SERIAL PRIMARY KEY,
+    recipient_id INT NOT NULL,
+    sender_id INT,
+    subject VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+    task_id INT,
+    request_id INT,
+    property_id INT,
+    error_message TEXT,
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT fk_email_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_email_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_email_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+    CONSTRAINT fk_email_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE SET NULL,
+    CONSTRAINT fk_email_property FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_emails_status ON outgoing_emails(status);
+CREATE INDEX idx_emails_created ON outgoing_emails(created_at DESC);
+
+-- ====== НАЧАЛЬНОЕ ЗАПОЛНЕНИЕ СПРАВОЧНИКОВ ======
+
+INSERT INTO operation_types (id, code, name) VALUES
+(1, 'sale', 'Продажа'),
+(2, 'rent', 'Аренда');
+
+INSERT INTO property_statuses (id, code, name) VALUES
+(1, 'active', 'Активно'),
+(2, 'reserved', 'Зарезервировано'),
+(3, 'sold', 'Продано'),
+(4, 'rented', 'Сдано');
+
+INSERT INTO request_statuses (id, code, name) VALUES
+(1, 'open', 'Открыта'),
+(2, 'processing', 'В обработке'),
+(3, 'closed', 'Закрыта');
+
+INSERT INTO user_roles (id, code, name, description) VALUES
+(1, 'admin', 'Администратор', 'Полный доступ ко всем функциям системы'),
+(2, 'manager', 'Менеджер', 'Управление сделками и сотрудниками'),
+(3, 'agent', 'Агент', 'Работа с клиентами и объектами');
+
+-- Пример статусов сделок и задач (можно изменить под бизнес-логику)
+INSERT INTO deal_statuses (id, code, name, "order") VALUES
+(1, 'negotiation', 'Переговоры', 1),
+(2, 'preparation', 'Подготовка документов', 2),
+(3, 'signed', 'Подписан договор', 3),
+(4, 'closed', 'Сделка закрыта', 4);
+
+INSERT INTO task_statuses (id, code, name, "order") VALUES
+(1, 'todo', 'К выполнению', 1),
+(2, 'in_progress', 'В работе', 2),
+(3, 'done', 'Выполнено', 3),
+(4, 'cancelled', 'Отменено', 4);

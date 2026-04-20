@@ -1,0 +1,324 @@
+CREATE TABLE operation_types (
+    id INT PRIMARY KEY,
+    code VARCHAR(10),
+    name VARCHAR(50)
+);
+
+CREATE TABLE property_statuses (
+    id INT PRIMARY KEY,
+    code VARCHAR(10),
+    name VARCHAR(50)
+);
+
+CREATE TABLE request_statuses (
+    id SERIAL PRIMARY KEY,
+    code VARCHAR(15),
+    name VARCHAR(50)
+);
+
+CREATE TABLE deal_statuses (
+    id INT PRIMARY KEY,
+    code VARCHAR(20),
+    name VARCHAR(50)
+);
+
+CREATE TABLE task_statuses (
+    id INT PRIMARY KEY,
+    code VARCHAR(20),
+    name VARCHAR(50)
+);
+
+CREATE TABLE user_roles (
+    id INT PRIMARY KEY,
+    code VARCHAR(20),
+    name VARCHAR(50),
+    description TEXT
+);
+
+CREATE TABLE cities (
+    id INT PRIMARY KEY,
+    name VARCHAR(100),
+    region VARCHAR(100)
+);
+
+CREATE TABLE streets (
+    id INT PRIMARY KEY,
+    city_id INT NOT NULL,
+    name VARCHAR(150),
+    street_type VARCHAR(20)
+);
+
+CREATE TABLE houses (
+    id INT PRIMARY KEY,
+    street_id INT NOT NULL,
+    house_number VARCHAR(20) NOT NULL,
+    building VARCHAR(10),
+    structure VARCHAR(10),
+    postal_code VARCHAR(10),
+    FOREIGN KEY (street_id) REFERENCES streets(id)
+);
+
+CREATE TABLE addresses (
+    id INT PRIMARY KEY,
+    house_id INT NOT NULL,
+    apartment_number VARCHAR(20),
+    entrance INT,
+    floor INT,
+    FOREIGN KEY (house_id) REFERENCES houses(id),
+);
+
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username VARCHAR(50),
+    password VARCHAR(128), 
+    email VARCHAR(255),
+    phone VARCHAR(20),
+    user_type VARCHAR(20),
+    role_id INT,
+    is_active BOOLEAN,
+    is_staff BOOLEAN,
+    is_superuser BOOLEAN,
+    is_email_verified BOOLEAN,
+    is_phone_verified BOOLEAN,
+    last_login DATATIME,
+    last_ip INT,
+    created_at DATATIME,
+    updated_at DATATIME,
+    FOREIGN KEY (role_id) REFERENCES user_roles(id)
+);
+
+CREATE TABLE employee_profiles (
+    id INT PRIMARY KEY,
+    user_id INT,
+    first_name VARCHAR(50),
+    last_name VARCHAR(50),
+    middle_name VARCHAR(50),
+    position VARCHAR(100),
+    department VARCHAR(100),
+    hire_date DATE,
+    internal_phone VARCHAR(20),
+    notes TEXT,
+    created_at DATATIME,
+    updated_at DATATIME,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE client_profiles (
+    id INT PRIMARY KEY,
+    user_id INT,
+    first_name VARCHAR(50),
+    last_name VARCHAR(50),
+    middle_name VARCHAR(50),
+    birth_date DATE,
+    passport_series VARCHAR(4),
+    passport_number VARCHAR(6),
+    passport_issued_by VARCHAR(255),
+    passport_issued_date DATE,
+    passport_code VARCHAR(7),
+    registration_address TEXT,
+    actual_address TEXT,
+    preferred_contact_method VARCHAR(20),
+    notes TEXT,
+    created_at DATATIME,
+    updated_at DATATIME,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE properties (
+    id INT PRIMARY KEY,
+    title VARCHAR(255),
+    operation_type_id INT,
+    status_id INT,
+    address_id INT,
+    coordinates_lat NUMERIC(10, 8),
+    coordinates_lon NUMERIC(11, 8),
+    price FLOAT,
+    price_per_sqm FLOAT,
+    area_total NUMERIC(8, 2),
+    area_living NUMERIC(8, 2),
+    area_kitchen NUMERIC(8, 2),
+    rooms_count INT,
+    floor_number INT,
+    total_floors INT,
+    description TEXT,
+    created_at DATATIME,
+    updated_at DATATIME,
+    FOREIGN KEY (operation_type_id) REFERENCES operation_types(id),
+    FOREIGN KEY (status_id) REFERENCES property_statuses(id),
+    FOREIGN KEY (address_id) REFERENCES addresses(id)
+);
+
+CREATE TABLE property_features (
+    id INT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    category VARCHAR(50)
+);
+
+CREATE TABLE property_feature_values (
+    property_id INT NOT NULL,
+    feature_id INT NOT NULL,
+    value VARCHAR(255),
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (feature_id) REFERENCES property_features(id)
+);
+
+CREATE TABLE property_photos (
+    id INT PRIMARY KEY,
+    property_id INT NOT NULL,
+    image VARCHAR(255),
+    url TEXT,
+    caption VARCHAR(255),
+    is_cover BOOLEAN,
+    is_hidden BOOLEAN,
+    "order" INT,
+    uploaded_at DATATIME,
+    FOREIGN KEY (property_id) REFERENCES properties(id)
+);
+
+CREATE TABLE property_documents (
+    id INT PRIMARY KEY,
+    property_id INT NOT NULL,
+    document_name VARCHAR(255) NOT NULL,
+    file_url TEXT NOT NULL,
+    is_verified BOOLEAN,
+    verified_by_user_id INT,
+    verified_at DATATIME,
+    uploaded_at DATATIME,
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (verified_by_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE requests (
+    id INT PRIMARY KEY,
+    client_user_id INT NOT NULL,
+    agent_user_id INT,
+    property_id INT,
+    operation_type_id INT NOT NULL,
+    status_id INT,
+    property_type VARCHAR(50),
+    min_price FLOAT,
+    max_price FLOAT,
+    min_area NUMERIC(8, 2),
+    max_area NUMERIC(8, 2),
+    rooms_count INT,
+    address_preferences TEXT,
+    description TEXT,
+    created_at DATATIME,
+    updated_at DATATIME,
+    closed_at DATATIME,
+    FOREIGN KEY (client_user_id) REFERENCES users(id),
+    FOREIGN KEY (agent_user_id) REFERENCES users(id),
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (operation_type_id) REFERENCES operation_types(id),
+    FOREIGN KEY (status_id) REFERENCES request_statuses(id)
+);
+
+CREATE TABLE request_property_matches (
+    id INT PRIMARY KEY,
+    request_id INT NOT NULL,
+    property_id INT NOT NULL,
+    agent_id INT NOT NULL,
+    agent_note TEXT,
+    is_offered BOOLEAN,
+    is_rejected BOOLEAN,
+    created_at DATATIME,
+    FOREIGN KEY (request_id) REFERENCES requests(id),
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (agent_id) REFERENCES users(id)
+);
+
+CREATE TABLE deals (
+    id INT PRIMARY KEY,
+    deal_number VARCHAR(50),
+    property_id INT NOT NULL,
+    agent_user_id INT NOT NULL,
+    client_user_id INT NOT NULL,
+    operation_type_id INT NOT NULL,
+    status_id INT,
+    request_id INT,
+    price_final float,
+    commission_percent NUMERIC(5, 2),
+    commission_amount FLOAT,
+    deal_date DATE NOT NULL,
+    notes TEXT,
+    contract_file VARCHAR(255),
+    contract_generated_at DATATIME,
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (agent_user_id) REFERENCES users(id),
+    FOREIGN KEY (client_user_id) REFERENCES users(id),
+    FOREIGN KEY (operation_type_id) REFERENCES operation_types(id),
+    FOREIGN KEY (status_id) REFERENCES deal_statuses(id),
+    FOREIGN KEY (request_id) REFERENCES requests(id)
+);
+
+CREATE TABLE property_status_history (
+    id INT PRIMARY KEY,
+    property_id INT NOT NULL,
+    status_id INT NOT NULL,
+    changed_by_user_id INT ,
+    changed_at DATATIME,
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (status_id) REFERENCES property_statuses(id),
+    FOREIGN KEY (changed_by_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE property_viewings (
+    id INT PRIMARY KEY,
+    property_id INT NOT NULL,
+    client_user_id INT NOT NULL,
+    agent_user_id INT NOT NULL,
+    scheduled_date DATATIME,
+    notes TEXT,
+    created_at DATATIME,
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (client_user_id) REFERENCES users(id),
+    FOREIGN KEY (agent_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE tasks (
+    id INT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    priority VARCHAR(10),
+    task_type VARCHAR(30),
+    status_id INT NOT NULL,
+    assignee_id INT NOT NULL,
+    created_by_id INT NOT NULL,
+    client_id INT,
+    property_id INT,
+    request_id INT,
+    deal_id INT,
+    due_date DATATIME,
+    completed_at DATATIME,
+    result TEXT,
+    is_auto_closed BOOLEAN,
+    created_at DATATIME,
+    updated_at DATATIME,
+    FOREIGN KEY (status_id) REFERENCES task_statuses(id),
+    FOREIGN KEY (assignee_id) REFERENCES users(id),
+    FOREIGN KEY (created_by_id) REFERENCES users(id),
+    FOREIGN KEY (client_id) REFERENCES users(id),
+    FOREIGN KEY (property_id) REFERENCES properties(id),
+    FOREIGN KEY (request_id) REFERENCES requests(id),
+    FOREIGN KEY (deal_id) REFERENCES deals(id)
+);
+
+CREATE TABLE outgoing_emails (
+    id INT PRIMARY KEY,
+    recipient_id INT NOT NULL,
+    sender_id INT,
+    subject VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    status VARCHAR(20),
+    task_id INT,
+    request_id INT,
+    property_id INT,
+    error_message TEXT,
+    sent_at DATATIME,
+    created_at DATATIME,
+    FOREIGN KEY (recipient_id) REFERENCES users(id),
+    FOREIGN KEY (sender_id) REFERENCES users(id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id),
+    FOREIGN KEY (request_id) REFERENCES requests(id),
+    FOREIGN KEY (property_id) REFERENCES properties(id)
+);
