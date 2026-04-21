@@ -94,5 +94,47 @@ export const useWorkloadStore = defineStore('workload', {
         this.refresh()
       }, Math.max(0, delayMs))
     },
+
+    /**
+     * Оптимистично зафиксировать завершение задачи на клиенте.
+     *
+     * Нужно для мгновенного UX: сотрудник жмёт «Завершить» и сразу
+     * может взять следующую задачу, не дожидаясь ответа сервера и
+     * последующего bumpAfterAction. Как только refresh доедет —
+     * значения перезапишутся актуальным срезом из БД.
+     *
+     * @param {number} taskId — id завершённой задачи (если совпадает
+     *   с ``currentTask.id``, слот сбрасывается).
+     */
+    optimisticCompleteTask(taskId) {
+      if (this.currentTask && this.currentTask.id === taskId) {
+        this.currentTask = null
+      }
+      // Клиент видит лимит «1 в работе» снятым ещё до ответа API.
+      this.workload = {
+        ...this.workload,
+        in_progress_tasks: Math.max(
+          0, (this.workload.in_progress_tasks || 0) - 1,
+        ),
+        active_tasks: Math.max(
+          0, (this.workload.active_tasks || 0) - 1,
+        ),
+        can_start_task: true,
+      }
+    },
+
+    /**
+     * Оптимистично зафиксировать, что задача взята в работу.
+     * Делается до ответа сервера, чтобы в таблице Tasks сразу
+     * появился бейдж «в работе у вас».
+     */
+    optimisticStartTask(task) {
+      if (task) this.currentTask = task
+      this.workload = {
+        ...this.workload,
+        in_progress_tasks: (this.workload.in_progress_tasks || 0) + 1,
+        can_start_task: false,
+      }
+    },
   },
 })

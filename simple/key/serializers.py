@@ -113,31 +113,105 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     """
-    Самостоятельная регистрация.
+    Самостоятельная регистрация клиента.
 
-    Пользователь НЕ выбирает ни ``user_type``, ни ``role`` — оба поля
-    заполняются автоматически: тип — клиент, роль — отсутствует.
-    Назначение сотрудника и роли делает администратор или менеджер
-    через эндпоинт ``/api/users/{id}/assign_role/``.
+    Двухшаговая форма на фронтенде присылает поля одним POST-запросом:
+    на шаге 1 — минимальные данные аккаунта и ФИО (обязательные),
+    на шаге 2 — опциональные данные профиля (паспорт, адреса, дата
+    рождения). Все эти поля нужны для автозаполнения PDF-договора
+    в :mod:`key.documents`, поэтому ClientProfile создаётся сразу.
+
+    Пользователь НЕ выбирает ни ``user_type``, ни ``role`` — тип
+    всегда ``client``, роль назначается отдельным эндпоинтом
+    ``/api/users/{id}/assign_role/``.
     """
     password = serializers.CharField(write_only=True,
                                      validators=[validate_password])
 
+    # --- Поля ClientProfile (часть обязательная, часть опциональная) ---
+    first_name = serializers.CharField(write_only=True, max_length=50)
+    last_name = serializers.CharField(write_only=True, max_length=50)
+    middle_name = serializers.CharField(
+        write_only=True, max_length=50, required=False, allow_blank=True,
+    )
+    birth_date = serializers.DateField(
+        write_only=True, required=False, allow_null=True,
+    )
+    passport_series = serializers.CharField(
+        write_only=True, max_length=4, required=False, allow_blank=True,
+    )
+    passport_number = serializers.CharField(
+        write_only=True, max_length=6, required=False, allow_blank=True,
+    )
+    passport_issued_by = serializers.CharField(
+        write_only=True, max_length=255, required=False, allow_blank=True,
+    )
+    passport_issued_date = serializers.DateField(
+        write_only=True, required=False, allow_null=True,
+    )
+    passport_code = serializers.CharField(
+        write_only=True, max_length=7, required=False, allow_blank=True,
+    )
+    registration_address = serializers.CharField(
+        write_only=True, required=False, allow_blank=True,
+    )
+    actual_address = serializers.CharField(
+        write_only=True, required=False, allow_blank=True,
+    )
+
+    # Поля, которые мы забираем из ``validated_data`` для построения
+    # ClientProfile. Держим список в одном месте — чтобы create()
+    # не перечислял строки руками и не расходился со списком ниже.
+    _PROFILE_FIELDS = (
+        'first_name', 'last_name', 'middle_name', 'birth_date',
+        'passport_series', 'passport_number', 'passport_issued_by',
+        'passport_issued_date', 'passport_code',
+        'registration_address', 'actual_address',
+    )
+
     class Meta:
         model = User
-        fields = ['username', 'email', 'phone', 'password']
+        fields = [
+            'username', 'email', 'phone', 'password',
+            'first_name', 'last_name', 'middle_name', 'birth_date',
+            'passport_series', 'passport_number', 'passport_issued_by',
+            'passport_issued_date', 'passport_code',
+            'registration_address', 'actual_address',
+        ]
 
     def create(self, validated_data):
+        from django.db import transaction
+
         password = validated_data.pop('password')
-        user = User(
-            user_type='client',
-            role=None,
-            is_staff=False,
-            is_superuser=False,
-            **validated_data,
-        )
-        user.set_password(password)
-        user.save()
+        profile_data = {f: validated_data.pop(f, None)
+                        for f in self._PROFILE_FIELDS}
+        # Пустые строки (пришли с не-обязательного шага 2) трактуем как
+        # «поле не заполнено», чтобы в БД лежал NULL и генератор договора
+        # корректно выводил прочерк в паспортной строке.
+        profile_kwargs = {}
+        for key, value in profile_data.items():
+            if value in (None, ''):
+                continue
+            profile_kwargs[key] = value
+
+        with transaction.atomic():
+            user = User(
+                user_type='client',
+                role=None,
+                is_staff=False,
+                is_superuser=False,
+                **validated_data,
+            )
+            user.set_password(password)
+            user.save()
+            # ФИО обязательны — их валидация уже прошла выше,
+            # т.к. first_name/last_name объявлены без allow_blank.
+            models.ClientProfile.objects.create(
+                user=user,
+                first_name=profile_kwargs.pop('first_name'),
+                last_name=profile_kwargs.pop('last_name'),
+                **profile_kwargs,
+            )
         return user
 
 
@@ -577,9 +651,11 @@ class TaskSerializer(serializers.ModelSerializer):
                   'client', 'client_username',
                   'property', 'property_title',
                   'request', 'request_client_username', 'deal',
-                  'due_date', 'completed_at', 'result', 'is_auto_closed',
+                  'due_date', 'completed_at', 'result',
+                  'steps_log', 'is_auto_closed',
                   'is_overdue', 'created_at', 'updated_at']
-        read_only_fields = ['created_at', 'updated_at', 'created_by', 'is_auto_closed']
+        read_only_fields = ['created_at', 'updated_at', 'created_by',
+                            'is_auto_closed', 'steps_log']
 
     def get_is_overdue(self, obj) -> bool:
         from django.utils import timezone

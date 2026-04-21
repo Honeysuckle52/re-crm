@@ -727,6 +727,14 @@ class Task(models.Model):
     completed_at = models.DateTimeField(blank=True, null=True)
     result = models.TextField(blank=True, null=True,
                               help_text='Результат выполнения задачи')
+    # Пошаговый журнал выполнения: сотрудник идёт «позвонил → заявка
+    # → подобрал объект → завершил», каждый шаг пишется сюда как
+    # {'step': 'contact', 'outcome': 'called', 'note': '...', 'at': ISO,
+    # 'by': user_id}. См. task_actions.record_step().
+    steps_log = models.JSONField(
+        default=list, blank=True,
+        help_text='Журнал этапов выполнения (список объектов).',
+    )
     is_auto_closed = models.BooleanField(default=False,
                                          help_text='Закрыта автоматически системой')
     created_at = models.DateTimeField(default=timezone.now)
@@ -749,6 +757,14 @@ class Task(models.Model):
         """Проверяет, завершена ли задача."""
         return (self.status_id is not None
                 and self.status.code in self.TERMINAL_STATUS_CODES)
+
+    # Алиас, который ожидает :mod:`key.task_actions` и движок событий.
+    # Семантически совпадает с :attr:`is_completed` — оба названия
+    # означают «задача в терминальном статусе и дальнейшие переходы
+    # запрещены».
+    @_property
+    def is_terminal(self):
+        return self.is_completed
 
     @_property
     def task_type_display(self):
