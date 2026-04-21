@@ -95,9 +95,15 @@
           </dl>
 
           <div class="ctw__actions">
+            <!-- Главная кнопка — открывает пошаговый экран работы с клиентом.
+                 Здесь сотрудник фиксирует звонок, создаёт заявку и т. д. -->
+            <router-link :to="{ name: 'task-workflow', params: { id: task.id } }"
+                         class="ctw__btn ctw__btn--primary">
+              Открыть задачу
+            </router-link>
             <router-link v-if="task.request"
                          :to="`/requests/${task.request}`"
-                         class="ctw__btn ctw__btn--primary">
+                         class="ctw__btn">
               Заявка №{{ task.request }}
             </router-link>
             <button class="ctw__btn" :disabled="busy" @click="pause">
@@ -236,8 +242,13 @@ async function pause () {
 }
 async function complete () {
   if (!task.value) return
+  const id = task.value.id
   busy.value = true
-  try { await completeTask(task.value.id) }
+  // Мгновенно очищаем слот на клиенте, чтобы сотрудник видел,
+  // что можно взять следующую задачу, не дожидаясь ответа сервера.
+  // Если API вернёт ошибку — refresh() подтянет корректное состояние.
+  wl.optimisticCompleteTask(id)
+  try { await completeTask(id) }
   finally { busy.value = false }
 }
 

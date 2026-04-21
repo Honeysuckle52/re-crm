@@ -27,6 +27,7 @@ from .permissions import (
     IsEmployee,
     IsEmployeeOrReadOnly,
     IsAdminOrManagerOrReadOnly,
+    IsOwnClientProfileOrEmployee,
 )
 
 User = get_user_model()
@@ -287,7 +288,10 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = models.ClientProfile.objects.select_related('user').all()
     serializer_class = serializers.ClientProfileSerializer
-    permission_classes = [IsEmployeeOrReadOnly]
+    # Клиент должен иметь возможность сам дозаполнить паспорт/адреса
+    # перед подписанием договора, поэтому используем правило, которое
+    # явно разрешает редактирование собственного профиля.
+    permission_classes = [IsOwnClientProfileOrEmployee]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1071,7 +1075,7 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
     """
     Очередь исходящих писем.
 
-    Только для сотрудников и администраторов. Позволяет просматривать
+    Только для сотрудник��в и администраторов. Позволяет просматривать
     очередь, повторно отправлять неудавшиеся письма.
     """
     queryset = models.OutgoingEmail.objects.select_related(

@@ -102,6 +102,22 @@ export function completeTask(id, result = {}) {
   return call(() => api.post(`/tasks/${id}/complete/`, { result }))
 }
 
+/**
+ * Зафиксировать этап выполнения задачи (звонок/сообщение/подбор).
+ * Не переводит задачу в другой статус и не снимает её с сотрудника —
+ * только добавляет запись в ``Task.steps_log``. Используется экраном
+ * TaskWorkflow.vue как «шаги мастера».
+ *
+ * @param {number} id
+ * @param {{ step: string, outcome?: string, note?: string }} payload
+ */
+export function recordTaskStep(id, payload) {
+  return call(() => api.post(`/tasks/${id}/record_step/`, payload), {
+    // bump не нужен: шаги не меняют загрузку сотрудника.
+    bump: false,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Заявки клиентов
 // ---------------------------------------------------------------------------

@@ -54,3 +54,34 @@ class IsAdminOrManagerOrReadOnly(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return request.user.is_admin_or_manager
+
+
+class IsOwnClientProfileOrEmployee(BasePermission):
+    """
+    Правила для ``ClientProfileViewSet``.
+
+    * Сотрудники агентства — могут всё (read/write/create/delete) —
+      это нужно, чтобы они заполняли/правили данные клиента перед
+      подписанием договора.
+    * Клиент — может читать и редактировать только СВОЙ профиль.
+      Создание запрещено: профиль создаётся вместе с аккаунтом
+      при регистрации (см. :class:`key.serializers.RegisterSerializer`),
+      дубли клиент создавать не должен.
+    """
+
+    message = 'Можно редактировать только собственный профиль клиента.'
+
+    def has_permission(self, request, view):
+        if not _authenticated(request):
+            return False
+        if request.user.is_employee:
+            return True
+        # Клиент — запрещаем создание, всё остальное — на object level.
+        if request.method == 'POST':
+            return False
+        return True
+
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_employee:
+            return True
+        return obj.user_id == request.user.id

@@ -107,19 +107,34 @@
       </div>
     </form>
 
-    <!-- Фильтры -->
+    <!-- Вкладки «Активные / История». Для менеджера история показывает
+         все завершённые задачи, для сотрудника — только его собственные. -->
     <div class="panel panel--light">
-      <div class="filter-row">
-        <!-- Фильтр по статусу -->
+      <div class="tabs">
+        <button class="tab"
+                :class="{ 'tab--active': viewMode === 'active' }"
+                @click="setViewMode('active')">
+          Активные <span class="tab__count">{{ activeCount }}</span>
+        </button>
+        <button class="tab"
+                :class="{ 'tab--active': viewMode === 'history' }"
+                @click="setViewMode('history')">
+          История <span class="tab__count">{{ historyCount }}</span>
+        </button>
+      </div>
+
+      <!-- Фильтры видны только в «Активных», в истории они не нужны:
+           там и так показываются только завершённые. -->
+      <div v-if="viewMode === 'active'" class="filter-row">
         <div class="filter-group">
           <span class="filter-label">Статус:</span>
           <div class="row" style="gap: 6px; flex-wrap: wrap">
             <button class="btn btn--sm"
                     :class="{ 'btn--primary': statusFilter === '' }"
                     @click="statusFilter = ''">
-              Все ({{ tasks.length }})
+              Все ({{ activeCount }})
             </button>
-            <button v-for="s in statuses" :key="s.id"
+            <button v-for="s in activeStatuses" :key="s.id"
                     class="btn btn--sm"
                     :class="{ 'btn--primary': statusFilter === s.id }"
                     @click="statusFilter = s.id">
@@ -127,7 +142,6 @@
             </button>
           </div>
         </div>
-        <!-- Фильтр по типу задачи -->
         <div class="filter-group">
           <span class="filter-label">Тип:</span>
           <select class="select select--sm" v-model="typeFilter">
@@ -140,11 +154,12 @@
       </div>
     </div>
 
-    <!-- Таблица задач -->
-    <div class="panel panel--light">
+    <!-- Таблица задач: активные -->
+    <div v-if="viewMode === 'active'" class="panel panel--light">
       <table class="table">
         <thead>
           <tr>
+            <th></th>
             <th>Заголовок</th>
             <th>Тип</th>
             <th>Исполнитель</th>
@@ -156,7 +171,11 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in filtered" :key="t.id">
+          <tr v-for="t in filtered" :key="t.id"
+              :class="{ 'row--mine': isMine(t), 'row--active': isMyActive(t) }">
+            <td class="mine-cell">
+              <TaskMineBadge :task="t" :user-id="auth.user?.id" mode="dot" />
+            </td>
             <td>
               <b>{{ t.title }}</b>
               <div class="muted" style="font-size: 12px" v-if="t.property_title">
@@ -166,7 +185,12 @@
             <td>
               <span class="tag tag--type">{{ t.task_type_display || taskTypeLabel(t.task_type) }}</span>
             </td>
-            <td>{{ t.assignee_username }}</td>
+            <td>
+              <div class="assignee-cell">
+                <span>{{ t.assignee_username }}</span>
+                <TaskMineBadge :task="t" :user-id="auth.user?.id" mode="full" />
+              </div>
+            </td>
             <td>
               <router-link v-if="t.request" :to="`/requests/${t.request}`"
                            class="link">
@@ -189,14 +213,16 @@
                    class="auto-closed-badge" title="Задача закрыта автоматически">
                 авто
               </div>
-              <div v-if="t.assignee === auth.user?.id && t.status_code === 'in_progress'"
-                   class="muted" style="font-size: 11px; margin-top: 2px">
-                вы сейчас выполняете
-              </div>
             </td>
             <td class="task-actions">
-              <!-- Быстрые переходы по статусам. «Старт» блокируется,
-                   если у сотрудника уже есть задача в работе — лимит 1. -->
+              <!-- Открыть пошаговый экран работы с клиентом.
+                   Показываем только тем, кому эта задача назначена,
+                   и только пока она не завершена. -->
+              <button v-if="canOpenWorkflow(t)"
+                      class="btn btn--sm btn--primary"
+                      @click="openWorkflow(t)">
+                Открыть
+              </button>
               <button v-if="canStart(t)"
                       class="btn btn--sm btn--accent"
                       :disabled="!canStartBtn(t) || busyId === t.id"
@@ -231,6 +257,58 @@
       <div v-if="!filtered.length" class="empty">Задач нет.</div>
     </div>
 
+    <!-- Таблица задач: история. Акцент на длительности и результате —
+         это то, что сотруднику / менеджеру нужно видеть первым. -->
+    <div v-else class="panel panel--light">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Задача</th>
+            <th>Тип</th>
+            <th>Исполнитель</th>
+            <th>Заявка</th>
+            <th>Завершена</th>
+            <th>Длительность</th>
+            <th>Результат</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in history" :key="t.id">
+            <td>
+              <b>{{ t.title }}</b>
+              <div class="muted" style="font-size: 12px" v-if="t.property_title">
+                Объект: {{ t.property_title }}
+              </div>
+            </td>
+            <td>
+              <span class="tag tag--type">{{ t.task_type_display || taskTypeLabel(t.task_type) }}</span>
+            </td>
+            <td>{{ t.assignee_username }}</td>
+            <td>
+              <router-link v-if="t.request" :to="`/requests/${t.request}`" class="link">
+                №{{ t.request }}
+              </router-link>
+              <span v-else class="muted">—</span>
+            </td>
+            <td class="muted" style="white-space: nowrap">
+              {{ t.completed_at ? formatDate(t.completed_at) : '—' }}
+            </td>
+            <td class="muted" style="white-space: nowrap">
+              {{ humanDuration(t) }}
+            </td>
+            <td class="history-result">
+              <div class="tag tag--accent" v-if="t.status_code === 'done'">выполнена</div>
+              <div class="tag" v-else-if="t.status_code === 'cancelled'" style="background:#fde7e4;color:#c2554a">отменена</div>
+              <div class="muted" style="font-size: 12px; margin-top: 4px" v-if="resultSummary(t)">
+                {{ resultSummary(t) }}
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="!history.length" class="empty">Выполненных задач пока нет.</div>
+    </div>
+
     <!-- Модалка завершения задачи -->
     <Teleport to="body">
       <div v-if="completeModal.show" class="modal-overlay" @click.self="closeCompleteModal">
@@ -259,14 +337,19 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../api'
+import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
+import TaskMineBadge from '../components/TaskMineBadge.vue'
 
 const auth = useAuthStore()
 const workload = useWorkloadStore()
+const router = useRouter()
 
 const tasks = ref([])
+const history = ref([])
 const statuses = ref([])
 const employees = ref([])
 const clients = ref([])
@@ -277,6 +360,7 @@ const statusFilter = ref('')
 const typeFilter = ref('')
 const showForm = ref(false)
 const busyId = ref(null)
+const viewMode = ref('active')
 
 // Типы задач (соответствуют TASK_TYPE_CHOICES в модели)
 const taskTypes = [
@@ -319,8 +403,19 @@ function defaultForm () {
   }
 }
 
+// ---- Списки «активные / история» -----------------------------------------
+// «Активные» — это всё, кроме done/cancelled. Фильтр локальный —
+// сортируем в памяти, т.к. массив уже загружен в tasks.
+const TERMINAL_CODES = ['done', 'cancelled']
+const activeTasks = computed(() => (
+  tasks.value.filter(t => !TERMINAL_CODES.includes(t.status_code))
+))
+const activeStatuses = computed(() => (
+  statuses.value.filter(s => !TERMINAL_CODES.includes(s.code))
+))
+
 const filtered = computed(() => {
-  let result = tasks.value
+  let result = activeTasks.value
   if (statusFilter.value) {
     result = result.filter((t) => t.status === statusFilter.value)
   }
@@ -330,8 +425,11 @@ const filtered = computed(() => {
   return result
 })
 
+const activeCount = computed(() => activeTasks.value.length)
+const historyCount = computed(() => history.value.length)
+
 function countByStatus (id) {
-  return tasks.value.filter((t) => t.status === id).length
+  return activeTasks.value.filter((t) => t.status === id).length
 }
 
 function taskTypeLabel (code) {
@@ -353,9 +451,41 @@ function formatDate (s) {
   })
 }
 
+/**
+ * Пытаемся вывести длительность задачи: если на клиенте есть хотя бы
+ * created_at и completed_at — считаем разницу; иначе «—».
+ */
+function humanDuration (t) {
+  if (!t.created_at || !t.completed_at) return '—'
+  const ms = new Date(t.completed_at) - new Date(t.created_at)
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  const min = Math.round(ms / 60000)
+  if (min < 60) return `${min} мин`
+  const hours = Math.floor(min / 60)
+  const rest = min % 60
+  if (hours < 24) return rest ? `${hours} ч ${rest} мин` : `${hours} ч`
+  const days = Math.floor(hours / 24)
+  return `${days} дн ${hours % 24} ч`
+}
+
+/**
+ * Результат может храниться как строка или как объект {summary, ...}.
+ * Пользователю показываем summary (первым), либо текст целиком.
+ */
+function resultSummary (t) {
+  if (!t.result) return ''
+  if (typeof t.result === 'string') return t.result
+  return t.result.summary || ''
+}
+
 function toggleForm () {
   showForm.value = !showForm.value
   if (showForm.value) Object.assign(form, defaultForm())
+}
+
+function isMine (t) { return t.assignee === auth.user?.id }
+function isMyActive (t) {
+  return isMine(t) && t.status_code === 'in_progress'
 }
 
 async function load () {
@@ -373,6 +503,27 @@ async function load () {
   clients.value = c.data.results || c.data
   requests.value = r.data.results || r.data
   properties.value = p.data.results || p.data
+}
+
+/**
+ * Загрузка истории: запрос уходит напрямую на /tasks/ с фильтром
+ * по статусам done/cancelled, а для сотрудника — дополнительно
+ * assignee=me (алиас, который понимает TaskViewSet.get_queryset).
+ */
+async function loadHistory () {
+  const params = {
+    status_code: 'done,cancelled',
+    ordering: '-completed_at',
+    page_size: 100,
+  }
+  if (!auth.isManager) params.assignee = 'me'
+  const { data } = await api.get('/tasks/', { params })
+  history.value = data.results || data
+}
+
+function setViewMode (mode) {
+  viewMode.value = mode
+  if (mode === 'history') loadHistory()
 }
 
 async function create () {
@@ -394,14 +545,14 @@ async function create () {
 
 async function changeStatus (task, statusId) {
   if (!statusId) return
-  try {
-    await api.post(`/tasks/${task.id}/change_status/`,
-                   { status_id: Number(statusId) })
+  const { ok, data, error } = await tasksApi.changeTaskStatus(task.id, statusId)
+  if (ok) {
+    // Применяем свежий объект к строке таблицы без full reload.
+    applyTaskPatch(data)
     showToast('Статус изменён')
-  } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось изменить статус', 'error')
+  } else {
+    showToast(error, 'error')
   }
-  await refreshAll()
 }
 
 // --- права на быстрые действия --------------------------------------------
@@ -419,6 +570,12 @@ function canComplete (task) {
   return isOwnOrManaged(task)
     && ['new', 'in_progress', 'waiting'].includes(task.status_code)
 }
+function canOpenWorkflow (task) {
+  // «Открыть» показываем только владельцу задачи — менеджер смотрит
+  // задачу через обычный просмотр, не мешая пошаговой работе.
+  return task.assignee === auth.user?.id
+    && !TERMINAL_CODES.includes(task.status_code)
+}
 function canStartBtn (task) {
   if (auth.isManager) return true
   if (task.assignee !== auth.user?.id) return false
@@ -426,47 +583,93 @@ function canStartBtn (task) {
       < workload.workload.max_in_progress_tasks
 }
 
+/**
+ * Встраиваем обновлённый объект задачи в массив tasks. Это позволяет
+ * не гонять лишний GET /tasks/ после каждого действия и делает UI
+ * мгновенно отзывчивым.
+ */
+function applyTaskPatch (task) {
+  if (!task || !task.id) return
+  const idx = tasks.value.findIndex(t => t.id === task.id)
+  if (idx >= 0) tasks.value.splice(idx, 1, task)
+  else tasks.value.push(task)
+}
+
 async function startTask (task) {
   busyId.value = task.id
-  try {
-    await api.post(`/tasks/${task.id}/start/`)
+  // Оптимистичный апдейт: сразу ставим статус in_progress и
+  // занимаем слот нагрузки. Если API вернёт ошибку — откатим.
+  const prevStatusCode = task.status_code
+  const prevStatus = task.status
+  const inProgress = statuses.value.find(s => s.code === 'in_progress')
+  if (inProgress) {
+    applyTaskPatch({
+      ...task,
+      status_code: 'in_progress',
+      status: inProgress.id,
+      status_name: inProgress.name,
+    })
+  }
+  workload.optimisticStartTask({ ...task, status_code: 'in_progress' })
+
+  const { ok, data, error } = await tasksApi.startTask(task.id)
+  if (ok) {
+    applyTaskPatch(data)
     showToast('Задача взята в работу')
-    await refreshAll()
-  } catch (err) {
-    showToast(err.response?.data?.detail
-      || 'Нельзя стартовать задачу: превышен лимит', 'error')
-  } finally { busyId.value = null }
+  } else {
+    // Откат: возвращаем исходный статус.
+    applyTaskPatch({
+      ...task,
+      status_code: prevStatusCode,
+      status: prevStatus,
+    })
+    workload.refresh()
+    showToast(error || 'Нельзя стартовать задачу: превышен лимит', 'error')
+  }
+  busyId.value = null
 }
 
 async function pauseTask (task) {
   busyId.value = task.id
-  try {
-    await api.post(`/tasks/${task.id}/pause/`)
+  const { ok, data, error } = await tasksApi.pauseTask(task.id)
+  if (ok) {
+    applyTaskPatch(data)
     showToast('Задача приостановлена')
-    await refreshAll()
-  } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось приостановить задачу', 'error')
-  } finally { busyId.value = null }
+  } else {
+    showToast(error || 'Не удалось приостановить задачу', 'error')
+  }
+  busyId.value = null
 }
 
 async function confirmComplete () {
   const task = completeModal.task
   if (!task) return
   busyId.value = task.id
-  try {
-    await api.post(`/tasks/${task.id}/complete/`, {
-      result: completeModal.result || null,
-    })
+
+  // Оптимистично: сразу освобождаем слот, чтобы сотрудник видел,
+  // что может взять следующую задачу, и переносим задачу в «историю».
+  workload.optimisticCompleteTask(task.id)
+
+  const payload = completeModal.result
+    ? { summary: completeModal.result }
+    : {}
+  const { ok, data, error } = await tasksApi.completeTask(task.id, payload)
+  if (ok) {
+    applyTaskPatch(data)
+    // Если открыта вкладка истории — подгрузим свежий срез.
+    if (viewMode.value === 'history') loadHistory()
     showToast('Задача завершена')
     closeCompleteModal()
-    await refreshAll()
-  } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось завершить задачу', 'error')
-  } finally { busyId.value = null }
+  } else {
+    // Откат нагрузки и возврат статуса.
+    workload.refresh()
+    showToast(error || 'Не удалось завершить задачу', 'error')
+  }
+  busyId.value = null
 }
 
-async function refreshAll () {
-  await Promise.all([load(), workload.refresh()])
+function openWorkflow (task) {
+  router.push({ name: 'task-workflow', params: { id: task.id } })
 }
 
 onMounted(async () => {
@@ -497,6 +700,49 @@ onMounted(async () => {
   background: rgba(194, 85, 74, .9);
 }
 
+/* Вкладки «Активные / История» */
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #f1f1ec;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  width: fit-content;
+}
+.tab {
+  background: transparent;
+  border: 0;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background .15s, color .15s;
+}
+.tab:hover { color: var(--c-text); }
+.tab--active {
+  background: #fff;
+  color: var(--c-text);
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.tab__count {
+  background: rgba(15,58,51,.1);
+  color: var(--c-text-muted);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tab--active .tab__count {
+  background: rgba(15,58,51,.14);
+  color: #0f3a33;
+}
+
 /* Фильтры */
 .filter-row {
   display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
@@ -522,6 +768,25 @@ onMounted(async () => {
   padding: 2px 6px; border-radius: 4px;
   margin-left: 6px;
 }
+
+/* «Моя задача» — подсветка строк */
+.mine-cell { width: 18px; padding-left: 14px !important; }
+.row--mine > td:first-child {
+  box-shadow: inset 3px 0 0 rgba(15, 58, 51, .25);
+}
+.row--active > td:first-child {
+  box-shadow: inset 3px 0 0 #0f3a33;
+}
+.row--active { background: rgba(15, 58, 51, .03); }
+
+.assignee-cell {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.history-result { min-width: 160px; }
 
 /* Тосты */
 .toast {
