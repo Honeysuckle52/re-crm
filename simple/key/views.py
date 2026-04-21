@@ -848,16 +848,34 @@ class TaskViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
+        params = self.request.query_params
         if user.is_authenticated and not user.is_admin_or_manager:
             qs = qs.filter(Q(assignee=user) | Q(created_by=user))
-        if self.request.query_params.get('status'):
-            qs = qs.filter(status_id=self.request.query_params['status'])
-        if self.request.query_params.get('assignee'):
-            qs = qs.filter(assignee_id=self.request.query_params['assignee'])
-        if self.request.query_params.get('task_type'):
-            qs = qs.filter(task_type=self.request.query_params['task_type'])
-        if self.request.query_params.get('request'):
-            qs = qs.filter(request_id=self.request.query_params['request'])
+        if params.get('status'):
+            qs = qs.filter(status_id=params['status'])
+        # Фильтр по коду статуса — фронтенду удобнее, чем pk из справочника.
+        # Принимает одиночный код или список через запятую:
+        # ?status_code=done или ?status_code=done,cancelled.
+        if params.get('status_code'):
+            codes = [c.strip() for c in params['status_code'].split(',')
+                     if c.strip()]
+            qs = qs.filter(status__code__in=codes)
+        if params.get('assignee'):
+            value = params['assignee']
+            # Алиас «me» — удобен для страницы «Моя история».
+            if value == 'me':
+                qs = qs.filter(assignee=user)
+            else:
+                qs = qs.filter(assignee_id=value)
+        if params.get('task_type'):
+            qs = qs.filter(task_type=params['task_type'])
+        if params.get('request'):
+            qs = qs.filter(request_id=params['request'])
+        # Интервал по дате завершения — для вкладки «История».
+        if params.get('completed_after'):
+            qs = qs.filter(completed_at__gte=params['completed_after'])
+        if params.get('completed_before'):
+            qs = qs.filter(completed_at__lte=params['completed_before'])
         return qs
 
     def perform_create(self, serializer):
@@ -964,19 +982,66 @@ class TaskViewSet(viewsets.ModelViewSet):
         """
         Отметка задачи как выполненной.
 
-        Опционально принимает ``result`` — текстовое описание результата
-        выполнения задачи, которое сохраняется для статистики.
+        Опционально принимает ``result`` — строку (текстовое резюме)
+        или объект ``{summary, ...}`` (фронтенд TaskWorkflow шлёт dict
+        с саммари и произвольной мета-информацией). Логика завершения
+        вынесена в :mod:`key.task_actions` и идемпотентна — повторный
+        клик не ломает статистику.
         """
         task = self.get_object()
-        done = models.TaskStatus.objects.filter(code='done').first()
-        if done:
-            task.status = done
-        task.completed_at = timezone.now()
-        # Сохраняем результат, если передан
-        result = request.data.get('result')
-        if result:
-            task.result = result
-        task.save()
+        # Проверяем права: завершать может только сам исполнитель
+        # или администрация агентства.
+        if (task.assignee_id != request.user.id
+                and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя завершить чужую задачу.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from . import task_actions
+        task, changed = task_actions.complete_task(
+            task,
+            actor=request.user,
+            result=request.data.get('result'),
+        )
+        if not changed:
+            # Задача уже была в терминальном статусе — возвращаем
+            # актуальный срез, но HTTP 200 (идемпотентность).
+            return Response(serializers.TaskSerializer(task).data)
+        return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'], url_path='record_step')
+    def record_step(self, request, pk=None):
+        """
+        Зафиксировать этап выполнения задачи (контакт, заявка, подбор).
+
+        Вызывается из ``TaskWorkflow.vue`` после каждого нажатия
+        «Позвонил» / «Написал» / «Не дозвонился» / «Подобрал объект»,
+        а также при завершении этапа «Заявка» (создана или открыта).
+
+        Тело запроса: ``{step: str, outcome?: str, note?: str}``.
+        Список step'ов — см. docstring :func:`key.task_actions.record_step`.
+        """
+        task = self.get_object()
+        if (task.assignee_id != request.user.id
+                and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя дописывать шаги чужой задачи.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        step = (request.data.get('step') or '').strip()
+        if not step:
+            return Response(
+                {'detail': 'Поле step обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from . import task_actions
+        task = task_actions.record_step(
+            task,
+            step=step,
+            outcome=request.data.get('outcome'),
+            note=request.data.get('note'),
+            actor=request.user,
+        )
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=False, methods=['get'])
