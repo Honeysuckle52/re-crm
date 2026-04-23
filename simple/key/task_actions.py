@@ -10,10 +10,8 @@
 * единый источник правды для поля ``result`` (текстовое саммари) и
   ``steps_log`` (структурированный журнал этапов).
 
-Подсистема KPI намеренно НЕ вызывается отсюда: её модель
-(``EmployeeKPI``, поля ``kind``/``duration_sec``) ещё не создана в
-БД. Когда KPI будет подключён, достаточно добавить вызов
-``kpi.record_completion(task, ...)`` в конец :func:`complete_task`.
+Подсистема KPI вызывается в best-effort режиме: если модель KPI ещё не
+добавлена в БД, модуль ``key.kpi`` тихо пропускает запись без падения.
 """
 from __future__ import annotations
 
@@ -23,6 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import models
+from . import kpi
 
 
 def _get_status_by_code(code: str) -> models.TaskStatus | None:
@@ -123,7 +122,7 @@ def complete_task(
         'is_auto_closed', 'updated_at',
     ])
 
-    # Hook for future KPI integration (см. docstring модуля).
+    kpi.record_completion(task, auto_closed=auto_closed)
     return task, True
 
 

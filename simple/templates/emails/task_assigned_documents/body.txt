@@ -1,0 +1,10 @@
+Здравствуйте, {{ assignee_name }}!
+
+Вам назначена задача по документам:
+- {{ task.title }}
+{% if request %}- По заявке №{{ request.pk }}{% endif %}
+{% if task.due_date %}- Срок: {{ task.due_date }}{% endif %}
+
+Открыть задачи: {{ task_url }}
+
+{{ agency_name }}

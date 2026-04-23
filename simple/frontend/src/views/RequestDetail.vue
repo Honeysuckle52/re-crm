@@ -168,6 +168,10 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+import {
+  takeRequest as takeRequestAction,
+  acceptRequestMatch,
+} from '../api/tasks'
 
 const route = useRoute()
 const router = useRouter()
@@ -217,13 +221,13 @@ async function load () {
 }
 
 async function takeRequest () {
-  try {
-    await api.post(`/requests/${route.params.id}/take/`)
-    showToast('Заявка взята в работу')
-    await load()
-  } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось взять заявку', 'error')
+  const result = await takeRequestAction(route.params.id)
+  if (!result.ok) {
+    showToast(result.error || 'Не удалось взять заявку', 'error')
+    return
   }
+  showToast('Заявка взята в работу')
+  await load()
 }
 
 async function closeRequest () {
@@ -269,13 +273,13 @@ async function detachProperty (m) {
 async function confirmProperty (m) {
   confirmingId.value = m.id
   try {
-    const resp = await api.post(`/requests/${route.params.id}/confirm_property/`, {
-      match_id: m.id,
-    })
-    showToast(resp.data.detail || 'Вариант подтверждён, задачи закрыты, письмо отправлено')
+    const result = await acceptRequestMatch(route.params.id, m.id)
+    if (!result.ok) {
+      showToast(result.error || 'Не удалось подтвердить вариант', 'error')
+      return
+    }
+    showToast(result.data?.detail || 'Вариант подтверждён, задачи закрыты, письмо отправлено')
     await load()
-  } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось подтвердить вариант', 'error')
   } finally {
     confirmingId.value = null
   }

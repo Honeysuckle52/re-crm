@@ -91,3 +91,14 @@ class TaskAdmin(admin.ModelAdmin):
 admin.site.register(models.PropertyStatusHistory)
 admin.site.register(models.PropertyViewing)
 admin.site.register(models.PropertyDocument)
+
+
+@admin.register(models.OutgoingEmail)
+class OutgoingEmailAdmin(admin.ModelAdmin):
+    """Журнал почтовых событий с причиной, шаблоном и статусом доставки."""
+    list_display = (
+        'id', 'recipient', 'subject', 'trigger_code', 'template_code',
+        'status', 'created_at', 'sent_at',
+    )
+    list_filter = ('status', 'trigger_code', 'template_code', 'created_at')
+    search_fields = ('subject', 'recipient__email', 'recipient__username')

@@ -14,6 +14,8 @@ from django.utils import timezone
 
 from . import models
 from .business_rules import ACTIVE_TASK_STATUS_CODES
+from .mailing import enqueue_property_matched, enqueue_request_taken
+from .task_actions import complete_task
 
 
 # ============================================================================
@@ -103,6 +105,8 @@ def request_taken_create_task(sender, instance, created, **kwargs):
         request=instance,
         due_date=timezone.now() + timedelta(hours=24),
     )
+    # Уведомляем клиента, что заявка принята в работу.
+    enqueue_request_taken(request=instance, agent=instance.agent)
 
 
 # ============================================================================
@@ -122,57 +126,26 @@ def auto_close_search_task_and_send_email(sender, match, confirmed_by, **kwargs)
     property_obj = match.property
 
     # --- 1. Автозакрытие задач типа property_search ---
-    status_done = models.TaskStatus.objects.filter(code='done').first()
-    if status_done:
-        active_search_tasks = models.Task.objects.filter(
-            request=request_obj,
-            task_type='property_search',
-            status__code__in=ACTIVE_TASK_STATUS_CODES,
-        )
-        now = timezone.now()
-        for task in active_search_tasks:
-            task.status = status_done
-            task.completed_at = now
-            task.is_auto_closed = True
-            task.result = (
+    active_search_tasks = models.Task.objects.filter(
+        request=request_obj,
+        task_type='property_search',
+        status__code__in=ACTIVE_TASK_STATUS_CODES,
+    )
+    for task in active_search_tasks:
+        complete_task(
+            task,
+            actor=confirmed_by,
+            auto_closed=True,
+            reason=(
                 f'Автозакрыто: клиент подтвердил вариант '
                 f'«{property_obj.title or "Объект №" + str(property_obj.pk)}» '
                 f'по заявке №{request_obj.pk}.'
-            )
-            task.save(update_fields=[
-                'status', 'completed_at', 'is_auto_closed', 'result', 'updated_at'
-            ])
+            ),
+        )
 
     # --- 2. Создание исходящего письма клиенту ---
-    client = request_obj.client
-    if client and client.email:
-        property_title = property_obj.title or f'Объект №{property_obj.pk}'
-        property_price = f'{property_obj.price:,.0f}'.replace(',', ' ')
-
-        # Формируем адрес объекта
-        address_str = str(property_obj.address) if property_obj.address_id else 'Адрес не указан'
-
-        subject = f'Ваш выбор подтверждён: {property_title}'
-        body = f"""Уважаемый(ая) {client.username},
-
-Рады сообщить, что ваш выбор по заявке №{request_obj.pk} подтверждён!
-
-Выбранный объект:
-- Название: {property_title}
-- Адрес: {address_str}
-- Цена: {property_price} ₽
-
-Наш агент свяжется с вами в ближайшее время для обсуждения деталей сделки.
-
-С уважением,
-Агентство недвижимости"""
-
-        models.OutgoingEmail.objects.create(
-            recipient=client,
-            sender=confirmed_by,
-            subject=subject,
-            body=body,
-            status='pending',
-            request=request_obj,
-            property=property_obj,
-        )
+    enqueue_property_matched(
+        request=request_obj,
+        property_obj=property_obj,
+        agent=confirmed_by,
+    )

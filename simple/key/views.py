@@ -22,6 +22,11 @@ from . import business_rules, models, serializers
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
 from .deals_service import create_deal_from_request
+from .mailing import (
+    resend as resend_email,
+    enqueue_request_closed,
+    enqueue_task_assigned,
+)
 from .permissions import (
     IsAdminOrManager,
     IsEmployee,
@@ -588,6 +593,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         # (OneToOne на Deal.request — повторные вызовы не плодят дублей)
         # и бросает исключения только на ошибках БД, но не на «нет объекта».
         deal = create_deal_from_request(req, actor=request.user)
+        enqueue_request_closed(request=req, actor=request.user, deal=deal)
 
         payload = serializers.RequestSerializer(req).data
         if deal is not None:
@@ -729,6 +735,17 @@ class RequestViewSet(viewsets.ModelViewSet):
                       'письмо клиенту поставлено в очередь.',
             'match': serializers.RequestPropertyMatchSerializer(match).data,
         })
+
+    @action(detail=True, methods=['post'], url_path='accept_match')
+    def accept_match(self, request, pk=None):
+        """
+        Обратная совместимость для фронтенда.
+
+        Старый клиент вызывает ``accept_match``, а бизнес-логика теперь
+        живёт в ``confirm_property``. Держим алиас, чтобы убрать 404
+        и не дублировать код.
+        """
+        return self.confirm_property(request, pk=pk)
 
 
 class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
@@ -893,7 +910,8 @@ class TaskViewSet(viewsets.ModelViewSet):
                 business_rules.assert_can_assign_task(assignee)
             except WorkloadLimitExceeded as exc:
                 raise ValidationError({'assignee': [exc.detail]})
-        serializer.save(created_by=self.request.user)
+        task = serializer.save(created_by=self.request.user)
+        enqueue_task_assigned(task=task)
 
     @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
@@ -1104,9 +1122,8 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
                 {'detail': 'Можно повторить только неудавшиеся письма.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        email.status = 'pending'
-        email.error_message = None
-        email.save(update_fields=['status', 'error_message'])
+        resend_email(email)
+        email.refresh_from_db()
         return Response(serializers.OutgoingEmailSerializer(email).data)
 
 

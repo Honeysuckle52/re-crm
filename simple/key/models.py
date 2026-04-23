@@ -786,15 +786,23 @@ class OutgoingEmail(models.Model):
         ('failed', 'Ошибка отправки'),
     ]
 
-    recipient = models.ForeignKey(User, on_delete=models.CASCADE,
-                                  related_name='outgoing_emails',
-                                  limit_choices_to={'user_type': 'client'})
+    # Получателем может быть и клиент, и сотрудник (например, уведомление
+    # о назначении задачи). Поэтому не ограничиваем user_type.
+    recipient = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='outgoing_emails',
+    )
     sender = models.ForeignKey(User, on_delete=models.SET_NULL,
                                blank=True, null=True,
                                related_name='sent_emails',
                                limit_choices_to={'user_type': 'employee'})
     subject = models.CharField(max_length=255)
     body = models.TextField()
+    # Код шаблона, из которого собрано письмо (property_matched, task_assigned…).
+    template_code = models.CharField(max_length=64, blank=True, null=True)
+    # Причина/триггер отправки (request_taken, task_assigned, request_closed…).
+    trigger_code = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    # Структурированный контекст отправки для аудита и отладки цепочки.
+    context = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES,
                               default='pending', db_index=True)
 

@@ -1,0 +1,13 @@
+Здравствуйте, {{ assignee_name }}!
+
+Вам назначена новая задача:
+- Название: {{ task.title }}
+- Тип: {{ task.get_task_type_display }}
+{% if task.due_date %}- Срок: {{ task.due_date }}{% endif %}
+{% if request %}- Заявка: №{{ request.pk }}{% endif %}
+{% if property %}- Объект: {{ property.title|default:"Объект" }}{% endif %}
+
+Открыть список задач: {{ task_url }}
+
+С уважением,
+{{ agency_name }}

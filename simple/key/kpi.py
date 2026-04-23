@@ -18,10 +18,16 @@ from django.utils import timezone
 from . import models
 
 
+def _is_enabled() -> bool:
+    """KPI доступен, только если соответствующая модель существует."""
+    return hasattr(models, 'EmployeeKPI')
+
+
 def _resolve_duration_sec(task: models.Task) -> int:
     """Длительность выполнения задачи в секундах (не отрицательная)."""
-    if task.duration_sec is not None:
-        return max(int(task.duration_sec), 0)
+    duration = getattr(task, 'duration_sec', None)
+    if duration is not None:
+        return max(int(duration), 0)
     if task.completed_at and task.created_at:
         delta = task.completed_at - task.created_at
         return max(int(delta.total_seconds()), 0)
@@ -44,6 +50,8 @@ def record_completion(task: models.Task, *, auto_closed: bool = False) -> None:
     ``TaskViewSet.complete`` не повторяет запись для уже терминальной
     задачи, а движок событий проверяет код статуса перед закрытием.
     """
+    if not _is_enabled():
+        return
     if not task.assignee_id or not task.completed_at:
         return
 
@@ -52,10 +60,11 @@ def record_completion(task: models.Task, *, auto_closed: bool = False) -> None:
     overdue_inc = 1 if _is_overdue(task) else 0
     auto_inc = 1 if auto_closed else 0
 
+    task_kind = getattr(task, 'kind', None) or task.task_type or 'other'
     row, created = models.EmployeeKPI.objects.get_or_create(
         employee_id=task.assignee_id,
         period=day,
-        kind=task.kind or models.Task.KIND_OTHER,
+        kind=task_kind,
         defaults={
             'completed_count': 1,
             'auto_closed_count': auto_inc,
@@ -88,6 +97,17 @@ def kpi_for_range(
     Возвращает словарь формата, удобного фронтенду:
     ``{ totals: {...}, by_kind: [...], by_day: [...] }``.
     """
+    if not _is_enabled():
+        return {
+            'date_from': (date_from or timezone.localdate()).isoformat(),
+            'date_to': (date_to or timezone.localdate()).isoformat(),
+            'totals': {
+                'completed': 0, 'auto_closed': 0, 'overdue': 0,
+                'total_duration_sec': 0, 'avg_duration_sec': 0,
+            },
+            'by_kind': [],
+            'by_day': [],
+        }
     today = timezone.localdate()
     date_from = date_from or (today - timedelta(days=30))
     date_to = date_to or today
@@ -113,7 +133,7 @@ def kpi_for_range(
                          duration=Sum('total_duration_sec'),
                      )
                      .order_by('-completed'))
-    kind_labels = dict(models.Task.KIND_CHOICES)
+    kind_labels = dict(models.Task.TASK_TYPE_CHOICES)
     by_kind = [{
         'kind': row['kind'],
         'kind_label': kind_labels.get(row['kind'], row['kind']),
@@ -158,6 +178,13 @@ def kpi_for_range(
 
 def today_snapshot(employee_id: int) -> dict:
     """Короткая сводка «сегодня» — выводится в виджете текущей задачи."""
+    if not _is_enabled():
+        return {
+            'completed_today': 0,
+            'auto_closed_today': 0,
+            'overdue_today': 0,
+            'avg_duration_sec': 0,
+        }
     day = timezone.localdate()
     totals = (models.EmployeeKPI.objects
               .filter(employee_id=employee_id, period=day)

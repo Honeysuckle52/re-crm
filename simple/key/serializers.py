@@ -681,6 +681,7 @@ class OutgoingEmailSerializer(serializers.ModelSerializer):
         model = models.OutgoingEmail
         fields = ['id', 'recipient', 'recipient_username', 'recipient_email',
                   'sender', 'sender_username', 'subject', 'body',
+                  'template_code', 'trigger_code', 'context',
                   'status', 'status_display', 'task', 'request', 'property',
                   'error_message', 'sent_at', 'created_at']
         read_only_fields = ['created_at', 'sent_at']
