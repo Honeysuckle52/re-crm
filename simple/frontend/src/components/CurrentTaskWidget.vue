@@ -229,14 +229,26 @@ function priorityClass (p) {
 }
 
 // ---------------------------------------------------------------------------
-// Действия: проходят через api/tasks.js, который сам дёргает
-// wl.bumpAfterAction() — виджет синхронно обновится и на других страницах.
+// Действия: проходят через api/tasks.js (он внутри планирует bumpAfterAction
+// с дебаунсом). Дополнительно после ответа сервера делаем явный
+// `await wl.refresh()` — иначе счётчики и сообщение «лимит» обновляются
+// только через debounce-таймер и кажутся «зависшими».
 // ---------------------------------------------------------------------------
 async function pause () {
   if (!task.value) return
+  const id = task.value.id
   busy.value = true
-  try { await pauseTask(task.value.id) }
-  finally { busy.value = false }
+  // Слот «в работе» освобождается сразу: пауза переводит задачу в
+  // «Ожидание», поэтому виджет не должен показывать её как текущую.
+  wl.optimisticPauseTask(id)
+  try {
+    await pauseTask(id)
+  } finally {
+    // Подтягиваем актуальную нагрузку и текущую задачу из БД, чтобы
+    // и счётчики, и блок «лимит» обновились синхронно с действием.
+    await wl.refresh()
+    busy.value = false
+  }
 }
 async function complete () {
   if (!task.value) return
@@ -244,10 +256,16 @@ async function complete () {
   busy.value = true
   // Мгновенно очищаем слот на клиенте, чтобы сотрудник видел,
   // что можно взять следующую задачу, не дожидаясь ответа сервера.
-  // Если API вернёт ошибку — refresh() подтянет корректное состояние.
   wl.optimisticCompleteTask(id)
-  try { await completeTask(id) }
-  finally { busy.value = false }
+  try {
+    await completeTask(id)
+  } finally {
+    // Принудительный refresh — единственный способ гарантированно
+    // обнулить лимит «заявок» в случае автозакрытия запроса бэком
+    // и не зависеть от 1.5-секундного debounce из bumpAfterAction().
+    await wl.refresh()
+    busy.value = false
+  }
 }
 
 // ---------------------------------------------------------------------------

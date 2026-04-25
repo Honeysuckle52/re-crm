@@ -136,5 +136,28 @@ export const useWorkloadStore = defineStore('workload', {
         can_start_task: false,
       }
     },
+
+    /**
+     * Оптимистично зафиксировать паузу задачи.
+     *
+     * Пауза переводит задачу в «Ожидание» — она перестаёт быть
+     * «текущей», но остаётся в активных (active_tasks не уменьшается).
+     * Сбрасываем только слот «в работе» и `currentTask`, чтобы виджет
+     * мгновенно показал «нет задачи» и кнопку «Взять задачу».
+     *
+     * @param {number} taskId
+     */
+    optimisticPauseTask(taskId) {
+      if (this.currentTask && this.currentTask.id === taskId) {
+        this.currentTask = null
+      }
+      this.workload = {
+        ...this.workload,
+        in_progress_tasks: Math.max(
+          0, (this.workload.in_progress_tasks || 0) - 1,
+        ),
+        can_start_task: true,
+      }
+    },
   },
 })

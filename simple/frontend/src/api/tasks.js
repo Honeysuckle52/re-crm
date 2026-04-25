@@ -29,7 +29,12 @@ import { useWorkloadStore } from '@/store/workload'
  * @param {{ bump?: boolean, bumpDelayMs?: number }} [opts]
  */
 async function call(fn, opts = {}) {
-  const { bump = true, bumpDelayMs = 1500 } = opts
+  // По умолчанию подтягиваем нагрузку сразу после ответа сервера.
+  // Прежнее значение 1500 мс приводило к ощущению, что счётчики/лимиты
+  // «зависают» на полторы секунды после действия пользователя.
+  // Дебаунс в самом ``bumpAfterAction`` всё равно склеивает несколько
+  // подряд идущих вызовов в один запрос.
+  const { bump = true, bumpDelayMs = 0 } = opts
   try {
     const response = await fn()
     if (bump) {
