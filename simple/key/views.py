@@ -22,11 +22,17 @@ from . import business_rules, models, serializers
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
 from .deals_service import create_deal_from_request
+from .mailing import (
+    resend as resend_email,
+    enqueue_request_closed,
+    enqueue_task_assigned,
+)
 from .permissions import (
     IsAdminOrManager,
     IsEmployee,
     IsEmployeeOrReadOnly,
     IsAdminOrManagerOrReadOnly,
+    IsOwnClientProfileOrEmployee,
 )
 
 User = get_user_model()
@@ -287,7 +293,10 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = models.ClientProfile.objects.select_related('user').all()
     serializer_class = serializers.ClientProfileSerializer
-    permission_classes = [IsEmployeeOrReadOnly]
+    # Клиент должен иметь возможность сам дозаполнить паспорт/адреса
+    # перед подписанием договора, поэтому используем правило, которое
+    # явно разрешает редактирование собственного профиля.
+    permission_classes = [IsOwnClientProfileOrEmployee]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -584,6 +593,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         # (OneToOne на Deal.request — повторные вызовы не плодят дублей)
         # и бросает исключения только на ошибках БД, но не на «нет объекта».
         deal = create_deal_from_request(req, actor=request.user)
+        enqueue_request_closed(request=req, actor=request.user, deal=deal)
 
         payload = serializers.RequestSerializer(req).data
         if deal is not None:
@@ -726,6 +736,17 @@ class RequestViewSet(viewsets.ModelViewSet):
             'match': serializers.RequestPropertyMatchSerializer(match).data,
         })
 
+    @action(detail=True, methods=['post'], url_path='accept_match')
+    def accept_match(self, request, pk=None):
+        """
+        Обратная совместимость для фронтенда.
+
+        Старый клиент вызывает ``accept_match``, а бизнес-логика теперь
+        живёт в ``confirm_property``. Держим алиас, чтобы убрать 404
+        и не дублировать код.
+        """
+        return self.confirm_property(request, pk=pk)
+
 
 class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
     """Только чтение подборки; модификация — через действия RequestViewSet."""
@@ -848,16 +869,34 @@ class TaskViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
+        params = self.request.query_params
         if user.is_authenticated and not user.is_admin_or_manager:
             qs = qs.filter(Q(assignee=user) | Q(created_by=user))
-        if self.request.query_params.get('status'):
-            qs = qs.filter(status_id=self.request.query_params['status'])
-        if self.request.query_params.get('assignee'):
-            qs = qs.filter(assignee_id=self.request.query_params['assignee'])
-        if self.request.query_params.get('task_type'):
-            qs = qs.filter(task_type=self.request.query_params['task_type'])
-        if self.request.query_params.get('request'):
-            qs = qs.filter(request_id=self.request.query_params['request'])
+        if params.get('status'):
+            qs = qs.filter(status_id=params['status'])
+        # Фильтр по коду статуса — фронтенду удобнее, чем pk из справочника.
+        # Принимает одиночный код или список через запятую:
+        # ?status_code=done или ?status_code=done,cancelled.
+        if params.get('status_code'):
+            codes = [c.strip() for c in params['status_code'].split(',')
+                     if c.strip()]
+            qs = qs.filter(status__code__in=codes)
+        if params.get('assignee'):
+            value = params['assignee']
+            # Алиас «me» — удобен для страницы «Моя история».
+            if value == 'me':
+                qs = qs.filter(assignee=user)
+            else:
+                qs = qs.filter(assignee_id=value)
+        if params.get('task_type'):
+            qs = qs.filter(task_type=params['task_type'])
+        if params.get('request'):
+            qs = qs.filter(request_id=params['request'])
+        # Интервал по дате завершения — для вкладки «История».
+        if params.get('completed_after'):
+            qs = qs.filter(completed_at__gte=params['completed_after'])
+        if params.get('completed_before'):
+            qs = qs.filter(completed_at__lte=params['completed_before'])
         return qs
 
     def perform_create(self, serializer):
@@ -871,7 +910,8 @@ class TaskViewSet(viewsets.ModelViewSet):
                 business_rules.assert_can_assign_task(assignee)
             except WorkloadLimitExceeded as exc:
                 raise ValidationError({'assignee': [exc.detail]})
-        serializer.save(created_by=self.request.user)
+        task = serializer.save(created_by=self.request.user)
+        enqueue_task_assigned(task=task)
 
     @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
@@ -964,19 +1004,66 @@ class TaskViewSet(viewsets.ModelViewSet):
         """
         Отметка задачи как выполненной.
 
-        Опционально принимает ``result`` — текстовое описание результата
-        выполнения задачи, которое сохраняется для статистики.
+        Опционально принимает ``result`` — строку (текстовое резюме)
+        или объект ``{summary, ...}`` (фронтенд TaskWorkflow шлёт dict
+        с саммари и произвольной мета-информацией). Логика завершения
+        вынесена в :mod:`key.task_actions` и идемпотентна — повторный
+        клик не ломает статистику.
         """
         task = self.get_object()
-        done = models.TaskStatus.objects.filter(code='done').first()
-        if done:
-            task.status = done
-        task.completed_at = timezone.now()
-        # Сохраняем результат, если передан
-        result = request.data.get('result')
-        if result:
-            task.result = result
-        task.save()
+        # Проверяем права: завершать может только сам исполнитель
+        # или администрация агентства.
+        if (task.assignee_id != request.user.id
+                and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя завершить чужую задачу.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from . import task_actions
+        task, changed = task_actions.complete_task(
+            task,
+            actor=request.user,
+            result=request.data.get('result'),
+        )
+        if not changed:
+            # Задача уже была в терминальном статусе — возвращаем
+            # актуальный срез, но HTTP 200 (идемпотентность).
+            return Response(serializers.TaskSerializer(task).data)
+        return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'], url_path='record_step')
+    def record_step(self, request, pk=None):
+        """
+        Зафиксировать этап выполнения задачи (контакт, заявка, подбор).
+
+        Вызывается из ``TaskWorkflow.vue`` после каждого нажатия
+        «Позвонил» / «Написал» / «Не дозвонился» / «Подобрал объект»,
+        а также при завершении этапа «Заявка» (создана или открыта).
+
+        Тело запроса: ``{step: str, outcome?: str, note?: str}``.
+        Список step'ов — см. docstring :func:`key.task_actions.record_step`.
+        """
+        task = self.get_object()
+        if (task.assignee_id != request.user.id
+                and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя дописывать шаги чужой задачи.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        step = (request.data.get('step') or '').strip()
+        if not step:
+            return Response(
+                {'detail': 'Поле step обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from . import task_actions
+        task = task_actions.record_step(
+            task,
+            step=step,
+            outcome=request.data.get('outcome'),
+            note=request.data.get('note'),
+            actor=request.user,
+        )
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=False, methods=['get'])
@@ -1006,7 +1093,7 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
     """
     Очередь исходящих писем.
 
-    Только для сотрудников и администраторов. Позволяет просматривать
+    Только для сотрудник��в и администраторов. Позволяет просматривать
     очередь, повторно отправлять неудавшиеся письма.
     """
     queryset = models.OutgoingEmail.objects.select_related(
@@ -1035,9 +1122,8 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
                 {'detail': 'Можно повторить только неудавшиеся письма.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        email.status = 'pending'
-        email.error_message = None
-        email.save(update_fields=['status', 'error_message'])
+        resend_email(email)
+        email.refresh_from_db()
         return Response(serializers.OutgoingEmailSerializer(email).data)
 
 

@@ -29,8 +29,13 @@
 </template>
 
 <script setup>
+// Общий форматтер денег вынесен в utils/formatters; fallback '0' сохраняет
+// прежнее поведение «нет суммы → 0».
+import { formatMoney as fmtMoney } from '@/utils/formatters'
+
 defineProps({ property: { type: Object, required: true } })
-function formatMoney(v) { return new Intl.NumberFormat('ru-RU').format(v || 0) }
+
+function formatMoney (v) { return fmtMoney(v, '0') }
 </script>
 
 <style scoped>

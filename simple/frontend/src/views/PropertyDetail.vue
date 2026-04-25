@@ -165,6 +165,9 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+// Общий форматтер денег вынесен в utils/formatters; для совместимости
+// с прежним поведением (отсутствующая цена → «0», а не «—») передаём fallback.
+import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
@@ -253,7 +256,7 @@ async function remove() {
   router.push('/properties')
 }
 
-function formatMoney(v) { return new Intl.NumberFormat('ru-RU').format(v || 0) }
+function formatMoney (v) { return fmtMoney(v, '0') }
 
 onMounted(load)
 </script>

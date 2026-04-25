@@ -1,0 +1,10 @@
+Здравствуйте, {{ assignee_name }}!
+
+Вам назначен показ объекта:
+- {{ task.title }}
+{% if property %}- Объект: {{ property.title|default:"Объект" }}{% endif %}
+{% if task.due_date %}- Дата/время: {{ task.due_date }}{% endif %}
+
+Открыть задачи: {{ task_url }}
+
+{{ agency_name }}

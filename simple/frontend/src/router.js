@@ -28,6 +28,13 @@ const routes = [
   { path: '/tasks', name: 'tasks',
     component: () => import('./views/Tasks.vue'),
     meta: { staff: true } },
+  // Пошаговый экран выполнения задачи: сотрудник проходит контакт →
+  // заявка → подбор/выполнение → завершение. Права выверяются также
+  // на бэкенде (TaskViewSet.record_step/complete), здесь — чтобы
+  // не вводить пользователя в заблуждение UI-ом.
+  { path: '/tasks/:id/work', name: 'task-workflow',
+    component: () => import('./views/TaskWorkflow.vue'),
+    meta: { staff: true } },
   { path: '/clients', name: 'clients',
     component: () => import('./views/Clients.vue'),
     meta: { staff: true } },

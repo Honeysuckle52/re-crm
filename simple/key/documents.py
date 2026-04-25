@@ -2,7 +2,7 @@
 Генерация PDF-договоров по сделкам.
 
 Используется движок ReportLab + шрифты DejaVu Sans (обычный и жирный)
-из каталога ``key/bolt/`` — DejaVu поддерживает полный диапазон
+из каталога ``key/fonts/`` — DejaVu поддерживает полный диапазон
 кириллицы, поэтому в документе корректно отображаются ФИО клиента,
 адрес дома и подписи сторон.
 
@@ -32,7 +32,7 @@ from reportlab.platypus import (
 
 # --- шрифты ----------------------------------------------------------------
 
-FONTS_DIR = Path(__file__).resolve().parent / 'bolt'
+FONTS_DIR = Path(__file__).resolve().parent / 'fonts'
 FONT_REGULAR_PATH = FONTS_DIR / 'DejaVuSans.ttf'
 FONT_BOLD_PATH = FONTS_DIR / 'DejaVuSans-Bold.ttf'
 

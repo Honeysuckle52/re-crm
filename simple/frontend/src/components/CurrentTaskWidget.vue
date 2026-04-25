@@ -95,9 +95,15 @@
           </dl>
 
           <div class="ctw__actions">
+            <!-- Главная кнопка — открывает пошаговый экран работы с клиентом.
+                 Здесь сотрудник фиксирует звонок, создаёт заявку и т. д. -->
+            <router-link :to="{ name: 'task-workflow', params: { id: task.id } }"
+                         class="ctw__btn ctw__btn--primary">
+              Открыть задачу
+            </router-link>
             <router-link v-if="task.request"
                          :to="`/requests/${task.request}`"
-                         class="ctw__btn ctw__btn--primary">
+                         class="ctw__btn">
               Заявка №{{ task.request }}
             </router-link>
             <button class="ctw__btn" :disabled="busy" @click="pause">
@@ -128,6 +134,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { pauseTask, completeTask } from '../api/tasks'
+// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
+import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const wl = useWorkloadStore()
@@ -210,11 +218,7 @@ const fabTitle = computed(() => {
 // ---------------------------------------------------------------------------
 // Форматирование
 // ---------------------------------------------------------------------------
-function formatDate (s) {
-  return new Date(s).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
-}
+// formatDate импортируется из utils/formatters (см. шапку script setup).
 function priorityLabel (p) {
   return ({ low: 'Низкий', normal: 'Обычный', high: 'Высокий' })[p] || p
 }
@@ -236,8 +240,13 @@ async function pause () {
 }
 async function complete () {
   if (!task.value) return
+  const id = task.value.id
   busy.value = true
-  try { await completeTask(task.value.id) }
+  // Мгновенно очищаем слот на клиенте, чтобы сотрудник видел,
+  // что можно взять следующую задачу, не дожидаясь ответа сервера.
+  // Если API вернёт ошибку — refresh() подтянет корректное состояние.
+  wl.optimisticCompleteTask(id)
+  try { await completeTask(id) }
   finally { busy.value = false }
 }
 
