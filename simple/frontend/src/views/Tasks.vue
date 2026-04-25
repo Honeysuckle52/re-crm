@@ -343,6 +343,8 @@ import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import TaskMineBadge from '../components/TaskMineBadge.vue'
+// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
+import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const workload = useWorkloadStore()
@@ -443,12 +445,6 @@ function priorityClass (p) {
   if (p === 'high') return 'tag--accent'
   if (p === 'low') return 'tag--panel'
   return ''
-}
-
-function formatDate (s) {
-  return new Date(s).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
 }
 
 /**

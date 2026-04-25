@@ -299,6 +299,8 @@ import api from '../api'
 import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
+// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
+import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -573,15 +575,7 @@ async function submitComplete () {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Утилиты
-// ---------------------------------------------------------------------------
-function formatDate (s) {
-  if (!s) return ''
-  return new Date(s).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
-}
+// formatDate импортируется из utils/formatters (см. шапку script setup).
 
 onMounted(load)
 </script>

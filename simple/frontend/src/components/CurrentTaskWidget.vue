@@ -134,6 +134,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { pauseTask, completeTask } from '../api/tasks'
+// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
+import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const wl = useWorkloadStore()
@@ -216,11 +218,7 @@ const fabTitle = computed(() => {
 // ---------------------------------------------------------------------------
 // Форматирование
 // ---------------------------------------------------------------------------
-function formatDate (s) {
-  return new Date(s).toLocaleString('ru-RU', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  })
-}
+// formatDate импортируется из utils/formatters (см. шапку script setup).
 function priorityLabel (p) {
   return ({ low: 'Низкий', normal: 'Обычный', high: 'Высокий' })[p] || p
 }

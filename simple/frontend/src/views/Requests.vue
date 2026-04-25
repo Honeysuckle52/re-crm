@@ -174,6 +174,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
+// Общий форматтер денег вынесен в utils/formatters.
+import { formatMoney } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const workload = useWorkloadStore()
@@ -322,10 +324,6 @@ async function closeRequest (r) {
     )
   }
   await Promise.all([load(), workload.refresh()])
-}
-
-function formatMoney (v) {
-  return v ? new Intl.NumberFormat('ru-RU').format(v) : '—'
 }
 
 onMounted(async () => {

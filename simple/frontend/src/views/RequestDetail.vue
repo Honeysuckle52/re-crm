@@ -168,6 +168,8 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+// Общие форматтеры вынесены в utils/formatters.
+import { formatMoney, formatDate } from '@/utils/formatters'
 import {
   takeRequest as takeRequestAction,
   acceptRequestMatch,
@@ -283,13 +285,6 @@ async function confirmProperty (m) {
   } finally {
     confirmingId.value = null
   }
-}
-
-function formatMoney (v) {
-  return v ? new Intl.NumberFormat('ru-RU').format(v) : '—'
-}
-function formatDate (s) {
-  return new Date(s).toLocaleString('ru-RU')
 }
 
 onMounted(load)

@@ -83,6 +83,9 @@ import { computed, onMounted, ref } from 'vue'
 import api from '../api'
 import StatCard from '../components/StatCard.vue'
 import { useAuthStore } from '../store/auth'
+// Общий форматтер денег вынесен в utils/formatters; fallback '0' сохраняет
+// прежнее поведение «нет суммы → 0».
+import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const stats = ref({})
@@ -94,10 +97,7 @@ onMounted(async () => {
   stats.value = data
 })
 
-function formatMoney (v) {
-  if (!v) return '0'
-  return new Intl.NumberFormat('ru-RU').format(v)
-}
+function formatMoney (v) { return fmtMoney(v, '0') }
 </script>
 
 <style scoped>

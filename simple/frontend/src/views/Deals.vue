@@ -98,12 +98,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import api from '../api'
+// Общий форматтер денег вынесен в utils/formatters; fallback '0' сохраняет
+// прежнее поведение «нет суммы → 0».
+import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const deals = ref([])
 const statuses = ref([])
 const statusFilter = ref('')
 
-function formatMoney(v) { return new Intl.NumberFormat('ru-RU').format(v || 0) }
+function formatMoney (v) { return fmtMoney(v, '0') }
 
 const filtered = computed(() => {
   if (!statusFilter.value) return deals.value
