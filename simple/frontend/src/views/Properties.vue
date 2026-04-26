@@ -8,7 +8,9 @@
             Каталог недвижимости
           </h1>
         </div>
-        <router-link to="/properties/new" class="btn btn--accent">
+        <router-link
+          v-if="auth.user?.user_type === 'employee'"
+          to="/properties/new" class="btn btn--accent">
           + Добавить объект
         </router-link>
       </div>
@@ -74,6 +76,9 @@
 import { onMounted, reactive, ref } from 'vue'
 import api from '../api'
 import PropertyCard from '../components/PropertyCard.vue'
+import { useAuthStore } from '../store/auth'
+
+const auth = useAuthStore()
 
 const filters = reactive({
   operation_type: '', status: '', rooms: '',

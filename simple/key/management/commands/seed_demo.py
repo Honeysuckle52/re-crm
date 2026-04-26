@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from pathlib import Path
-from random import choice
 
 from django.conf import settings
 from django.core.management import call_command
@@ -370,7 +369,7 @@ class Command(BaseCommand):
                     'floor_number': floor,
                     'total_floors': total_floors,
                     'description': (
-                        f'Демонстрационный объект №{idx}. '
+                        f'Демонстрацион��ый объект №{idx}. '
                         'Создан командой seed_demo, используется '
                         'для проверки работы системы.'
                     ),
@@ -472,69 +471,142 @@ class Command(BaseCommand):
         properties: list[Property],
         requests: list[Request],
     ) -> list[Task]:
+        """
+        Создаёт 5 корректных демо-задач.
+
+        В отличие от прежней реализации, использует ``get_or_create`` по
+        паре ``(title, assignee)`` — это гарантирует, что задачи с
+        одинаковыми заголовками, но назначенные разным сотрудникам, не
+        будут схлопываться в одну. Перед созданием проверяется наличие
+        всех связанных объектов: пользователей, объектов недвижимости и
+        заявок. Если хоть один обязательный объект отсутствует —
+        соответствующая задача пропускается с предупреждением, а не
+        создаётся «битой».
+        """
         st_new = TaskStatus.objects.get(code='new')
         st_in_progress = TaskStatus.objects.get(code='in_progress')
         st_done = TaskStatus.objects.get(code='done')
 
-        manager = users['demo_manager']
-        agent1 = users['demo_agent1']
-        agent2 = users['demo_agent2']
-        client1 = users['demo_client1']
-        client2 = users['demo_client2']
-        client3 = users['demo_client3']
+        # Безопасно достаём пользователей: если демо-набор сидировался
+        # частично, отсутствие любого из них означает, что задачи не
+        # имеет смысла создавать.
+        try:
+            manager = users['demo_manager']
+            agent1 = users['demo_agent1']
+            agent2 = users['demo_agent2']
+            client1 = users['demo_client1']
+            client2 = users['demo_client2']
+            client3 = users['demo_client3']
+        except KeyError as exc:
+            self.stdout.write(self.style.WARNING(
+                f'   !! Не найден демо-пользователь {exc}; задачи не создаются.'
+            ))
+            return []
+
+        # Проверяем, что хватает объектов и заявок (ровно 5 каждого).
+        if len(properties) < 5:
+            self.stdout.write(self.style.WARNING(
+                f'   !! Ожидалось 5 объектов, получено {len(properties)}; '
+                'часть задач может быть пропущена.'
+            ))
+        if len(requests) < 4:
+            self.stdout.write(self.style.WARNING(
+                f'   !! Ожидалось ≥4 заявок, получено {len(requests)}; '
+                'часть задач может быть пропущена.'
+            ))
 
         now = timezone.now()
+
+        def _safe(seq, idx):
+            return seq[idx] if 0 <= idx < len(seq) else None
+
         SPECS = [
+            # 1. Звонок клиенту Петру.
             dict(
                 title='[DEMO] Позвонить клиенту Пётр Клиентов',
                 description='Уточнить требования по студии, предложить варианты.',
+                task_type='call',
                 priority='high', status=st_new, assignee=agent1,
                 created_by=manager, client=client1,
-                property=properties[0], request=requests[0],
+                property=_safe(properties, 0),
+                request=_safe(requests, 0),
                 due_date=now + timedelta(hours=8),
             ),
+            # 2. Показ 2-комн. квартиры.
             dict(
                 title='[DEMO] Организовать показ 2-комн. квартиры',
                 description='Согласовать время показа с клиенткой Ольгой.',
+                task_type='showing',
                 priority='normal', status=st_in_progress, assignee=agent1,
                 created_by=manager, client=client2,
-                property=properties[1], request=requests[1],
+                property=_safe(properties, 1),
+                request=_safe(requests, 1),
                 due_date=now + timedelta(days=1),
             ),
+            # 3. Подборка 3-комн. квартир.
             dict(
                 title='[DEMO] Подготовить подборку 3-комн. квартир',
                 description='Собрать 3–5 вариантов для клиента Ивана Петрова.',
+                task_type='property_search',
                 priority='normal', status=st_in_progress, assignee=agent1,
                 created_by=manager, client=client3,
-                property=properties[2], request=requests[2],
+                property=_safe(properties, 2),
+                request=_safe(requests, 2),
                 due_date=now + timedelta(days=2),
             ),
+            # 4. Оформление договора (выполнено).
             dict(
                 title='[DEMO] Оформить договор аренды студии',
                 description='Проверить пакет документов и отправить на подпись.',
+                task_type='documents',
                 priority='high', status=st_done, assignee=agent2,
                 created_by=manager, client=client1,
-                property=properties[3], request=requests[3],
+                property=_safe(properties, 3),
+                request=_safe(requests, 3),
                 due_date=now - timedelta(days=1),
             ),
+            # 5. Обновление описания объекта (без клиента и заявки).
             dict(
                 title='[DEMO] Обновить описание объекта на сайте',
                 description='Добавить фото, уточнить метраж, пересчитать цену за м².',
+                task_type='other',
                 priority='low', status=st_new, assignee=agent2,
-                created_by=manager,
-                property=choice(properties),
+                created_by=manager, client=None,
+                property=_safe(properties, 4),
+                request=None,
                 due_date=now + timedelta(days=3),
             ),
         ]
 
         tasks: list[Task] = []
         for spec in SPECS:
-            task, _ = Task.objects.update_or_create(
+            # Обязательная связь — assignee + статус + автор. Если
+            # ассайни нет, задачу не имеет смысла создавать.
+            if not spec.get('assignee') or not spec.get('created_by'):
+                self.stdout.write(self.style.WARNING(
+                    f'   !! Пропуск задачи "{spec["title"]}": '
+                    'нет assignee/created_by.'
+                ))
+                continue
+
+            # get_or_create по паре (title, assignee), чтобы одинаковые
+            # заголовки у разных сотрудников считались разными задачами.
+            defaults = {k: v for k, v in spec.items()
+                        if k not in ('title', 'assignee')}
+            task, created = Task.objects.get_or_create(
                 title=spec['title'],
-                defaults={
-                    k: v for k, v in spec.items() if k != 'title'
-                },
+                assignee=spec['assignee'],
+                defaults=defaults,
             )
+            if not created:
+                # Идемпотентно подравниваем все поля — на случай если
+                # справочные коды/связи были подправлены.
+                for field, value in defaults.items():
+                    setattr(task, field, value)
+                task.save()
+
+            # У завершённой задачи проставляем completed_at, иначе UI
+            # «Workflow» не сможет корректно показать историю.
             if spec['status'].code == 'done' and task.completed_at is None:
                 task.completed_at = now - timedelta(hours=6)
                 task.save(update_fields=['completed_at'])
