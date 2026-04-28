@@ -178,16 +178,21 @@ DJANGO_VITE = {
 }
 
 # --- Email / SMTP -----------------------------------------------------------
-#
-# В проде не храните пароль в репозитории: задавайте EMAIL_HOST_PASSWORD
-# через переменные окружения/секреты CI.
+
 EMAIL_BACKEND = os.getenv(
     'EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend',
 )
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.mail.ru')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
-EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'False').lower() == 'true'
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True').lower() == 'true'
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False').lower() == 'true'
+
+# Django жёстко запрещает одновременное включение SSL и TLS. Если
+# админ выставил оба флага в .env — отдаём приоритет SSL, иначе
+# приложение упадёт при старте.
+if EMAIL_USE_SSL and EMAIL_USE_TLS:
+    EMAIL_USE_TLS = False
+
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '30'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'danil_naumov_90@bk.ru')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
@@ -201,9 +206,6 @@ AGENCY_REPLY_TO = os.getenv('AGENCY_REPLY_TO', EMAIL_HOST_USER)
 # --- DaData (подсказки адресов) --------------------------------------------
 #
 # Используется открытый API подсказок DaData. Ключ хранится ТОЛЬКО на сервере
-# и в браузер не передаётся — запросы идут через прокси-эндпоинт
-# /api/dadata/suggest-address/. Значение по умолчанию — ключ из ТЗ,
-# на продакшне обязательно переопределяйте через переменную окружения.
 
 DADATA_API_URL = os.getenv(
     'DADATA_API_URL',

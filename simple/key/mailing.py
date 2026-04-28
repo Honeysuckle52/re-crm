@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 from typing import Any
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -76,15 +77,47 @@ def _audit_context(
 
 
 def _send_via_smtp(email: models.OutgoingEmail) -> None:
-    """Синхронная отправка. Вызывается из фонового потока."""
+    """
+    Синхронная отправка. Вызывается из фонового потока.
+
+    Создаём соединение явно через ``get_connection`` с собственным
+    таймаутом — так можно перенастроить SMTP-сервер (порт/SSL/TLS) без
+    перезапуска Django, а главное — гарантировать таймаут на каждой
+    SMTP-операции, а не только на ``connect()``. Это важно для
+    mail.ru/bk.ru/list.ru: сервер бывает «молчит» в момент EHLO, и без
+    явного таймаута поток подвисает на минуты.
+    """
+    timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 30) or 30)
+    connection = get_connection(
+        backend=settings.EMAIL_BACKEND,
+        host=settings.EMAIL_HOST,
+        port=settings.EMAIL_PORT,
+        username=settings.EMAIL_HOST_USER,
+        password=settings.EMAIL_HOST_PASSWORD,
+        use_tls=settings.EMAIL_USE_TLS,
+        use_ssl=settings.EMAIL_USE_SSL,
+        timeout=timeout,
+        fail_silently=False,
+    )
+
     msg = EmailMultiAlternatives(
         email.subject,
         email.body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email.recipient.email],
         reply_to=[settings.AGENCY_REPLY_TO] if getattr(settings, 'AGENCY_REPLY_TO', '') else None,
+        connection=connection,
     )
-    msg.send(fail_silently=False)
+
+    # Глобальный socket-таймаут — страховка для случаев, когда
+    # Python/SSL игнорирует параметр ``timeout`` на отдельных
+    # операциях (наблюдалось на Python 3.14 + mail.ru).
+    old_default = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        msg.send(fail_silently=False)
+    finally:
+        socket.setdefaulttimeout(old_default)
 
 
 def _dispatch(email_id: int) -> None:

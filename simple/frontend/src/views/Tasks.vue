@@ -9,10 +9,10 @@
             Поручения сотрудникам: звонки, показы, документы
           </div>
           <!-- Индикатор личной нагрузки сотрудника — сразу под заголовком. -->
-          <div v-if="!auth.isManager"
-               class="workload-banner"
-               class="workload-banner"
-               :class="{ 'is-limit': workload.isOverloaded }">
+          <div
+              v-if="!auth.isManager"
+              class="workload-banner"
+              :class="{ 'is-limit': workload.isOverloaded }">
             <span>Моя загрузка:</span>
             <b>{{ workload.activeTasksLabel }}</b> задач ·
             <b>{{ workload.activeRequestsLabel }}</b> заявок ·
