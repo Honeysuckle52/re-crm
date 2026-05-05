@@ -10,6 +10,14 @@
     </div>
 
     <div class="panel panel--light">
+      <div class="surface-head clients-section-head">
+        <div>
+          <div class="surface-head__meta">Реестр пользователей</div>
+          <h2 class="h3">Поиск и фильтрация</h2>
+        </div>
+        <div class="surface-head__caption">С ролями: {{ usersWithRoleCount }}</div>
+      </div>
+
       <div class="row" style="gap: 10px; flex-wrap: wrap; margin-bottom: 12px">
         <input class="input" v-model="search"
                placeholder="Поиск по логину, почте или телефону" style="flex: 1; min-width: 240px" />
@@ -20,44 +28,49 @@
         </select>
       </div>
 
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Логин</th>
-            <th>Почта</th>
-            <th>Телефон</th>
-            <th>Тип</th>
-            <th>Должность</th>
-            <th>Создан</th>
-            <th v-if="auth.isManager"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in filtered" :key="u.id">
-            <td><b>{{ u.username }}</b></td>
-            <td>{{ u.email || '—' }}</td>
-            <td>{{ u.phone || '—' }}</td>
-            <td>
-              <span class="tag" :class="u.user_type === 'employee' ? 'tag--panel' : 'tag--accent'">
-                {{ u.user_type === 'employee' ? 'Сотрудник' : 'Клиент' }}
-              </span>
-            </td>
-            <td>{{ u.role_name || '—' }}</td>
-            <td class="muted">
-              {{ new Date(u.created_at).toLocaleDateString('ru-RU') }}
-            </td>
-            <td v-if="auth.isManager">
-              <button class="btn btn--sm" @click="openAssign(u)">Назначить</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-wrap clients-table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Логин</th>
+              <th>Почта</th>
+              <th>Телефон</th>
+              <th>Тип</th>
+              <th>Должность</th>
+              <th>Создан</th>
+              <th v-if="auth.isManager"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in filtered" :key="u.id">
+              <td><b>{{ u.username }}</b></td>
+              <td>{{ u.email || '—' }}</td>
+              <td>{{ u.phone || '—' }}</td>
+              <td>
+                <span class="tag" :class="u.user_type === 'employee' ? 'tag--panel' : 'tag--accent'">
+                  {{ u.user_type === 'employee' ? 'Сотрудник' : 'Клиент' }}
+                </span>
+              </td>
+              <td>{{ u.role_name || '—' }}</td>
+              <td class="muted">
+                {{ new Date(u.created_at).toLocaleDateString('ru-RU') }}
+              </td>
+              <td v-if="auth.isManager">
+                <button class="btn btn--sm" @click="openAssign(u)">Назначить</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div v-if="!filtered.length" class="empty">Пользователи не найдены.</div>
     </div>
 
     <div v-if="assignOpen" class="modal" @click.self="assignOpen = false">
-      <div class="panel panel--light modal__card">
-        <h2 class="h3">Назначение должности</h2>
+      <div class="panel panel--light modal__card stack">
+        <div class="row row--between">
+          <h2 class="h3">Назначение должности</h2>
+          <button class="btn btn--sm" @click="assignOpen = false">×</button>
+        </div>
         <p class="muted">
           Пользователь <b>{{ assignUser?.username }}</b>.
           Установите тип учётной записи и должность.
@@ -120,6 +133,10 @@ const filtered = computed(() => {
   })
 })
 
+const usersWithRoleCount = computed(() => (
+  users.value.filter((u) => u.role_name).length
+))
+
 async function load() {
   const [u, r] = await Promise.all([
     api.get('/users/'),
@@ -158,9 +175,72 @@ onMounted(load)
 </script>
 
 <style scoped>
-.modal {
-  position: fixed; inset: 0; background: rgba(0,0,0,.5);
-  display: grid; place-items: center; z-index: 1000; padding: 16px;
+.clients-section-head {
+  margin-bottom: 14px;
 }
-.modal__card { width: min(480px, 100%); }
+
+.clients-section-head + .row .input {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.16);
+  box-shadow: 0 10px 22px rgba(16, 55, 52, 0.08);
+}
+
+.clients-section-head + .row .input::placeholder {
+  color: rgba(21, 56, 57, 0.64);
+}
+
+.clients-section-head + .row .select {
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.16);
+  box-shadow: 0 10px 22px rgba(16, 55, 52, 0.08);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, rgba(21, 56, 57, 0.62) 50%),
+    linear-gradient(135deg, rgba(21, 56, 57, 0.62) 50%, transparent 50%);
+  background-position:
+    0 0,
+    calc(100% - 24px) calc(50% - 3px),
+    calc(100% - 18px) calc(50% - 3px);
+  background-size:
+    100% 100%,
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+}
+
+.clients-section-head + .row .input:hover,
+.clients-section-head + .row .select:hover {
+  border-color: rgba(21, 56, 57, 0.26);
+  box-shadow: 0 12px 26px rgba(16, 55, 52, 0.1);
+}
+
+.clients-section-head + .row .input:focus,
+.clients-section-head + .row .select:focus {
+  border-color: rgba(46, 139, 87, 0.42);
+  box-shadow:
+    0 0 0 1px rgba(46, 139, 87, 0.18),
+    0 0 0 5px rgba(120, 216, 206, 0.18),
+    0 12px 24px rgba(16, 55, 52, 0.12);
+}
+
+.clients-table-wrap .table {
+  min-width: 980px;
+}
+
+.modal {
+  z-index: 1000;
+}
+
+.modal__card {
+  width: min(480px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+
+@media (max-width: 720px) {
+  .clients-table-wrap .table {
+    min-width: 860px;
+  }
+}
 </style>

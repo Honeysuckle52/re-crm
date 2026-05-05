@@ -1,9 +1,9 @@
 <template>
   <section class="dashboard">
     <div class="hero hero--compact">
-      <div class="hero__eyebrow">УЧЁТНАЯ СИСТЕМА АГЕНТСТВА НЕДВИЖИМОСТИ</div>
+      <div class="hero__eyebrow">CRM агентства недвижимости</div>
       <h1 class="hero__title hero__title--compact">РИЭЛТ</h1>
-      <div class="hero__subtitle">УПРАВЛЕНИЕ ОБЪЕКТАМИ, ЗАЯВКАМИ И СДЕЛКАМИ</div>
+      <div class="hero__subtitle">Объекты, заявки, задачи и сделки в одном рабочем контуре</div>
       <div class="hero__actions">
         <router-link v-if="canEdit" to="/properties/new" class="btn btn--accent">
           + Новый объект
@@ -14,56 +14,101 @@
         <router-link to="/properties" class="btn btn--ghost">
           Каталог объектов
         </router-link>
-        <router-link v-if="auth.isManager" to="/admin" class="btn btn--accent">
+        <router-link v-if="auth.isManager" to="/admin" class="btn btn--primary">
           Админ-панель
         </router-link>
       </div>
       <div class="hero__callout">
-        <h3>Что это?</h3>
+        <h3>Текущий рабочий фокус</h3>
         <p>
-          Единая учётная система агентства недвижимости: объекты, клиенты,
-          заявки, сделки и задачи сотрудников — в одном окне.
+          Открывайте заявки, распределяйте задачи, ведите сделки и контролируйте загрузку
+          сотрудников без переключения между разрозненными инструментами.
         </p>
+      </div>
+    </div>
+
+    <div class="surface-head dashboard__surface-head">
+      <div class="surface-head__meta">
+        <h2 class="h3">Ключевые показатели</h2>
+        <div class="muted">Быстрая сводка по воронке агентства и текущему объёму работы.</div>
       </div>
     </div>
 
     <div class="grid grid--stats">
-      <StatCard label="Объектов"        :value="stats.properties_total" />
-      <StatCard label="Активных"        :value="stats.properties_active" accent />
+      <StatCard label="Объектов" :value="stats.properties_total" />
+      <StatCard label="Активных" :value="stats.properties_active" accent />
       <StatCard label="Открытых заявок" :value="stats.requests_open" />
-      <StatCard label="Сделок"          :value="stats.deals_total" />
+      <StatCard label="Сделок" :value="stats.deals_total" />
       <StatCard label="Сумма сделок, ₽" :value="formatMoney(stats.deals_sum)" />
-      <StatCard label="Клиентов"        :value="stats.clients_total" />
-      <StatCard v-if="stats.tasks_open !== undefined"
-                label="Задач в работе" :value="stats.tasks_open" />
+      <StatCard label="Клиентов" :value="stats.clients_total" />
+      <StatCard
+        v-if="stats.tasks_open !== undefined"
+        label="Задач в работе"
+        :value="stats.tasks_open"
+      />
     </div>
 
-    <div class="grid grid--2 dashboard__actions">
-      <div class="panel">
-        <span class="tag tag--panel">Быстрые действия</span>
-        <h2 class="h2" style="color: #fff; margin-top: 10px">
-          Подберите клиенту объект
-        </h2>
-        <p style="color: rgba(255,255,255,.8); font-size: 13px; margin: 6px 0 0">
-          Создайте заявку с параметрами поиска — менеджер закрепит её за
-          агентом и проведёт по воронке до сделки.
-        </p>
-        <router-link to="/requests" class="btn btn--accent"
-                     style="margin-top: 12px">
-          Перейти к заявкам →
-        </router-link>
+    <div class="surface-head dashboard__surface-head">
+      <div class="surface-head__meta">
+        <h2 class="h3">Карточный макет</h2>
+        <div class="muted">
+          Несколько изумрудных карточек для основных рабочих сценариев CRM.
+        </div>
       </div>
-      <div class="panel panel--light">
-        <span class="tag tag--accent">Подсказки адресов</span>
-        <h2 class="h2" style="margin-top: 10px">Адресы из реестра DaData</h2>
-        <p class="muted" style="margin: 6px 0 0">
-          Адреса хранятся иерархически: город → улица → дом → адрес.
-          Индекс и координаты подставляются автоматически.
-        </p>
-        <router-link v-if="canEdit" to="/properties/new" class="btn btn--primary"
-                     style="margin-top: 12px">
-          Создать объект →
+    </div>
+
+    <div class="grid grid--4 dashboard__showcase">
+      <article v-for="card in showcaseCards" :key="card.title" class="card dashboard__showcase-card">
+        <span class="tag tag--panel">{{ card.badge }}</span>
+        <h3 class="dashboard__showcase-title">{{ card.title }}</h3>
+        <p class="dashboard__showcase-text">{{ card.text }}</p>
+        <router-link :to="card.to" class="btn btn--ghost btn--sm">
+          {{ card.cta }}
         </router-link>
+      </article>
+    </div>
+
+    <div class="grid grid--2 dashboard__content">
+      <div class="panel dashboard__panel dashboard__panel--accent">
+        <div class="surface-head dashboard-panel-head">
+          <div>
+            <div class="surface-head__meta">Быстрые действия</div>
+            <h2 class="h2 dashboard__title">Работа с входящим потоком</h2>
+          </div>
+          <div class="surface-head__caption">Основные CRM-сценарии</div>
+        </div>
+        <p class="dashboard__text">
+          Создавайте новые объекты, открывайте заявки клиентов и быстро переходите к основным
+          рабочим контурам команды.
+        </p>
+        <div class="dashboard__actions">
+          <router-link to="/requests" class="btn btn--accent">Открыть заявки</router-link>
+          <router-link to="/properties" class="btn btn--ghost">Смотреть объекты</router-link>
+        </div>
+      </div>
+
+      <div class="panel panel--light dashboard__panel">
+        <div class="surface-head dashboard-panel-head">
+          <div>
+            <div class="surface-head__meta">Система и данные</div>
+            <h2 class="h2 dashboard__title">Подсказки по работе</h2>
+          </div>
+          <div class="surface-head__caption">Навигация по процессу</div>
+        </div>
+        <div class="dashboard__tips">
+          <div class="dashboard__tip">
+            <b>Каталог объектов</b>
+            <span>Используйте широкий каталог и закреплённый фильтр для быстрого подбора вариантов.</span>
+          </div>
+          <div class="dashboard__tip">
+            <b>Заявки и задачи</b>
+            <span>Сначала разбирайте нераспределённые заявки, затем переводите процесс в задачи и подборку.</span>
+          </div>
+          <div class="dashboard__tip">
+            <b>Сделки и договоры</b>
+            <span>Контролируйте статусы и PDF-договоры прямо из журнала сделок.</span>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -79,6 +124,37 @@ import { formatMoney as fmtMoney } from '@/utils/formatters'
 const auth = useAuthStore()
 const stats = ref({})
 
+const showcaseCards = [
+  {
+    badge: 'Каталог',
+    title: 'Объекты в работе',
+    text: 'Поддерживайте базу недвижимости, быстро фильтруйте карточки и открывайте нужный объект без лишних переходов.',
+    cta: 'Открыть каталог',
+    to: '/properties',
+  },
+  {
+    badge: 'Воронка',
+    title: 'Заявки клиентов',
+    text: 'Собирайте входящий поток, закрепляйте менеджеров и переводите обращения в следующий рабочий этап.',
+    cta: 'Перейти к заявкам',
+    to: '/requests',
+  },
+  {
+    badge: 'Процесс',
+    title: 'Задачи команды',
+    text: 'Держите под рукой активные поручения, сроки и текущую загрузку сотрудников в одном рабочем блоке.',
+    cta: 'Открыть задачи',
+    to: '/tasks',
+  },
+  {
+    badge: 'Финализация',
+    title: 'Сделки и договоры',
+    text: 'Контролируйте этапы закрытия, документы и финальную стоимость сделки через отдельный журнал.',
+    cta: 'Смотреть сделки',
+    to: '/deals',
+  },
+]
+
 const canEdit = computed(() => auth.user?.user_type === 'employee')
 
 onMounted(async () => {
@@ -86,31 +162,166 @@ onMounted(async () => {
   stats.value = data
 })
 
-function formatMoney (v) { return fmtMoney(v, '0') }
+function formatMoney(v) {
+  return fmtMoney(v, '0')
+}
 </script>
 
 <style scoped>
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: calc(100dvh - 220px);
+  gap: 18px;
 }
 
-.hero--compact { padding: 18px 24px; }
+.dashboard__surface-head .h3 {
+  color: #113739;
+}
+
+.dashboard__surface-head .muted {
+  color: rgba(17, 55, 57, 0.76);
+}
+
+.hero--compact {
+  padding: 24px 28px;
+}
+
 .hero--compact .hero__title--compact {
-  font-size: clamp(36px, 5vw, 56px);
-  margin: 10px 0 0;
+  font-size: clamp(42px, 5vw, 64px);
+  margin: 12px 0 0;
 }
-.hero--compact .hero__subtitle { margin-top: 4px; }
-.hero--compact .hero__actions { margin-top: 14px; }
 
-.dashboard__actions { flex: 0 0 auto; }
-.dashboard__actions .panel {
-  padding: 18px 22px;
+.hero--compact .hero__subtitle {
+  margin-top: 8px;
+}
+
+.hero--compact .hero__actions {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hero--compact .hero__callout {
+  margin-top: 22px;
+  max-width: 760px;
+}
+
+.dashboard__showcase {
+  align-items: stretch;
+}
+
+.dashboard__showcase-card {
+  min-height: 240px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px;
+}
+
+.dashboard__showcase-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.dashboard__showcase-text {
+  margin: 0;
+  color: rgba(234, 245, 243, 0.82);
+  font-size: 14px;
+}
+
+.dashboard__content {
+  align-items: stretch;
+}
+
+.dashboard__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100%;
+}
+
+.dashboard__panel--accent {
+  background: linear-gradient(180deg, #124346 0%, #073434 100%);
+}
+
+.dashboard-panel-head {
+  margin-bottom: 2px;
+}
+
+.dashboard__title {
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.dashboard__text {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 14px;
+}
+
+.dashboard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.dashboard__tips {
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard__tip {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 24px;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, rgba(13, 59, 62, 0.9), rgba(3, 43, 43, 0.96));
+  transition: transform 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dashboard__tip:hover {
+  transform: translateY(-3px);
+  background: linear-gradient(180deg, #124346 0%, #073434 100%);
+  box-shadow: var(--shadow-1);
+}
+
+.dashboard__tip b {
+  font-size: 14px;
+  color: var(--c-text);
+}
+
+.dashboard__tip span {
+  color: var(--c-ink-soft);
+  font-size: 13px;
 }
 
 @media (max-width: 1024px) {
-  .dashboard { min-height: auto; }
+  .dashboard {
+    min-height: auto;
+  }
+
+  .dashboard__showcase {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .hero--compact .hero__actions {
+    width: 100%;
+  }
+
+  .hero--compact .hero__actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dashboard__showcase {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

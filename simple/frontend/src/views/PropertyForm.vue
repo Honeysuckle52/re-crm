@@ -1,15 +1,52 @@
 <template>
-  <section class="stack">
+  <section class="stack property-form-page">
     <div class="hero" style="padding: 24px 28px">
-      <div class="hero__eyebrow">{{ isEdit ? 'РЕДАКТИРОВАНИЕ' : 'НОВЫЙ ОБЪЕКТ' }}</div>
-      <h1 class="h2" style="color: #fff; margin-top: 8px">
-        {{ isEdit ? 'Изменить объект' : 'Создать объект' }}
-      </h1>
+      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
+        <div>
+          <div class="hero__eyebrow">{{ isEdit ? 'РЕДАКТИРОВАНИЕ' : 'НОВЫЙ ОБЪЕКТ' }}</div>
+          <h1 class="h2" style="color: #fff; margin-top: 8px">
+            {{ isEdit ? 'Изменить объект' : 'Создать объект' }}
+          </h1>
+          <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
+            Заполните карточку объекта, подготовьте адрес, медиа и описание для дальнейшей работы по заявкам.
+          </div>
+        </div>
+        <button class="btn btn--ghost" type="button" @click="$router.back()">Назад</button>
+      </div>
     </div>
 
-    <form class="panel panel--light stack" @submit.prevent="submit">
-      <h2 class="h3">Основные параметры</h2>
-      <div class="grid grid--2">
+    <div class="kpi-strip">
+      <article class="kpi-card">
+        <span class="kpi-card__label">Режим</span>
+        <strong class="kpi-card__value">{{ formModeLabel }}</strong>
+        <span class="kpi-card__meta">{{ isEdit ? 'Обновление существующей карточки' : 'Создание нового объекта в каталоге' }}</span>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-card__label">Адрес</span>
+        <strong class="kpi-card__value">{{ addressStateLabel }}</strong>
+        <span class="kpi-card__meta">{{ addressPicked?.value || existingAddress || 'Выберите адрес из подсказок' }}</span>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-card__label">Фотографии</span>
+        <strong class="kpi-card__value">{{ photoCount }}</strong>
+        <span class="kpi-card__meta">Обложка: {{ coverCount ? 'назначена' : 'не выбрана' }}</span>
+      </article>
+      <article class="kpi-card kpi-card--accent">
+        <span class="kpi-card__label">Характеристики</span>
+        <strong class="kpi-card__value">{{ selectedFeaturesCount }}</strong>
+        <span class="kpi-card__meta">Отмечено параметров объекта</span>
+      </article>
+    </div>
+
+    <form class="panel panel--light stack property-form" @submit.prevent="submit">
+      <div class="surface-head property-form__section-head">
+        <div>
+          <div class="surface-head__meta">Карточка объекта</div>
+          <h2 class="h3">Основные параметры</h2>
+        </div>
+        <div class="surface-head__caption">Базовые данные для каталога и дальнейшей работы по заявкам.</div>
+      </div>
+      <div class="grid grid--2 property-form__main-grid">
         <div class="field">
           <label>Заголовок</label>
           <input class="input" v-model="form.title" required
@@ -41,7 +78,7 @@
         </div>
         <div class="field">
           <label>Этаж / всего этажей</label>
-          <div class="row">
+          <div class="row property-form__floor-row">
             <input class="input" type="number" v-model.number="form.floor_number" />
             <input class="input" type="number" v-model.number="form.total_floors" />
           </div>
@@ -59,7 +96,13 @@
         </div>
       </div>
 
-      <h2 class="h3" style="margin-top: 8px">Адрес</h2>
+      <div class="surface-head property-form__section-head">
+        <div>
+          <div class="surface-head__meta">Локация</div>
+          <h2 class="h3">Адрес</h2>
+        </div>
+        <div class="surface-head__caption">Подсказки адресов подставляются через DaData.</div>
+      </div>
       <p class="muted">
         Начните вводить адрес — подсказки подгружаются из сервиса DaData.
         Выберите нужную строку, и поля будут заполнены автоматически.
@@ -83,7 +126,13 @@
         Текущий адрес: {{ existingAddress }}
       </div>
 
-      <h2 class="h3" style="margin-top: 8px">Характеристики</h2>
+      <div class="surface-head property-form__section-head">
+        <div>
+          <div class="surface-head__meta">Описание объекта</div>
+          <h2 class="h3">Характеристики</h2>
+        </div>
+        <div class="surface-head__caption">Отметьте свойства, которые будут видны в карточке объекта.</div>
+      </div>
       <div class="row" style="flex-wrap: wrap; gap: 8px">
         <label v-for="f in dict.features" :key="f.id" class="chip-check">
           <input type="checkbox" :value="f.id" v-model="form.feature_ids" />
@@ -95,7 +144,13 @@
         </span>
       </div>
 
-      <h2 class="h3" style="margin-top: 8px">Фотографии</h2>
+      <div class="surface-head property-form__section-head">
+        <div>
+          <div class="surface-head__meta">Медиа</div>
+          <h2 class="h3">Фотографии</h2>
+        </div>
+        <div class="surface-head__caption">Можно загружать файлы и добавлять внешние ссылки на изображения.</div>
+      </div>
       <p class="muted">
         Сервис подсказок адресов не предоставляет изображения, поэтому
         фото и описание добавляются сотрудником вручную. Можно загрузить
@@ -118,13 +173,16 @@
           </div>
         </div>
       </div>
-      <div class="row" style="gap: 12px; flex-wrap: wrap">
+      <div v-else class="empty property-form__photos-empty">
+        Фотографии пока не добавлены.
+      </div>
+      <div class="row property-form__photos-actions" style="gap: 12px; flex-wrap: wrap">
         <label class="btn btn--sm" style="cursor: pointer">
           Загрузить файл
           <input type="file" accept="image/*" multiple
                  style="display: none" @change="onFilesSelected" />
         </label>
-        <div class="row" style="gap: 8px; flex: 1; min-width: 240px">
+        <div class="row property-form__photo-url" style="gap: 8px; flex: 1; min-width: 240px">
           <input class="input" v-model="newPhotoUrl"
                  placeholder="или вставьте ссылку на изображение" />
           <button class="btn btn--sm" type="button" @click="addPhotoByUrl">
@@ -133,7 +191,13 @@
         </div>
       </div>
 
-      <h2 class="h3" style="margin-top: 8px">Описание</h2>
+      <div class="surface-head property-form__section-head">
+        <div>
+          <div class="surface-head__meta">Контент карточки</div>
+          <h2 class="h3">Описание</h2>
+        </div>
+        <div class="surface-head__caption">Текст используется в карточке объекта и в работе агента с клиентом.</div>
+      </div>
       <div class="field">
         <label>Описание объекта</label>
         <textarea class="textarea" v-model="form.description" rows="5"
@@ -153,7 +217,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
@@ -183,6 +247,18 @@ const newPhotoUrl = ref('')
 const loading = ref(false)
 const error = ref('')
 
+const formModeLabel = computed(() => (
+  isEdit.value ? 'Редактирование' : 'Создание'
+))
+const addressStateLabel = computed(() => {
+  if (addressPicked.value) return 'Выбран'
+  if (existingAddress.value) return 'Сохранён'
+  return 'Не указан'
+})
+const selectedFeaturesCount = computed(() => form.feature_ids.length)
+const photoCount = computed(() => photos.value.length)
+const coverCount = computed(() => photos.value.filter((photo) => photo.is_cover).length)
+
 function onAddressPick(r) {
   addressPicked.value = r
 }
@@ -209,8 +285,16 @@ function setCover(target) {
   photos.value.forEach(p => { p.is_cover = (p === target) })
 }
 
+function revokePreview (photo) {
+  if (photo?.preview?.startsWith('blob:')) {
+    URL.revokeObjectURL(photo.preview)
+  }
+}
+
 function removePhoto(p, index) {
   if (p.id) removedPhotoIds.value.push(p.id)
+  pendingFiles.value = pendingFiles.value.filter((item) => item !== p)
+  revokePreview(p)
   photos.value.splice(index, 1)
 }
 
@@ -237,6 +321,11 @@ async function uploadPhotos(propertyId) {
     await api.delete(`/property-photos/${id}/`)
   }
   removedPhotoIds.value = []
+
+  const selectedExistingCover = photos.value.find((photo) => photo.is_cover && photo.id)
+  if (selectedExistingCover) {
+    await api.post(`/property-photos/${selectedExistingCover.id}/set_cover/`)
+  }
 }
 
 async function submit() {
@@ -317,31 +406,116 @@ onMounted(async () => {
     photos.value = (data.photos || []).map(p => ({ ...p }))
   }
 })
+
+onBeforeUnmount(() => {
+  photos.value.forEach(revokePreview)
+})
 </script>
 
 <style scoped>
+.property-form-page {
+  min-height: 0;
+}
+
+.property-form__section-head {
+  margin-bottom: 2px;
+}
+
+.property-form__main-grid {
+  gap: 16px;
+}
+
+.property-form__floor-row {
+  gap: 10px;
+}
+
 .chip-check {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: var(--r-pill);
-  background: var(--c-paper-2); color: var(--c-ink-soft);
-  font-size: 13px; cursor: pointer;
-  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-ink-soft);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease, color 0.3s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
-.chip-check input { accent-color: var(--c-accent); }
+
+.chip-check:hover {
+  transform: translateY(-2px);
+  border-color: var(--c-border-strong);
+  box-shadow: 0 10px 20px rgba(31, 163, 154, 0.08);
+}
+
+.chip-check input {
+  accent-color: var(--c-accent);
+}
+
 .chip-check:has(input:checked) {
-  background: rgba(31,163,154,.14);
-  color: var(--c-accent);
-  border-color: rgba(31,163,154,.4);
+  background: linear-gradient(135deg, rgba(31, 163, 154, 0.18), rgba(99, 208, 197, 0.16));
+  color: #effffd;
+  border-color: rgba(99, 208, 197, 0.28);
+  box-shadow: 0 0 18px rgba(99, 208, 197, 0.12);
 }
+
 .photo-tile {
-  position: relative; border-radius: var(--r-sm); overflow: hidden;
-  background: var(--c-paper-2); aspect-ratio: 4/3;
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: var(--shadow-1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
 }
-.photo-tile img { width: 100%; height: 100%; object-fit: cover; }
+
+.photo-tile:hover {
+  transform: translateY(-5px);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-glow);
+}
+
+.photo-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .photo-tile__overlay {
-  position: absolute; inset: auto 0 0 0;
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; padding: 8px;
-  background: linear-gradient(to top, rgba(14,58,56,.85), transparent);
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  background: linear-gradient(to top, rgba(7, 19, 29, 0.86), transparent);
+}
+
+.property-form__photos-empty {
+  min-height: 140px;
+}
+
+.property-form__photos-actions {
+  align-items: stretch;
+}
+
+.property-form__photo-url {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .property-form__floor-row,
+  .property-form__photos-actions,
+  .property-form__photo-url {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 </style>

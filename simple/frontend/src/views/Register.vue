@@ -222,9 +222,34 @@ function stripEmpty (obj) {
 </script>
 
 <style scoped>
-.auth { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-.auth__card { width: min(560px, 100%); }
-.auth__title { font-size: 28px; margin: 16px 0 12px; color: #fff; }
+.auth {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px 18px;
+}
+
+.auth::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(120, 216, 206, 0.22), transparent 26%),
+    radial-gradient(circle at 78% 8%, rgba(226, 248, 245, 0.14), transparent 22%);
+  pointer-events: none;
+}
+
+.auth__card {
+  position: relative;
+  width: min(560px, 100%);
+}
+
+.auth__title {
+  margin: 18px 0 12px;
+  font-size: clamp(28px, 4vw, 34px);
+  color: var(--c-text);
+}
 
 .rstep {
   display: flex;
@@ -238,42 +263,47 @@ function stripEmpty (obj) {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: rgba(255, 255, 255, .55);
+  color: var(--c-text-muted);
   font-size: 13px;
 }
 .rstep__num {
   display: inline-flex;
-  width: 22px; height: 22px;
-  align-items: center; justify-content: center;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .1);
-  color: rgba(255, 255, 255, .7);
+  border: 1px solid rgba(120, 216, 206, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--c-ink-soft);
   font-weight: 700;
   font-size: 12px;
 }
 .rstep__item--active {
-  color: #fff;
+  color: var(--c-text);
 }
 .rstep__item--active .rstep__num {
-  background: #3ddbc7;
-  color: #0f3a33;
+  background: var(--grad-accent);
+  color: #123330;
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 18px rgba(120, 216, 206, 0.14);
 }
 .rstep__item--done .rstep__num {
-  background: rgba(61, 219, 199, .25);
-  color: #3ddbc7;
+  background: rgba(120, 216, 206, 0.18);
+  color: #efffff;
+  border-color: rgba(120, 216, 206, 0.2);
 }
 .rstep__hint {
   font-size: 11px;
   font-style: italic;
-  opacity: .75;
+  opacity: 0.75;
 }
 
-.error {
-  background: rgba(255, 122, 107, .15);
-  border: 1px solid rgba(255, 122, 107, .35);
-  color: #ffd3cc;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 13px;
+@media (max-width: 640px) {
+  .rstep {
+    align-items: flex-start;
+    gap: 12px;
+    flex-direction: column;
+  }
 }
 </style>

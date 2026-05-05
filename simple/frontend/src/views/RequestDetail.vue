@@ -15,22 +15,51 @@
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
           <button v-if="auth.isStaff && !request.agent"
-                  class="btn btn--accent" @click="takeRequest">
+                  class="btn btn--accent"
+                  @click="takeRequest">
             Взять в работу
           </button>
-          <button v-if="request.can_close"
-                  class="btn btn--danger" @click="closeRequest">
+          <button v-if="auth.isStaff && request.can_close"
+                  class="btn btn--danger"
+                  @click="closeRequest">
             Закрыть заявку
           </button>
         </div>
       </div>
     </div>
 
-    <Transition name="toast">
-      <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
-        {{ toast.message }}
-      </div>
-    </Transition>
+    <div class="kpi-strip">
+      <article class="kpi-card kpi-card--accent">
+        <div class="kpi-card__label">Статус заявки</div>
+        <div class="kpi-card__value">{{ request.status_name }}</div>
+        <div class="kpi-card__meta">
+          {{ request.agent_username ? 'Ведёт ' + request.agent_username : 'Агент пока не назначен' }}
+        </div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-card__label">Вариантов в подборке</div>
+        <div class="kpi-card__value">{{ matchesCount }}</div>
+        <div class="kpi-card__meta">
+          Подтверждено: {{ confirmedMatchesCount }}, в работе: {{ offeredMatchesCount }}
+        </div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-card__label">Задач по заявке</div>
+        <div class="kpi-card__value">{{ requestTasks.length }}</div>
+        <div class="kpi-card__meta">
+          Активных: {{ activeTasksCount }}, автозакрытых: {{ autoClosedTasksCount }}
+        </div>
+      </article>
+      <article class="kpi-card" :class="{ 'kpi-card--accent': !!relatedDeal }">
+        <div class="kpi-card__label">Сделка</div>
+        <div class="kpi-card__value">{{ relatedDeal ? relatedDeal.deal_number : '—' }}</div>
+        <div class="kpi-card__meta">
+          {{ relatedDeal
+            ? `${relatedDeal.status_name || 'Статус не указан'} · ${relatedDeal.contract_url ? 'договор готов' : 'без PDF'}`
+            : 'Появится после закрытия заявки' }}
+        </div>
+      </article>
+    </div>
 
     <div class="grid grid--2">
       <div class="panel panel--light">
@@ -41,8 +70,10 @@
           <InfoRow label="Операция" :value="request.operation_type_name" />
           <InfoRow label="Тип недвижимости" :value="request.property_type || '—'" />
           <InfoRow label="Комнат" :value="request.rooms_count || '—'" />
-          <InfoRow label="Бюджет"
-            :value="formatMoney(request.min_price) + '–' + formatMoney(request.max_price) + ' ₽'" />
+          <InfoRow
+            label="Бюджет"
+            :value="formatMoney(request.min_price) + '–' + formatMoney(request.max_price) + ' ₽'"
+          />
           <InfoRow label="Закрыта" :value="request.closed_at ? formatDate(request.closed_at) : '—'" />
         </div>
       </div>
@@ -59,6 +90,35 @@
           Заявка на подбор: конкретный объект не указан — агент подбирает варианты.
         </div>
 
+        <h2 class="h3" style="margin-top: 20px">Связанная сделка</h2>
+        <div v-if="relatedDeal" class="deal-summary" style="margin-top: 12px">
+          <div class="stack" style="gap: 4px; flex: 1">
+            <router-link to="/deals" class="link">
+              {{ relatedDeal.deal_number }}
+            </router-link>
+            <div class="muted" style="font-size: 13px">
+              {{ relatedDeal.status_name || 'Статус не указан' }} ·
+              {{ formatMoney(relatedDeal.price_final) }} ₽
+            </div>
+            <div class="muted" style="font-size: 12px">
+              {{ relatedDeal.contract_url ? 'Договор уже сформирован.' : 'PDF-договор ещё не сформирован.' }}
+            </div>
+          </div>
+          <div class="row deal-summary__actions" style="gap: 8px; flex-wrap: wrap">
+            <button v-if="relatedDeal.contract_url"
+                    class="btn btn--sm"
+                    @click="downloadDealContract(relatedDeal)">
+              Скачать PDF
+            </button>
+            <router-link to="/deals" class="btn btn--sm btn--ghost">
+              Открыть сделки
+            </router-link>
+          </div>
+        </div>
+        <div v-else class="muted" style="margin-top: 12px">
+          После закрытия заявки здесь появится связанная сделка и доступ к договору.
+        </div>
+
         <h2 class="h3" style="margin-top: 20px">Пожелания клиента</h2>
         <p style="white-space: pre-wrap; margin-top: 8px">
           {{ request.description || 'Пожелания не указаны.' }}
@@ -72,44 +132,52 @@
         <div v-if="auth.isStaff" class="row" style="gap: 8px">
           <select class="select select--sm" v-model.number="attachPropertyId">
             <option :value="null" disabled>— выберите объект —</option>
-            <option v-for="p in availableProperties" :key="p.id" :value="p.id">
-              {{ p.title || 'Объект №' + p.id }} · {{ formatMoney(p.price) }} ₽
+            <option v-for="propertyItem in availableProperties" :key="propertyItem.id" :value="propertyItem.id">
+              {{ propertyItem.title || 'Объект №' + propertyItem.id }} · {{ formatMoney(propertyItem.price) }} ₽
             </option>
           </select>
-          <input class="input" v-model="attachNote"
+          <input class="input"
+                 v-model="attachNote"
                  placeholder="Комментарий агента" />
-          <button class="btn btn--sm btn--accent" @click="attachProperty"
-                  :disabled="!attachPropertyId">
+          <button class="btn btn--sm btn--accent"
+                  :disabled="!attachPropertyId"
+                  @click="attachProperty">
             + Добавить
           </button>
         </div>
       </div>
 
       <div v-if="request.matches?.length" class="match-list" style="margin-top: 14px">
-        <div v-for="m in request.matches" :key="m.id" class="match">
+        <div v-for="match in request.matches" :key="match.id" class="match">
           <div class="stack" style="gap: 4px; flex: 1">
-            <router-link :to="`/properties/${m.property}`" class="link">
-              {{ m.property_title || 'Объект №' + m.property }}
+            <router-link :to="`/properties/${match.property}`" class="link">
+              {{ match.property_title || 'Объект №' + match.property }}
             </router-link>
             <div class="muted" style="font-size: 13px">
-              {{ formatMoney(m.property_price) }} ₽ · предложил {{ m.agent_username }}
+              {{ formatMoney(match.property_price) }} ₽ · предложил {{ match.agent_username }}
             </div>
-            <div v-if="m.agent_note" style="font-size: 13px">
-              «{{ m.agent_note }}»
+            <div v-if="match.agent_note" style="font-size: 13px">
+              «{{ match.agent_note }}»
             </div>
-            <div v-if="m.is_offered && !m.is_rejected" class="confirmed-badge">
-              Подтверждён
+            <div class="match-badge" :class="matchBadgeClass(match)">
+              {{ matchBadgeLabel(match) }}
+            </div>
+            <div v-if="match.is_confirmed && match.confirmed_at" class="muted" style="font-size: 12px">
+              Подтвердил {{ match.confirmed_by_username || 'сотрудник' }} ·
+              {{ formatDate(match.confirmed_at) }}
             </div>
           </div>
           <div v-if="auth.isStaff" class="match-actions">
             <button class="btn btn--sm btn--accent"
-                    :disabled="confirmingId === m.id"
-                    @click="confirmProperty(m)"
-                    title="Подтвердить выбор клиента">
-              Подтвердить
+                    :disabled="confirmingId === match.id || !canConfirmMatch(match)"
+                    title="Подтвердить выбор клиента"
+                    @click="confirmProperty(match)">
+              {{ match.is_confirmed ? 'Подтверждён' : 'Подтвердить' }}
             </button>
             <button class="btn btn--sm btn--danger"
-                    @click="detachProperty(m)">Убрать</button>
+                    @click="detachProperty(match)">
+              Убрать
+            </button>
           </div>
         </div>
       </div>
@@ -126,27 +194,27 @@
         </router-link>
       </div>
       <div v-if="requestTasks.length" class="stack" style="margin-top: 12px">
-        <div v-for="t in requestTasks" :key="t.id" class="task-row">
+        <div v-for="task in requestTasks" :key="task.id" class="task-row">
           <div class="stack" style="gap: 2px; flex: 1">
             <div class="row" style="gap: 8px; align-items: center">
-              <b>{{ t.title }}</b>
-              <span v-if="t.is_auto_closed" class="auto-badge" title="Закрыта автоматически">
+              <b>{{ task.title }}</b>
+              <span v-if="task.is_auto_closed" class="auto-badge" title="Закрыта автоматически">
                 авто
               </span>
             </div>
             <div class="muted" style="font-size: 12px">
-              <span class="tag tag--type">{{ t.task_type_display || t.task_type }}</span>
-              Исполнитель: {{ t.assignee_username }} ·
-              Срок: {{ t.due_date ? formatDate(t.due_date) : '—' }}
-              <span v-if="t.is_overdue" class="tag" style="background: #fee; color: #c2554a">
+              <span class="tag tag--type">{{ task.task_type_display || task.task_type }}</span>
+              Исполнитель: {{ task.assignee_username }} ·
+              Срок: {{ task.due_date ? formatDate(task.due_date) : '—' }}
+              <span v-if="task.is_overdue" class="tag" style="background: #fee; color: #c2554a">
                 просрочено
               </span>
             </div>
-            <div v-if="t.result" class="result-text">
-              Результат: {{ t.result }}
+            <div v-if="task.result" class="result-text">
+              Результат: {{ taskResultLabel(task) }}
             </div>
           </div>
-          <span class="tag tag--accent">{{ t.status_name }}</span>
+          <span class="tag tag--accent">{{ task.status_name }}</span>
         </div>
       </div>
       <div v-else class="muted" style="margin-top: 12px">
@@ -158,11 +226,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+import { useWorkloadStore } from '../store/workload'
+import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney, formatDate } from '@/utils/formatters'
 import {
   takeRequest as takeRequestAction,
@@ -170,69 +240,114 @@ import {
 } from '../api/tasks'
 
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
+const workload = useWorkloadStore()
+const toasts = useToastsStore()
 
 const request = ref(null)
 const availableProperties = ref([])
 const requestTasks = ref([])
+const relatedDeal = ref(null)
 const attachPropertyId = ref(null)
 const attachNote = ref('')
 const confirmingId = ref(null)
 
-const toast = reactive({ show: false, message: '', type: 'success' })
-function showToast(message, type = 'success') {
-  toast.message = message
-  toast.type = type
-  toast.show = true
-  setTimeout(() => { toast.show = false }, 5000)
-}
-
 const statusClass = computed(() => {
   const code = request.value?.status_code
   if (code === 'closed') return 'tag--panel'
+  if (code === 'cancelled') return ''
   return 'tag--accent'
 })
 
+const matchesCount = computed(() => request.value?.matches?.length || 0)
+const confirmedMatchesCount = computed(() =>
+  (request.value?.matches || []).filter((match) => match.state === 'confirmed').length,
+)
+const offeredMatchesCount = computed(() =>
+  (request.value?.matches || []).filter((match) => ['offered', 'draft'].includes(match.state)).length,
+)
+const activeTasksCount = computed(() =>
+  requestTasks.value.filter((task) => !['done', 'cancelled'].includes(task.status_code)).length,
+)
+const autoClosedTasksCount = computed(() =>
+  requestTasks.value.filter((task) => task.is_auto_closed).length,
+)
+
+function matchBadgeLabel (match) {
+  if (match.state === 'confirmed') return 'Подтверждён'
+  if (match.state === 'rejected') return 'Отклонён'
+  if (match.state === 'offered') return 'Предложен'
+  return 'Черновик'
+}
+
+function matchBadgeClass (match) {
+  if (match.state === 'confirmed') return 'match-badge--confirmed'
+  if (match.state === 'rejected') return 'match-badge--rejected'
+  return 'match-badge--offered'
+}
+
+function canConfirmMatch (match) {
+  return request.value?.can_close && match.state !== 'confirmed'
+}
+
+function taskResultLabel (task) {
+  if (!task?.result) return ''
+  if (typeof task.result === 'string') return task.result
+  return task.result.summary || task.result.detail || 'Результат сохранён'
+}
+
 async function load () {
-  const reqId = route.params.id
-  const calls = [
-    api.get(`/requests/${reqId}/`),
-    api.get('/properties/'),
-  ]
-  if (auth.isStaff) {
-    calls.push(api.get('/tasks/', { params: { request: reqId } })
-      .catch(() => ({ data: [] })))
-  }
-  const [r, p, t] = await Promise.all(calls)
-  request.value = r.data
-  availableProperties.value = p.data.results || p.data
-  if (t) {
-    const all = t.data.results || t.data
-    requestTasks.value = all.filter(x => x.request === Number(reqId))
-  } else {
-    requestTasks.value = []
+  const requestId = Number(route.params.id)
+  try {
+    const calls = [
+      api.get(`/requests/${requestId}/`),
+      api.get('/properties/'),
+      api.get('/deals/', { params: { page_size: 200 } }).catch(() => ({ data: [] })),
+    ]
+    if (auth.isStaff) {
+      calls.push(api.get('/tasks/', { params: { request: requestId } })
+        .catch(() => ({ data: [] })))
+    }
+    const [requestResponse, propertiesResponse, dealsResponse, tasksResponse] = await Promise.all(calls)
+    request.value = requestResponse.data
+    availableProperties.value = propertiesResponse.data.results || propertiesResponse.data
+    const allDeals = dealsResponse.data.results || dealsResponse.data
+    relatedDeal.value = allDeals.find((item) => item.request === requestId) || null
+    if (tasksResponse) {
+      const allTasks = tasksResponse.data.results || tasksResponse.data
+      requestTasks.value = allTasks.filter((item) => item.request === requestId)
+    } else {
+      requestTasks.value = []
+    }
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось загрузить заявку'))
   }
 }
 
 async function takeRequest () {
   const result = await takeRequestAction(route.params.id)
   if (!result.ok) {
-    showToast(result.error || 'Не удалось взять заявку', 'error')
+    toasts.error(result.error || 'Не удалось взять заявку')
     return
   }
-  showToast('Заявка взята в работу')
-  await load()
+  toasts.success('Заявка взята в работу')
+  await Promise.all([load(), workload.refresh()])
 }
 
 async function closeRequest () {
   if (!confirm('Закрыть заявку?')) return
   try {
-    await api.post(`/requests/${route.params.id}/close/`)
-    showToast('Заявка закрыта')
-    await load()
+    const response = await api.post(`/requests/${route.params.id}/close/`)
+    if (response?.data?.deal?.deal_number) {
+      toasts.success(
+        `Заявка закрыта. Создана сделка ${response.data.deal.deal_number}, договор готов к скачиванию.`,
+      )
+    } else {
+      toasts.success('Заявка закрыта')
+    }
+    await Promise.all([load(), workload.refresh()])
   } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось закрыть заявку', 'error')
+    toasts.error(extractError(err, 'Не удалось закрыть заявку'))
   }
 }
 
@@ -245,38 +360,60 @@ async function attachProperty () {
     })
     attachPropertyId.value = null
     attachNote.value = ''
-    showToast('Объект добавлен в подборку')
+    toasts.success('Объект добавлен в подборку')
     await load()
   } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось добавить объект', 'error')
+    toasts.error(extractError(err, 'Не удалось добавить объект'))
   }
 }
 
-async function detachProperty (m) {
+async function detachProperty (match) {
   if (!confirm('Убрать объект из подборки?')) return
   try {
     await api.post(`/requests/${route.params.id}/detach_property/`, {
-      match_id: m.id,
+      match_id: match.id,
     })
-    showToast('Объект убран из подборки')
+    toasts.success('Объект убран из подборки')
     await load()
   } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось убрать объект', 'error')
+    toasts.error(extractError(err, 'Не удалось убрать объект'))
   }
 }
 
-async function confirmProperty (m) {
-  confirmingId.value = m.id
+async function confirmProperty (match) {
+  confirmingId.value = match.id
   try {
-    const result = await acceptRequestMatch(route.params.id, m.id)
+    const result = await acceptRequestMatch(route.params.id, match.id)
     if (!result.ok) {
-      showToast(result.error || 'Не удалось подтвердить вариант', 'error')
+      toasts.error(result.error || 'Не удалось подтвердить вариант')
       return
     }
-    showToast(result.data?.detail || 'Вариант подтверждён, задачи закрыты, письмо отправлено')
-    await load()
+    toasts.success(
+      result.data?.detail
+        || 'Вариант подтверждён, задачи закрыты, письмо отправлено',
+    )
+    await Promise.all([load(), workload.refresh()])
   } finally {
     confirmingId.value = null
+  }
+}
+
+async function downloadDealContract (deal) {
+  try {
+    const res = await api.get(`/deals/${deal.id}/contract/`, {
+      responseType: 'blob',
+    })
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `contract-${deal.deal_number}.pdf`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось скачать договор'))
   }
 }
 
@@ -284,68 +421,155 @@ onMounted(load)
 </script>
 
 <style scoped>
-.link { color: var(--c-accent); font-weight: 500; }
-.link:hover { text-decoration: underline; }
-.match-list {
-  display: flex; flex-direction: column; gap: 10px;
+.link {
+  color: var(--c-accent);
+  font-weight: 600;
 }
-.match {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--c-paper-2); padding: 12px 16px;
-  border-radius: var(--r-sm);
-}
-.match-actions {
-  display: flex; gap: 6px; flex-shrink: 0;
-}
-.task-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px; background: var(--c-paper-2);
-  border-radius: var(--r-sm);
-}
-.select--sm, .input { font-size: 13px; }
 
-.confirmed-badge {
-  display: inline-block;
-  font-size: 11px; font-weight: 700;
-  text-transform: uppercase;
-  background: #c8e6c9; color: #2e7d32;
-  padding: 2px 8px; border-radius: 4px;
+.link:hover {
+  color: var(--c-accent-2);
+  text-decoration: underline;
+  text-decoration-color: rgba(99, 208, 197, 0.36);
+}
+
+.match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.match {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.match:hover,
+.task-row:hover {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 34px rgba(31, 163, 154, 0.12);
+}
+
+.match-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-self: center;
+}
+
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.deal-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.select--sm,
+.input {
+  font-size: 13px;
+}
+
+.match-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
   margin-top: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.match-badge--confirmed {
+  background: rgba(99, 208, 197, 0.16);
+  color: #effffd;
+  border-color: rgba(99, 208, 197, 0.24);
+}
+
+.match-badge--rejected {
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd3dd;
+  border-color: rgba(255, 111, 134, 0.22);
+}
+
+.match-badge--offered {
+  background: rgba(31, 163, 154, 0.16);
+  color: #effffd;
+  border-color: rgba(31, 163, 154, 0.22);
 }
 
 .auto-badge {
-  font-size: 10px; font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 208, 197, 0.2);
+  background: rgba(99, 208, 197, 0.16);
+  color: #effffd;
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  background: #e3f2fd; color: #1565c0;
-  padding: 2px 6px; border-radius: 4px;
 }
 
 .tag--type {
-  background: #e8f4f3; color: #1a5a52; font-size: 10px;
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  font-size: 10px;
   margin-right: 6px;
+  border-color: rgba(99, 208, 197, 0.2);
+}
+
+.tag[style*='background: #fee'][style*='color: #c2554a'] {
+  background: rgba(255, 111, 134, 0.14) !important;
+  color: #ffd4dc !important;
+  border-color: rgba(255, 111, 134, 0.22) !important;
 }
 
 .result-text {
-  font-size: 12px; color: #546e7a;
-  margin-top: 4px; font-style: italic;
+  margin-top: 4px;
+  color: var(--c-ink-soft);
+  font-size: 12px;
+  font-style: italic;
 }
 
-.toast {
-  position: fixed;
-  top: 20px; right: 20px;
-  z-index: 1000;
-  padding: 14px 20px;
-  border-radius: 8px;
-  font-size: 14px; font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0,0,0,.15);
-  max-width: 400px;
-}
-.toast--success { background: #0f3a33; color: #fff; }
-.toast--error { background: #c2554a; color: #fff; }
-.toast-enter-active, .toast-leave-active {
-  transition: all .3s ease;
-}
-.toast-enter-from, .toast-leave-to {
-  opacity: 0; transform: translateX(30px);
+@media (max-width: 720px) {
+  .match,
+  .task-row,
+  .deal-summary {
+    flex-direction: column;
+  }
+
+  .match-actions {
+    width: 100%;
+  }
 }
 </style>

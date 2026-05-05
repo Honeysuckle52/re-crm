@@ -18,12 +18,6 @@
       </div>
     </div>
 
-    <Transition name="toast">
-      <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
-        {{ toast.message }}
-      </div>
-    </Transition>
-
     <div class="grid grid--2">
       <div class="panel panel--light stack">
         <h2 class="h3">Основные данные</h2>
@@ -137,11 +131,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
+import { extractError, useToastsStore } from '../store/toasts'
 import InfoRow from '../components/InfoRow.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const toasts = useToastsStore()
 
 const showWelcome = ref(!!route.query.welcome)
 
@@ -161,14 +157,6 @@ const profile = reactive({
   registration_address: '',
   actual_address: '',
 })
-
-const toast = reactive({ show: false, message: '', type: 'success' })
-function showToast (message, type = 'success') {
-  toast.message = message
-  toast.type = type
-  toast.show = true
-  setTimeout(() => { toast.show = false }, 4000)
-}
 
 const REQUIRED_FIELDS = [
   'first_name', 'last_name', 'birth_date',
@@ -200,7 +188,7 @@ async function loadProfile () {
       }
     }
   } catch (err) {
-    showToast('Не удалось загрузить профиль', 'error')
+    toasts.error('Не удалось загрузить профиль')
   } finally {
     loadingProfile.value = false
   }
@@ -208,7 +196,7 @@ async function loadProfile () {
 
 async function saveProfile () {
   if (!profileId.value) {
-    showToast('Профиль ещё не создан — обратитесь к менеджеру', 'error')
+    toasts.error('Профиль ещё не создан — обратитесь к менеджеру')
     return
   }
   saving.value = true
@@ -218,13 +206,9 @@ async function saveProfile () {
   }
   try {
     await api.patch(`/client-profiles/${profileId.value}/`, payload)
-    showToast('Профиль сохранён')
+    toasts.success('Профиль сохранён')
   } catch (err) {
-    const detail = err.response?.data
-    const msg = typeof detail === 'object'
-      ? Object.values(detail).flat().join(' ')
-      : detail || 'Не удалось сохранить профиль'
-    showToast(msg, 'error')
+    toasts.error(extractError(err, 'Не удалось сохранить профиль'))
   } finally {
     saving.value = false
   }
@@ -249,36 +233,24 @@ onMounted(loadProfile)
 .completeness__bar {
   width: 180px;
   height: 6px;
-  background: #e2e8e6;
-  border-radius: 999px;
   overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 216, 206, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.22);
 }
 .completeness__fill {
   height: 100%;
-  background: #8aa5a0;
-  transition: width .25s ease, background .25s ease;
+  background: rgba(46, 159, 152, 0.72);
+  box-shadow: 0 0 18px rgba(120, 216, 206, 0.2);
+  transition: width 0.25s ease, background 0.25s ease;
 }
-.completeness.is-mid .completeness__fill  { background: #f5b567; }
-.completeness.is-full .completeness__fill { background: #0f3a33; }
+.completeness.is-mid .completeness__fill  { background: var(--c-warning); }
+.completeness.is-full .completeness__fill { background: var(--c-accent-2); }
 .completeness__label {
   font-size: 12px;
   color: var(--c-text-muted);
   font-weight: 600;
 }
 
-.toast {
-  position: fixed;
-  top: 20px; right: 20px;
-  z-index: 1000;
-  padding: 14px 20px;
-  border-radius: 8px;
-  font-size: 14px; font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0,0,0,.15);
-}
-.toast--success { background: #0f3a33; color: #fff; }
-.toast--error { background: #c2554a; color: #fff; }
-.toast-enter-active, .toast-leave-active { transition: all .3s ease; }
-.toast-enter-from, .toast-leave-to {
-  opacity: 0; transform: translateX(30px);
-}
 </style>

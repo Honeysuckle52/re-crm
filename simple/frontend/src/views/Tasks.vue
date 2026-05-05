@@ -27,11 +27,6 @@
       </div>
     </div>
 
-    <Transition name="toast">
-      <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
-        {{ toast.message }}
-      </div>
-    </Transition>
 
     <form v-if="showForm" class="panel panel--light stack" @submit.prevent="create">
       <div class="grid grid--3">
@@ -149,7 +144,15 @@
     </div>
 
     <div v-if="viewMode === 'active'" class="panel panel--light">
-      <table class="table">
+      <div class="surface-head task-section-head">
+        <div>
+          <div class="surface-head__meta">Рабочий список</div>
+          <h2 class="h3">Активные задачи</h2>
+        </div>
+        <div class="surface-head__caption">Показано: {{ filtered.length }}</div>
+      </div>
+      <div class="table-wrap task-table-wrap">
+        <table class="table">
         <thead>
           <tr>
             <th></th>
@@ -243,12 +246,21 @@
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
       <div v-if="!filtered.length" class="empty">Задач нет.</div>
     </div>
 
     <div v-else class="panel panel--light">
-      <table class="table">
+      <div class="surface-head task-section-head">
+        <div>
+          <div class="surface-head__meta">Архив выполнения</div>
+          <h2 class="h3">История по задачам</h2>
+        </div>
+        <div class="surface-head__caption">Записей: {{ historyCount }}</div>
+      </div>
+      <div class="table-wrap task-history-wrap">
+        <table class="table">
         <thead>
           <tr>
             <th>Задача</th>
@@ -293,7 +305,8 @@
             </td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
       <div v-if="!history.length" class="empty">Выполненных задач пока нет.</div>
     </div>
 
@@ -329,11 +342,13 @@ import api from '../api'
 import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
+import { extractError, useToastsStore } from '../store/toasts'
 import TaskMineBadge from '../components/TaskMineBadge.vue'
 import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const workload = useWorkloadStore()
+const toasts = useToastsStore()
 const router = useRouter()
 
 const tasks = ref([])
@@ -358,14 +373,6 @@ const taskTypes = [
   { code: 'call', name: 'Звонок' },
   { code: 'other', name: 'Прочее' },
 ]
-
-const toast = reactive({ show: false, message: '', type: 'success' })
-function showToast(message, type = 'success') {
-  toast.message = message
-  toast.type = type
-  toast.show = true
-  setTimeout(() => { toast.show = false }, 4000)
-}
 
 const completeModal = reactive({ show: false, task: null, result: '' })
 function openCompleteModal(task) {
@@ -409,6 +416,15 @@ const filtered = computed(() => {
 
 const activeCount = computed(() => activeTasks.value.length)
 const historyCount = computed(() => history.value.length)
+const inProgressCount = computed(() => (
+  activeTasks.value.filter((t) => t.status_code === 'in_progress').length
+))
+const overdueCount = computed(() => (
+  activeTasks.value.filter((t) => t.is_overdue).length
+))
+const newCount = computed(() => (
+  activeTasks.value.filter((t) => t.status_code === 'new').length
+))
 
 function countByStatus (id) {
   return activeTasks.value.filter((t) => t.status === id).length
@@ -499,10 +515,10 @@ async function create () {
     await api.post('/tasks/', payload)
     showForm.value = false
     Object.assign(form, defaultForm())
-    showToast('Задача создана')
+    toasts.success('Задача создана')
     await load()
   } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось создать задачу', 'error')
+    toasts.error(extractError(err, 'Не удалось создать задачу'))
   }
 }
 
@@ -511,9 +527,9 @@ async function changeStatus (task, statusId) {
   const { ok, data, error } = await tasksApi.changeTaskStatus(task.id, statusId)
   if (ok) {
     applyTaskPatch(data)
-    showToast('Статус изменён')
+    toasts.success('Статус изменён')
   } else {
-    showToast(error, 'error')
+    toasts.error(error || 'Не удалось изменить статус')
   }
 }
 
@@ -567,7 +583,7 @@ async function startTask (task) {
   const { ok, data, error } = await tasksApi.startTask(task.id)
   if (ok) {
     applyTaskPatch(data)
-    showToast('Задача взята в работу')
+    toasts.success('Задача взята в работу')
   } else {
     applyTaskPatch({
       ...task,
@@ -575,7 +591,7 @@ async function startTask (task) {
       status: prevStatus,
     })
     workload.refresh()
-    showToast(error || 'Нельзя стартовать задачу: превышен лимит', 'error')
+    toasts.error(error || 'Нельзя стартовать задачу: превышен лимит')
   }
   busyId.value = null
 }
@@ -585,9 +601,9 @@ async function pauseTask (task) {
   const { ok, data, error } = await tasksApi.pauseTask(task.id)
   if (ok) {
     applyTaskPatch(data)
-    showToast('Задача приостановлена')
+    toasts.success('Задача приостановлена')
   } else {
-    showToast(error || 'Не удалось приостановить задачу', 'error')
+    toasts.error(error || 'Не удалось приостановить задачу')
   }
   busyId.value = null
 }
@@ -606,11 +622,11 @@ async function confirmComplete () {
   if (ok) {
     applyTaskPatch(data)
     if (viewMode.value === 'history') loadHistory()
-    showToast('Задача завершена')
+    toasts.success('Задача завершена')
     closeCompleteModal()
   } else {
     workload.refresh()
-    showToast(error || 'Не удалось завершить задачу', 'error')
+    toasts.error(error || 'Не удалось завершить задачу')
   }
   busyId.value = null
 }
@@ -626,58 +642,105 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.link { color: var(--c-accent); font-weight: 500; }
-.link:hover { text-decoration: underline; }
-.overdue { background: #fee; color: #c2554a; margin-left: 6px; }
-.select--sm { padding: 6px 10px; font-size: 13px; }
+.link {
+  color: var(--c-accent);
+  font-weight: 600;
+}
+
+.link:hover {
+  color: var(--c-accent-2);
+  text-decoration: underline;
+  text-decoration-color: rgba(99, 208, 197, 0.36);
+}
+
+.overdue {
+  margin-left: 6px;
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
+  border-color: rgba(255, 111, 134, 0.2);
+}
+
+.select--sm {
+  padding: 10px 42px 10px 14px;
+  font-size: 13px;
+}
 
 .task-actions {
-  display: flex; gap: 6px; flex-wrap: wrap;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
   align-items: center;
+}
+
+.task-section-head {
+  margin-bottom: 14px;
+}
+
+.task-table-wrap .table {
+  min-width: 1120px;
+}
+
+.task-history-wrap .table {
+  min-width: 780px;
 }
 
 .workload-banner {
   margin-top: 10px;
-  background: rgba(255,255,255,.12);
-  color: #fff; font-size: 13px;
-  padding: 6px 12px; border-radius: 999px;
-  display: inline-flex; gap: 6px; align-items: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 208, 197, 0.24);
+  background: rgba(99, 208, 197, 0.12);
+  color: #effffd;
+  font-size: 13px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 .workload-banner.is-limit {
-  background: rgba(194, 85, 74, .9);
+  border-color: rgba(255, 111, 134, 0.24);
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd5de;
 }
 
 .tabs {
   display: flex;
   gap: 4px;
-  padding: 4px;
-  background: #f1f1ec;
-  border-radius: 10px;
+  padding: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   margin-bottom: 16px;
   width: fit-content;
 }
 .tab {
-  background: transparent;
-  border: 0;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-text-muted);
-  border-radius: 8px;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: background .15s, color .15s;
+  padding: 10px 16px;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
 }
-.tab:hover { color: var(--c-text); }
-.tab--active {
-  background: #fff;
+.tab:hover {
   color: var(--c-text);
-  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
+.tab--active {
+  background: var(--grad-accent);
+  color: #143634;
+  box-shadow: 0 12px 24px rgba(46, 159, 152, 0.14);
 }
 .tab__count {
-  background: rgba(15,58,51,.1);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--c-text-muted);
   padding: 2px 7px;
   border-radius: 999px;
@@ -685,41 +748,68 @@ onMounted(async () => {
   font-weight: 700;
 }
 .tab--active .tab__count {
-  background: rgba(15,58,51,.14);
-  color: #0f3a33;
+  background: rgba(4, 21, 32, 0.12);
+  color: #143634;
 }
 
 .filter-row {
-  display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
 }
 .filter-group {
-  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .filter-label {
-  font-size: 13px; font-weight: 600; color: var(--c-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-muted);
 }
 
 .tag--type {
-  background: #e8f4f3; color: #1a5a52; font-size: 11px;
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  font-size: 11px;
+  border-color: rgba(99, 208, 197, 0.2);
 }
 
 .auto-closed-badge {
   display: inline-block;
-  font-size: 10px; font-weight: 700;
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  background: #e3f2fd; color: #1565c0;
-  padding: 2px 6px; border-radius: 4px;
+  background: rgba(99, 208, 197, 0.16);
+  color: #effffd;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 208, 197, 0.2);
   margin-left: 6px;
 }
 
-.mine-cell { width: 18px; padding-left: 14px !important; }
+.tag[style*='background:#fde7e4'][style*='color:#c2554a'] {
+  background: rgba(255, 111, 134, 0.14) !important;
+  color: #ffd4dc !important;
+  border-color: rgba(255, 111, 134, 0.22) !important;
+}
+
+.mine-cell {
+  width: 18px;
+  padding-left: 14px !important;
+}
+
 .row--mine > td:first-child {
-  box-shadow: inset 3px 0 0 rgba(15, 58, 51, .25);
+  box-shadow: inset 3px 0 0 rgba(31, 163, 154, 0.32);
 }
 .row--active > td:first-child {
-  box-shadow: inset 3px 0 0 #0f3a33;
+  box-shadow: inset 3px 0 0 rgba(99, 208, 197, 0.55);
 }
-.row--active { background: rgba(15, 58, 51, .03); }
+.row--active {
+  background: rgba(99, 208, 197, 0.06);
+}
 
 .assignee-cell {
   display: inline-flex;
@@ -728,37 +818,50 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
-.history-result { min-width: 160px; }
-
-.toast {
-  position: fixed;
-  top: 20px; right: 20px;
-  z-index: 1000;
-  padding: 14px 20px;
-  border-radius: 8px;
-  font-size: 14px; font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0,0,0,.15);
-}
-.toast--success { background: #0f3a33; color: #fff; }
-.toast--error { background: #c2554a; color: #fff; }
-.toast-enter-active, .toast-leave-active {
-  transition: all .3s ease;
-}
-.toast-enter-from, .toast-leave-to {
-  opacity: 0; transform: translateX(30px);
+.history-result {
+  min-width: 160px;
 }
 
 .modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.5);
-  display: flex; align-items: center; justify-content: center;
   z-index: 100;
 }
 .modal {
-  background: #fff;
-  border-radius: 12px;
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  display: block;
+  width: min(100%, 480px);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--grad-panel);
+  border-radius: 24px;
+  border: 1px solid var(--c-border-strong);
   padding: 24px 28px;
-  width: 100%; max-width: 480px;
-  box-shadow: 0 20px 50px rgba(0,0,0,.2);
+  max-width: 480px;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-glow);
+}
+
+@media (max-width: 960px) {
+  .tabs {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .task-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 720px) {
+  .filter-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .assignee-cell {
+    align-items: flex-start;
+  }
 }
 </style>

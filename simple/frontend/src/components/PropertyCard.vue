@@ -37,14 +37,62 @@ function formatMoney (v) { return fmtMoney(v, '0') }
 </script>
 
 <style scoped>
-.card--link { text-decoration: none; color: inherit; transition: transform .15s, box-shadow .15s; }
-.card--link:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
-.card__thumb {
-  position: relative; aspect-ratio: 16/10;
-  background: linear-gradient(135deg, #0e3a38, #1fa39a);
-  border-radius: var(--r-sm); overflow: hidden;
-  display: grid; place-items: center; color: rgba(255,255,255,.8);
+.card--link {
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
-.card__thumb img { width: 100%; height: 100%; object-fit: cover; }
-.card__tag { position: absolute; top: 10px; left: 10px; }
+
+.card--link:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-glow-strong);
+}
+
+.card__thumb {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.88);
+  border-radius: 20px;
+  border: 1px solid rgba(120, 216, 206, 0.16);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(46, 159, 152, 0.14)),
+    radial-gradient(circle at top right, rgba(120, 216, 206, 0.18), transparent 42%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.card__thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 38%, rgba(34, 72, 69, 0.24));
+  pointer-events: none;
+}
+
+.card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.45s ease;
+}
+
+.card--link:hover .card__thumb img {
+  transform: scale(1.04);
+}
+
+.card__thumb-fallback {
+  position: relative;
+  z-index: 1;
+}
+
+.card__tag {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
 </style>

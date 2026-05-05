@@ -24,26 +24,19 @@ def _next_deal_number() -> str:
 
 def _resolve_property_for_request(request_obj: models.Request) -> Optional[models.Property]:
     """Определяет объект сделки по заявке."""
-    if request_obj.property_id:
-        return request_obj.property
-
     confirmed = (
         request_obj.matches
-        .filter(is_rejected=False, is_offered=True)
+        .filter(is_confirmed=True, is_rejected=False)
         .select_related('property')
-        .order_by('-created_at')
+        .order_by('-confirmed_at', '-created_at')
         .first()
     )
     if confirmed:
         return confirmed.property
 
-    any_match = (
-        request_obj.matches
-        .select_related('property')
-        .order_by('-created_at')
-        .first()
-    )
-    return any_match.property if any_match else None
+    if request_obj.property_id:
+        return request_obj.property
+    return None
 
 
 def _resolve_agent(request_obj: models.Request, fallback_user) -> Optional[models.User]:

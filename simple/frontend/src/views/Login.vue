@@ -57,7 +57,33 @@ async function submit() {
 </script>
 
 <style scoped>
-.auth { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-.auth__card { width: min(420px, 100%); }
-.auth__title { font-size: 32px; margin: 16px 0 8px; }
+.auth {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px 18px;
+}
+
+.auth::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(120, 216, 206, 0.22), transparent 26%),
+    radial-gradient(circle at 82% 12%, rgba(226, 248, 245, 0.14), transparent 22%);
+  pointer-events: none;
+}
+
+.auth__card {
+  position: relative;
+  width: min(420px, 100%);
+}
+
+.auth__title {
+  margin: 18px 0 8px;
+  font-size: clamp(30px, 5vw, 38px);
+  line-height: 1.05;
+  color: var(--c-text);
+}
 </style>

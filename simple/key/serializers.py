@@ -440,13 +440,22 @@ class RequestPropertyMatchSerializer(serializers.ModelSerializer):
                                             read_only=True)
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
+    confirmed_by_username = serializers.CharField(
+        source='confirmed_by.username', read_only=True,
+    )
+    state = serializers.CharField(source='state_code', read_only=True)
 
     class Meta:
         model = models.RequestPropertyMatch
         fields = ['id', 'request', 'property', 'property_title',
                   'property_price', 'agent', 'agent_username',
-                  'agent_note', 'is_offered', 'is_rejected', 'created_at']
-        read_only_fields = ['created_at', 'agent']
+                  'agent_note',
+                  'is_offered', 'is_rejected', 'is_confirmed',
+                  'confirmed_at', 'confirmed_by', 'confirmed_by_username',
+                  'state', 'created_at']
+        read_only_fields = ['created_at', 'agent', 'confirmed_at',
+                            'confirmed_by', 'confirmed_by_username',
+                            'state']
 
 
 class RequestSerializer(serializers.ModelSerializer):
@@ -465,6 +474,8 @@ class RequestSerializer(serializers.ModelSerializer):
     )
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
+    client_email = serializers.CharField(source='client.email', read_only=True)
+    client_phone = serializers.CharField(source='client.phone', read_only=True)
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
     property_title = serializers.CharField(source='property.title',
@@ -479,7 +490,7 @@ class RequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Request
         fields = [
-            'id', 'client', 'client_username',
+            'id', 'client', 'client_username', 'client_email', 'client_phone',
             'agent', 'agent_username',
             'property', 'property_title',
             'operation_type', 'operation_type_name',
@@ -493,7 +504,20 @@ class RequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at', 'closed_at']
 
     def get_can_close(self, obj) -> bool:
-        return bool(obj.status and obj.status.code not in {'closed', 'cancelled'})
+        return bool(obj.status_id and not obj.is_terminal)
+
+
+class RequestCloseSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(choices=[
+        'completed', 'cancelled', 'rejected', 'lost',
+    ])
+
+    def validate_outcome(self, value):
+        if not models.RequestStatus.objects.filter(code=value).exists():
+            raise serializers.ValidationError(
+                'Справочник статусов заявки не содержит выбранный исход.',
+            )
+        return value
 
 
 class DealSerializer(serializers.ModelSerializer):

@@ -34,14 +34,16 @@ const label = computed(() => (
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
+  padding: 4px 11px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .02em;
-  line-height: 1;
+  line-height: 1.2;
   white-space: nowrap;
-  border: 1px solid transparent;
+  border: 1px solid rgba(120, 216, 206, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .mine__dot {
@@ -53,19 +55,21 @@ const label = computed(() => (
 }
 
 .mine--assigned {
-  background: rgba(15, 58, 51, .08);
-  color: #0f3a33;
-  border-color: rgba(15, 58, 51, .18);
+  background: rgba(120, 216, 206, 0.12);
+  color: #efffff;
+  border-color: rgba(120, 216, 206, 0.22);
 }
 
 .mine--active {
-  background: #0f3a33;
-  color: #fff;
-  border-color: #0f3a33;
+  background: linear-gradient(135deg, rgba(46, 159, 152, 0.22), rgba(120, 216, 206, 0.18));
+  color: #eafff7;
+  border-color: rgba(120, 216, 206, 0.26);
+  box-shadow: 0 0 18px rgba(120, 216, 206, 0.14);
 }
+
 .mine--active .mine__dot {
-  background: #7be0a6;
-  box-shadow: 0 0 0 3px rgba(123, 224, 166, .25);
+  background: var(--c-accent-2);
+  box-shadow: 0 0 0 3px rgba(120, 216, 206, 0.16);
   animation: mine-pulse 1.6s ease-in-out infinite;
 }
 

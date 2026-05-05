@@ -113,15 +113,24 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { pauseTask, completeTask } from '../api/tasks'
 import { formatDateShort as formatDate } from '@/utils/formatters'
+import { useFloatingFooterOffset } from '@/composables/useFloatingFooterOffset'
+import { useVisibilityRefresh } from '@/composables/useVisibilityRefresh'
 
 const auth = useAuthStore()
 const wl = useWorkloadStore()
 const busy = ref(false)
+const { floatStyle } = useFloatingFooterOffset({ baseGap: 20 })
+
+useVisibilityRefresh({
+  enabled: () => auth.isStaff,
+  interval: 30_000,
+  onRefresh: () => wl.refresh(),
+})
 
 const STORAGE_KEY = 'ctw.mode'
 const mode = ref(loadMode())
@@ -211,80 +220,10 @@ async function complete () {
   try { await completeTask(id) }
   finally { busy.value = false }
 }
-
-let pollTimer = null
-function startPolling () {
-  stopPolling()
-  pollTimer = window.setInterval(() => {
-    if (!document.hidden && auth.isStaff) wl.refresh()
-  }, 30_000)
-}
-function stopPolling () {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-}
-function onVisibility () {
-  if (!document.hidden && auth.isStaff) wl.refresh()
-}
-
-const footerOverlap = ref(0)
-const BASE_GAP = 20
-let io = null
-let ro = null
-let footerEl = null
-
-function measureFooter () {
-  if (!footerEl) { footerOverlap.value = 0; return }
-  const rect = footerEl.getBoundingClientRect()
-  const viewport = window.innerHeight || document.documentElement.clientHeight
-  const overlap = Math.max(0, viewport - rect.top)
-  footerOverlap.value = Math.min(overlap, rect.height)
-}
-function attachFooterObservers () {
-  footerEl = document.querySelector('.footer, .app-footer, footer')
-  if (!footerEl) return
-  measureFooter()
-  if ('IntersectionObserver' in window) {
-    io = new IntersectionObserver(() => measureFooter(), {
-      threshold: [0, 0.01, 0.1, 0.25, 0.5, 0.75, 1],
-    })
-    io.observe(footerEl)
-  }
-  if ('ResizeObserver' in window) {
-    ro = new ResizeObserver(() => measureFooter())
-    ro.observe(footerEl)
-  }
-  window.addEventListener('scroll', measureFooter, { passive: true })
-  window.addEventListener('resize', measureFooter)
-}
-function detachFooterObservers () {
-  if (io) { io.disconnect(); io = null }
-  if (ro) { ro.disconnect(); ro = null }
-  window.removeEventListener('scroll', measureFooter)
-  window.removeEventListener('resize', measureFooter)
-  footerEl = null
-}
-
-const floatStyle = computed(() => ({
-  bottom: `${BASE_GAP + footerOverlap.value}px`,
-}))
-
 watch(() => auth.isAuthenticated, (v) => {
   if (v && auth.isStaff) wl.refresh()
   else wl.reset()
-})
-
-onMounted(() => {
-  if (auth.isStaff) wl.refresh()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
-  requestAnimationFrame(attachFooterObservers)
-})
-
-onBeforeUnmount(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
-  detachFooterObservers()
-})
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -296,50 +235,85 @@ onBeforeUnmount(() => {
 }
 
 .ctw-fab {
-  width: 48px; height: 48px; border-radius: 50%;
-  border: none; cursor: pointer;
-  background: #0f3a33; color: #fff;
-  box-shadow: 0 10px 24px rgba(16, 24, 23, .25),
-              0 2px 6px rgba(16, 24, 23, .12);
-  display: inline-flex; align-items: center; justify-content: center;
-  transition: transform .15s ease, background .15s ease;
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+  color: #fff;
+  background: var(--grad-accent);
+  box-shadow: 0 12px 28px rgba(46, 159, 152, 0.18);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease;
 }
-.ctw-fab:hover { background: #134a41; transform: translateY(-1px); }
+
+.ctw-fab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(46, 159, 152, 0.2);
+  filter: saturate(1.08);
+}
+
 .ctw-fab.is-overloaded,
-.ctw-fab.is-overdue { background: #c34a3d; }
+.ctw-fab.is-overdue {
+  background: linear-gradient(135deg, var(--c-danger), var(--c-danger-2));
+  color: #fff;
+}
+
 .ctw-fab__icon { display: inline-flex; }
+
 .ctw-fab__badge {
   position: absolute;
-  top: 4px; right: 4px;
-  min-width: 14px; height: 14px; padding: 0 4px;
+  top: 4px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
-  background: #ff7a6b; color: #fff;
-  font-size: 10px; font-weight: 700; line-height: 14px;
+  background: rgba(36, 74, 71, 0.94);
+  color: var(--c-accent-2);
+  border: 1px solid rgba(120, 216, 206, 0.18);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
   text-align: center;
-  box-shadow: 0 0 0 2px #0f3a33;
+  box-shadow: 0 0 0 2px rgba(120, 216, 206, 0.12);
 }
+
 .ctw-fab.is-overloaded .ctw-fab__badge,
-.ctw-fab.is-overdue   .ctw-fab__badge { box-shadow: 0 0 0 2px #c34a3d; }
+.ctw-fab.is-overdue .ctw-fab__badge {
+  box-shadow: 0 0 0 2px rgba(255, 111, 134, 0.22);
+}
 
 .ctw {
   width: min(360px, calc(100vw - 32px));
-  background: #ffffff;
-  color: #1e2a28;
-  border-radius: 14px;
-  border: 1px solid #e3e9e7;
-  box-shadow: 0 14px 32px rgba(16, 24, 23, .18),
-              0 2px 6px rgba(16, 24, 23, .06);
+  color: var(--c-text);
+  border-radius: 24px;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, #124346 0%, #073434 100%);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-glow);
   overflow: hidden;
-  font-size: 13px;
-  transition: bottom .18s ease;
+  font-size: 14px;
+  transition: bottom 0.18s ease, box-shadow 0.3s ease;
 }
-.ctw.is-overloaded { border-color: #e7b7b1; }
+
+.ctw.is-overloaded {
+  border-color: rgba(255, 111, 134, 0.28);
+  box-shadow: 0 0 0 1px rgba(255, 111, 134, 0.24),
+    0 20px 48px rgba(20, 48, 46, 0.18);
+}
 
 .ctw__head {
-  display: flex; align-items: stretch;
-  background: #0f3a33;
-  color: #fff;
+  display: flex;
+  align-items: stretch;
+  color: var(--c-text);
+  background: linear-gradient(135deg, rgba(15, 67, 70, 0.98), rgba(9, 53, 52, 0.92));
+  border-bottom: 1px solid rgba(120, 216, 206, 0.14);
 }
+
 .ctw__head-main {
   flex: 1 1 auto;
   display: grid;
@@ -349,108 +323,238 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   background: transparent;
   color: inherit;
-  border: none; cursor: pointer; text-align: left;
+  border: none;
+  cursor: pointer;
+  text-align: left;
   font: inherit;
 }
-.ctw__head-main:hover { background: rgba(255,255,255,.06); }
+
+.ctw__head-main:hover {
+  background: rgba(120, 216, 206, 0.08);
+}
 
 .ctw__close {
   flex: 0 0 auto;
   width: 34px;
   border: none;
   background: transparent;
-  color: rgba(255,255,255,.75);
-  font-size: 20px; line-height: 1; cursor: pointer;
+  color: var(--c-text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.3s ease, background 0.3s ease;
 }
-.ctw__close:hover { color: #fff; background: rgba(255,255,255,.1); }
+
+.ctw__close:hover {
+  color: var(--c-accent-2);
+  background: rgba(120, 216, 206, 0.12);
+}
 
 .ctw__dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: #8aa5a0; flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--c-text-muted);
 }
-.ctw__dot.is-active  { background: #3ddbc7; box-shadow: 0 0 0 3px rgba(61,219,199,.25); }
-.ctw__dot.is-overdue { background: #ff7a6b; box-shadow: 0 0 0 3px rgba(255,122,107,.22); }
-.ctw__dot.is-idle    { background: #8aa5a0; }
+
+.ctw__dot.is-active {
+  background: var(--c-accent-2);
+  box-shadow: 0 0 0 3px rgba(120, 216, 206, 0.16);
+}
+
+.ctw__dot.is-overdue {
+  background: var(--c-danger);
+  box-shadow: 0 0 0 3px rgba(255, 111, 134, 0.16);
+}
+
+.ctw__dot.is-idle {
+  background: var(--c-text-muted);
+}
 
 .ctw__label {
-  display: flex; flex-direction: column; gap: 1px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
 }
-.ctw__label b { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+
+.ctw__label b {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
 .ctw__subtle {
-  font-size: 13px; font-weight: 500;
-  color: rgba(255,255,255,.85);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--c-ink-soft);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.ctw__counters { display: inline-flex; gap: 4px; }
+.ctw__counters {
+  display: inline-flex;
+  gap: 4px;
+}
+
 .ctw__pill {
-  font-size: 11px; font-weight: 700;
-  padding: 3px 8px; border-radius: 999px;
-  background: rgba(255,255,255,.15); color: #fff;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: rgba(7, 52, 52, 0.88);
+  color: var(--c-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
 }
-.ctw.is-overloaded .ctw__pill { background: #ff7a6b; color: #fff; }
 
-.ctw__chevron { font-size: 10px; opacity: .75; }
+.ctw.is-overloaded .ctw__pill {
+  border-color: rgba(255, 111, 134, 0.2);
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd8df;
+}
+
+.ctw__chevron {
+  font-size: 10px;
+  opacity: 0.75;
+}
 
 .ctw__body {
   padding: 12px 14px 14px;
-  display: flex; flex-direction: column; gap: 10px;
-  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: transparent;
 }
 
-.ctw__tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.ctw__tag {
-  font-size: 11px; font-weight: 600;
-  padding: 3px 9px; border-radius: 999px;
-  background: #eef4f2; color: #234240;
+.ctw__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
-.ctw__tag--accent  { background: #0f3a33; color: #fff; }
-.ctw__tag--danger  { background: #fdece9; color: #9a3b32; }
-.ctw__tag--muted   { background: #e6e9e8; color: #546664; }
+
+.ctw__tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 52, 52, 0.88);
+  color: var(--c-ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.ctw__tag--accent {
+  border-color: rgba(120, 216, 206, 0.2);
+  background: rgba(120, 216, 206, 0.12);
+  color: #efffff;
+}
+
+.ctw__tag--danger {
+  border-color: rgba(255, 111, 134, 0.26);
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
+}
+
+.ctw__tag--muted {
+  color: var(--c-text-muted);
+}
 
 .ctw__meta {
   margin: 0;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 10px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.35;
 }
-.ctw__meta dt { color: #6a7a77; font-weight: 500; }
-.ctw__meta dd { margin: 0; font-weight: 600; color: #1e2a28; }
 
-.ctw__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ctw__meta dt {
+  color: var(--c-text-muted);
+  font-weight: 500;
+}
+
+.ctw__meta dd {
+  margin: 0;
+  font-weight: 700;
+  color: var(--c-text);
+}
+
+.ctw__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .ctw__btn {
   flex: 0 0 auto;
-  display: inline-flex; align-items: center; justify-content: center;
-  font: inherit; font-size: 12px; font-weight: 600;
-  padding: 7px 12px; border-radius: 8px; cursor: pointer;
-  border: 1px solid #dce3e1;
-  background: #ffffff; color: #1e2a28;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(135deg, rgba(27, 77, 62, 0.98), rgba(46, 139, 87, 0.82));
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: normal;
+  text-align: center;
   text-decoration: none;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
-.ctw__btn:hover:not(:disabled) { background: #f3f6f5; }
-.ctw__btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.ctw__btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--c-border-strong);
+  box-shadow: 0 10px 20px rgba(9, 30, 29, 0.16);
+}
+
+.ctw__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .ctw__btn--primary {
-  background: #0f3a33; border-color: #0f3a33; color: #fff;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: linear-gradient(135deg, rgba(57, 128, 122, 0.9), rgba(39, 98, 93, 0.88));
 }
-.ctw__btn--primary:hover:not(:disabled) { background: #134a41; }
-.ctw__btn--accent  {
-  background: #1fa39a; border-color: #1fa39a; color: #fff;
+
+.ctw__btn--accent {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--grad-accent);
 }
-.ctw__btn--accent:hover:not(:disabled) { background: #188a82; }
 
 .ctw__empty {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; flex-wrap: wrap;
-  color: #6a7a77;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--c-ink-soft);
 }
 
 .ctw__warn {
-  background: #fdece9; color: #9a3b32;
-  padding: 6px 10px; border-radius: 8px;
-  font-size: 12px; font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 111, 134, 0.22);
+  background: rgba(255, 111, 134, 0.12);
+  color: #ffd6de;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 @media (max-width: 520px) {

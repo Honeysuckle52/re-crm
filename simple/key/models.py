@@ -431,6 +431,12 @@ class PropertyDocument(models.Model):
 
 class Request(models.Model):
     """Заявка клиента на подбор или конкретный объект."""
+    ACTIVE_STATUS_CODES = ('open', 'processing')
+    TERMINAL_STATUS_CODES = (
+        'completed', 'cancelled', 'rejected', 'lost', 'closed',
+    )
+    SUCCESS_STATUS_CODES = ('completed',)
+
     client = models.ForeignKey(User, on_delete=models.PROTECT,
                                related_name='client_requests',
                                limit_choices_to={'user_type': 'client'})
@@ -472,6 +478,14 @@ class Request(models.Model):
     def __str__(self):
         return f'Заявка №{self.pk} от {self.client.username}'
 
+    @_property
+    def status_code(self) -> str | None:
+        return self.status.code if self.status_id else None
+
+    @_property
+    def is_terminal(self) -> bool:
+        return self.status_code in self.TERMINAL_STATUS_CODES
+
 
 class RequestPropertyMatch(models.Model):
     """Вариант объекта по заявке клиента."""
@@ -487,6 +501,15 @@ class RequestPropertyMatch(models.Model):
                                      help_text='Предложено клиенту')
     is_rejected = models.BooleanField(default=False,
                                       help_text='Клиент отказался')
+    is_confirmed = models.BooleanField(default=False,
+                                       help_text='Клиент подтвердил вариант')
+    confirmed_at = models.DateTimeField(blank=True, null=True)
+    confirmed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        blank=True, null=True,
+        related_name='confirmed_request_matches',
+        limit_choices_to={'user_type': 'employee'},
+    )
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -501,6 +524,16 @@ class RequestPropertyMatch(models.Model):
 
     def __str__(self):
         return f'Заявка №{self.request_id} ↔ объект №{self.property_id}'
+
+    @_property
+    def state_code(self) -> str:
+        if self.is_confirmed:
+            return 'confirmed'
+        if self.is_rejected:
+            return 'rejected'
+        if self.is_offered:
+            return 'offered'
+        return 'draft'
 
 
 class Deal(models.Model):

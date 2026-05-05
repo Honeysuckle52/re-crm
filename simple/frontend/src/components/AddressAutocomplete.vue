@@ -87,18 +87,50 @@ function handleBlur() {
 
 <style scoped>
 .autocomplete {
-  position: absolute; top: 100%; left: 0; right: 0;
-  background: var(--c-paper); border-radius: var(--r-sm);
-  box-shadow: var(--shadow-2); margin-top: 4px; z-index: 20;
-  max-height: 320px; overflow: auto;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, #124346 0%, #073434 100%);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-glow);
 }
+
 .autocomplete__item {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; text-align: left;
-  padding: 10px 14px; border-bottom: 1px solid rgba(0,0,0,.05);
-  font-size: 14px; color: var(--c-ink);
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 14px;
+  color: var(--c-text);
+  border-bottom: 1px solid rgba(120, 216, 206, 0.12);
+  transition: background 0.3s ease, color 0.3s ease;
 }
-.autocomplete__item:hover { background: var(--c-paper-2); }
-.autocomplete__value { flex: 1; }
-.autocomplete__hint { font-size: 12px; color: var(--c-ink-soft); }
+
+.autocomplete__item:last-child {
+  border-bottom: 0;
+}
+
+.autocomplete__item:hover {
+  background: linear-gradient(135deg, rgba(27, 77, 62, 0.98), rgba(46, 139, 87, 0.82));
+  color: #efffff;
+}
+
+.autocomplete__value {
+  flex: 1;
+}
+
+.autocomplete__hint {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
 </style>

@@ -27,6 +27,31 @@
       </div>
     </div>
 
+    <div class="kpi-strip">
+      <article class="kpi-card">
+        <span class="kpi-card__label">Статус</span>
+        <strong class="kpi-card__value">{{ property.status_name || '—' }}</strong>
+        <span class="kpi-card__meta">{{ property.operation_type_name || 'Тип операции не указан' }}</span>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-card__label">Стоимость</span>
+        <strong class="kpi-card__value">{{ priceLabel }}</strong>
+        <span class="kpi-card__meta">
+          {{ property.area_total ? property.area_total + ' м² общая площадь' : 'Площадь не указана' }}
+        </span>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-card__label">Фотографии</span>
+        <strong class="kpi-card__value">{{ photosCount }}</strong>
+        <span class="kpi-card__meta">Видимых: {{ visiblePhotosCount }}</span>
+      </article>
+      <article class="kpi-card kpi-card--accent">
+        <span class="kpi-card__label">История</span>
+        <strong class="kpi-card__value">{{ historyCount }}</strong>
+        <span class="kpi-card__meta">Характеристик: {{ featuresCount }}</span>
+      </article>
+    </div>
+
     <div v-if="showRequestForm" class="modal" role="dialog"
          @click.self="showRequestForm = false">
       <form class="panel panel--light stack modal__card"
@@ -57,8 +82,11 @@
     </div>
 
     <div class="panel panel--light">
-      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
-        <h2 class="h3">Фотографии</h2>
+      <div class="surface-head property-surface-head">
+        <div>
+          <div class="surface-head__meta">Медиа</div>
+          <h2 class="h3">Фотографии</h2>
+        </div>
         <label v-if="auth.isStaff" class="btn btn--sm">
           Загрузить фото
           <input type="file" accept="image/*" multiple @change="uploadPhotos" hidden />
@@ -96,6 +124,10 @@
 
     <div class="grid grid--2">
       <div class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">Карточка объекта</div>
+          <div class="surface-head__caption">{{ property.status_name }}</div>
+        </div>
         <h2 class="h3">Параметры</h2>
         <div class="stack" style="margin-top: 12px">
           <InfoRow label="Стоимость"        :value="formatMoney(property.price) + ' ₽'" />
@@ -111,6 +143,10 @@
       </div>
 
       <div class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">Описание и теги</div>
+          <div class="surface-head__caption">Характеристик: {{ featuresCount }}</div>
+        </div>
         <h2 class="h3">Описание</h2>
         <p style="white-space: pre-wrap">{{ property.description || 'Описание не заполнено.' }}</p>
         <h2 class="h3" style="margin-top: 16px">Характеристики</h2>
@@ -125,10 +161,14 @@
     </div>
 
     <div v-if="auth.isStaff" class="panel panel--light">
+      <div class="surface-head property-surface-head">
+        <div class="surface-head__meta">Управление</div>
+        <div class="surface-head__caption">{{ property.status_name }}</div>
+      </div>
       <div class="row row--between">
         <h2 class="h3">Смена статуса объекта</h2>
       </div>
-      <div class="row" style="gap: 10px; flex-wrap: wrap; margin-top: 12px">
+      <div class="row property-status-actions" style="gap: 10px; flex-wrap: wrap; margin-top: 12px">
         <button v-for="s in statuses" :key="s.id"
                 class="btn btn--sm"
                 :class="{ 'btn--primary': s.id === property.status }"
@@ -139,32 +179,40 @@
     </div>
 
     <div class="panel panel--light" v-if="history.length">
+      <div class="surface-head property-surface-head">
+        <div class="surface-head__meta">Журнал изменений</div>
+        <div class="surface-head__caption">{{ historyCount }} записей</div>
+      </div>
       <h2 class="h3">История изменений статуса</h2>
-      <table class="table">
-        <thead><tr><th>Дата</th><th>Статус</th><th>Сотрудник</th></tr></thead>
-        <tbody>
-          <tr v-for="h in history" :key="h.id">
-            <td>{{ new Date(h.changed_at).toLocaleString('ru-RU') }}</td>
-            <td>{{ h.status_name }}</td>
-            <td>{{ h.changed_by_username }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-wrap property-history-table">
+        <table class="table">
+          <thead><tr><th>Дата</th><th>Статус</th><th>Сотрудник</th></tr></thead>
+          <tbody>
+            <tr v-for="h in history" :key="h.id">
+              <td>{{ new Date(h.changed_at).toLocaleString('ru-RU') }}</td>
+              <td>{{ h.status_name }}</td>
+              <td>{{ h.changed_by_username }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
   <div v-else class="empty">Загрузка объекта…</div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
+const toasts = useToastsStore()
 const property = ref(null)
 const statuses = ref([])
 const history = ref([])
@@ -172,6 +220,16 @@ const history = ref([])
 const showRequestForm = ref(false)
 const requestError = ref('')
 const requestForm = reactive({ description: '' })
+
+const photosCount = computed(() => property.value?.photos?.length || 0)
+const visiblePhotosCount = computed(() => (
+  property.value?.photos?.filter((photo) => !photo.is_hidden).length || 0
+))
+const featuresCount = computed(() => property.value?.feature_values?.length || 0)
+const historyCount = computed(() => history.value.length)
+const priceLabel = computed(() => (
+  property.value?.price ? `${formatMoney(property.value.price)} ₽` : '—'
+))
 
 async function submitRequest () {
   requestError.value = ''
@@ -203,34 +261,59 @@ async function load() {
 }
 
 async function changeStatus(id) {
-  await api.post(`/properties/${route.params.id}/change_status/`,
-                 { status_id: id })
-  await load()
+  try {
+    await api.post(`/properties/${route.params.id}/change_status/`,
+                   { status_id: id })
+    await load()
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось изменить статус объекта'))
+  }
 }
 
 async function uploadPhotos(e) {
   const files = Array.from(e.target.files || [])
   if (!files.length) return
-  for (const file of files) {
-    const fd = new FormData()
-    fd.append('image', file)
-    await api.post(`/properties/${route.params.id}/upload_photo/`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+  let uploaded = false
+  try {
+    for (const file of files) {
+      const fd = new FormData()
+      fd.append('image', file)
+      await api.post(`/properties/${route.params.id}/upload_photo/`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      uploaded = true
+    }
+    await load()
+  } catch (err) {
+    if (uploaded) await load()
+    toasts.error(extractError(
+      err,
+      uploaded
+        ? 'Часть фотографий загружена, но операция завершилась с ошибкой'
+        : 'Не удалось загрузить фотографии',
+    ))
+  } finally {
+    e.target.value = ''
   }
-  e.target.value = ''
-  await load()
 }
 
 async function removePhoto(photo) {
   if (!confirm('Удалить фотографию?')) return
-  await api.delete(`/property-photos/${photo.id}/`)
-  await load()
+  try {
+    await api.delete(`/property-photos/${photo.id}/`)
+    await load()
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось удалить фотографию'))
+  }
 }
 
 async function setCover (photo) {
-  await api.post(`/property-photos/${photo.id}/set_cover/`)
-  await load()
+  try {
+    await api.post(`/property-photos/${photo.id}/set_cover/`)
+    await load()
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось установить обложку'))
+  }
 }
 
 async function toggleHidden (photo) {
@@ -238,14 +321,18 @@ async function toggleHidden (photo) {
     await api.post(`/property-photos/${photo.id}/toggle_hidden/`)
     await load()
   } catch (err) {
-    alert(err.response?.data?.detail || 'Не удалось изменить видимость.')
+    toasts.error(extractError(err, 'Не удалось изменить видимость'))
   }
 }
 
 async function remove() {
   if (!confirm('Удалить объект?')) return
-  await api.delete(`/properties/${route.params.id}/`)
-  router.push('/properties')
+  try {
+    await api.delete(`/properties/${route.params.id}/`)
+    router.push('/properties')
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось удалить объект'))
+  }
 }
 
 function formatMoney (v) { return fmtMoney(v, '0') }
@@ -257,50 +344,142 @@ onMounted(load)
 .gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px; margin-top: 12px;
+  gap: 14px;
+  margin-top: 14px;
 }
+
 .gallery__item {
-  position: relative; aspect-ratio: 4/3; overflow: hidden;
-  border-radius: var(--r-sm); background: #f1f5f4;
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease, background 0.3s ease;
 }
-.gallery__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.gallery__item.is-hidden img { filter: grayscale(.85) opacity(.5); }
-.gallery__item.is-cover { outline: 3px solid var(--c-accent, #1fa39a); outline-offset: -3px; }
+
+.gallery__item:hover {
+  transform: translateY(-5px);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-glow);
+  border-color: var(--c-border-strong);
+}
+
+.gallery__item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery__item.is-hidden img {
+  filter: grayscale(0.85) opacity(0.42);
+}
+
+.gallery__item.is-cover {
+  box-shadow: 0 0 0 2px rgba(99, 208, 197, 0.28), var(--shadow-glow);
+}
 
 .gallery__badges {
-  position: absolute; top: 6px; left: 6px;
-  display: flex; gap: 4px; flex-wrap: wrap;
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
+
 .gallery__badge {
-  font-size: 11px; font-weight: 600;
-  padding: 2px 8px; border-radius: 999px;
-  color: #fff; background: rgba(0,0,0,.55);
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 19, 29, 0.64);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
-.gallery__badge.is-cover { background: var(--c-accent, #1fa39a); }
-.gallery__badge.is-hidden { background: #7a6f68; }
+
+.gallery__badge.is-cover {
+  border-color: rgba(99, 208, 197, 0.24);
+  background: rgba(99, 208, 197, 0.18);
+  color: #f0fffc;
+}
+
+.gallery__badge.is-hidden {
+  border-color: rgba(255, 111, 134, 0.18);
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd7df;
+}
 
 .gallery__toolbar {
-  position: absolute; top: 6px; right: 6px;
-  display: flex; gap: 4px;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
 }
+
 .gallery__btn {
-  width: 26px; height: 26px; border-radius: 50%;
-  border: none; background: rgba(0,0,0,.55); color: #fff;
-  cursor: pointer; font-size: 14px; line-height: 1;
-  display: grid; place-items: center;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 19, 29, 0.64);
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
 }
-.gallery__btn:hover:not(:disabled) { background: rgba(0,0,0,.78); }
-.gallery__btn:disabled { opacity: .35; cursor: not-allowed; }
-.gallery__btn--danger:hover:not(:disabled) { background: #9a3b32; }
+
+.gallery__btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  background: rgba(31, 163, 154, 0.24);
+  box-shadow: 0 0 18px rgba(31, 163, 154, 0.16);
+}
+
+.gallery__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.gallery__btn--danger:hover:not(:disabled) {
+  background: rgba(255, 111, 134, 0.24);
+  box-shadow: 0 0 18px rgba(255, 111, 134, 0.18);
+}
 
 .modal {
-  position: fixed; inset: 0; z-index: 80;
-  background: rgba(11, 37, 36, 0.55);
-  display: grid; place-items: center;
-  padding: 16px;
+  z-index: 80;
 }
+
 .modal__card {
-  width: 100%; max-width: 520px;
-  max-height: calc(100vh - 32px); overflow: auto;
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+
+.property-surface-head {
+  margin-bottom: 12px;
+}
+
+.property-status-actions {
+  margin-top: 14px !important;
+}
+
+.property-history-table .table {
+  min-width: 560px;
 }
 </style>

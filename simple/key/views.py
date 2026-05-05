@@ -1,5 +1,6 @@
 """API приложения ``key``."""
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from rest_framework import status, viewsets, filters
@@ -186,6 +187,35 @@ class UserViewSet(viewsets.ModelViewSet):
             return [IsAdminOrManager()]
         return super().get_permissions()
 
+    @staticmethod
+    def _profile_names_for(target):
+        profile = None
+        if hasattr(target, 'client_profile'):
+            profile = target.client_profile
+        elif hasattr(target, 'employee_profile'):
+            profile = target.employee_profile
+
+        username = (target.username or '').strip()[:50] or 'user'
+        if profile is None:
+            return {
+                'first_name': username,
+                'last_name': username,
+                'middle_name': '',
+            }
+
+        return {
+            'first_name': (profile.first_name or username)[:50],
+            'last_name': (profile.last_name or username)[:50],
+            'middle_name': (profile.middle_name or '')[:50],
+        }
+
+    def _ensure_profile_for_user_type(self, target, user_type):
+        names = self._profile_names_for(target)
+        if user_type == 'employee' and not hasattr(target, 'employee_profile'):
+            models.EmployeeProfile.objects.create(user=target, **names)
+        if user_type == 'client' and not hasattr(target, 'client_profile'):
+            models.ClientProfile.objects.create(user=target, **names)
+
     @action(detail=True, methods=['post'], url_path='assign_role')
     def assign_role(self, request, pk=None):
         """Назначить тип учётной записи и роль."""
@@ -194,13 +224,23 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if 'user_type' in data:
-            target.user_type = data['user_type']
-        if 'role' in data:
-            target.role = data['role']
-        if 'is_active' in data:
-            target.is_active = data['is_active']
-        target.save()
+        with transaction.atomic():
+            requested_user_type = data.get('user_type', target.user_type)
+            target.user_type = requested_user_type
+
+            if requested_user_type == 'client':
+                target.role = None
+            elif 'role' in data:
+                target.role = data['role']
+
+            if 'is_active' in data:
+                target.is_active = data['is_active']
+
+            target.is_staff = bool(
+                target.is_superuser or requested_user_type == 'employee'
+            )
+            target.save()
+            self._ensure_profile_for_user_type(target, requested_user_type)
         return Response(serializers.UserSerializer(target).data)
 
     @action(detail=False, methods=['get'], url_path='me/workload',
@@ -355,6 +395,33 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsEmployee]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    @staticmethod
+    def _normalize_cover(property_id, preferred_photo_id=None):
+        photos = models.PropertyPhoto.objects.filter(property_id=property_id)
+        if not photos.exists():
+            return
+
+        cover = None
+        if preferred_photo_id is not None:
+            cover = photos.filter(pk=preferred_photo_id).first()
+        if cover is None:
+            cover = photos.filter(is_cover=True).order_by(
+                'order', '-uploaded_at', 'pk',
+            ).first()
+        if cover is None:
+            cover = photos.order_by('order', '-uploaded_at', 'pk').first()
+
+        photos.exclude(pk=cover.pk).filter(is_cover=True).update(is_cover=False)
+        update_fields = []
+        if not cover.is_cover:
+            cover.is_cover = True
+            update_fields.append('is_cover')
+        if cover.is_hidden:
+            cover.is_hidden = False
+            update_fields.append('is_hidden')
+        if update_fields:
+            cover.save(update_fields=update_fields)
+
     def get_queryset(self):
         qs = super().get_queryset()
         prop = self.request.query_params.get('property')
@@ -363,6 +430,43 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
         if self.request.query_params.get('show_hidden') == '0':
             qs = qs.filter(is_hidden=False)
         return qs
+
+    def perform_create(self, serializer):
+        property_obj = serializer.validated_data['property']
+        has_existing = models.PropertyPhoto.objects.filter(
+            property=property_obj,
+        ).exists()
+        wants_cover = bool(serializer.validated_data.get('is_cover'))
+        should_prefer = wants_cover or not has_existing
+
+        save_kwargs = {}
+        if should_prefer:
+            save_kwargs['is_cover'] = True
+            save_kwargs['is_hidden'] = False
+        photo = serializer.save(**save_kwargs)
+        self._normalize_cover(
+            property_obj.pk,
+            preferred_photo_id=photo.pk if should_prefer else None,
+        )
+
+    def perform_update(self, serializer):
+        photo = self.get_object()
+        property_obj = serializer.validated_data.get('property', photo.property)
+        wants_cover = serializer.validated_data.get('is_cover', photo.is_cover)
+
+        save_kwargs = {}
+        if wants_cover:
+            save_kwargs['is_hidden'] = False
+        updated = serializer.save(**save_kwargs)
+        self._normalize_cover(
+            property_obj.pk,
+            preferred_photo_id=updated.pk if wants_cover else None,
+        )
+
+    def perform_destroy(self, instance):
+        property_id = instance.property_id
+        super().perform_destroy(instance)
+        self._normalize_cover(property_id)
 
     @action(detail=True, methods=['post'], url_path='set_cover')
     def set_cover(self, request, pk=None):
@@ -437,11 +541,22 @@ class RequestViewSet(viewsets.ModelViewSet):
     """Заявки клиентов."""
     queryset = models.Request.objects.select_related(
         'client', 'agent', 'operation_type', 'status', 'property',
-    ).prefetch_related('matches__property', 'matches__agent').all()
+    ).prefetch_related(
+        'matches__property', 'matches__agent', 'matches__confirmed_by',
+    ).all()
     serializer_class = serializers.RequestSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['created_at', 'updated_at']
+
+    def get_permissions(self):
+        if self.action in {
+            'update', 'partial_update', 'destroy',
+            'close', 'take', 'attach_property',
+            'detach_property', 'confirm_property', 'accept_match',
+        }:
+            return [IsEmployee()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -450,6 +565,18 @@ class RequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(client=user)
 
         params = self.request.query_params
+        if params.get('client'):
+            qs = qs.filter(client_id=params['client'])
+        if params.get('agent'):
+            value = params['agent']
+            if value == 'me' and user.is_employee:
+                qs = qs.filter(agent=user)
+            elif value != 'me':
+                qs = qs.filter(agent_id=value)
+        if params.get('property'):
+            qs = qs.filter(property_id=params['property'])
+        if params.get('operation_type'):
+            qs = qs.filter(operation_type_id=params['operation_type'])
         if params.get('status'):
             qs = qs.filter(status_id=params['status'])
         if params.get('status_code'):
@@ -552,11 +679,27 @@ class RequestViewSet(viewsets.ModelViewSet):
                       'agent_note': request.data.get('agent_note', '')},
         )
         if not created:
-            match.is_rejected = False
-            match.is_offered = True
+            was_rejected = match.is_rejected
+            was_confirmed = match.is_confirmed
+            update_fields = []
+            if match.is_rejected:
+                match.is_rejected = False
+                update_fields.append('is_rejected')
+            if not match.is_offered:
+                match.is_offered = True
+                update_fields.append('is_offered')
+            if was_rejected and was_confirmed:
+                match.is_confirmed = False
+                match.confirmed_at = None
+                match.confirmed_by = None
+                update_fields.extend(
+                    ['is_confirmed', 'confirmed_at', 'confirmed_by'],
+                )
             if request.data.get('agent_note') is not None:
                 match.agent_note = request.data['agent_note']
-            match.save()
+                update_fields.append('agent_note')
+            if update_fields:
+                match.save(update_fields=update_fields)
         return Response(
             serializers.RequestPropertyMatchSerializer(match).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
@@ -597,19 +740,52 @@ class RequestViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Вариант не найден.'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        match.is_offered = True
-        match.is_rejected = False
-        match.save(update_fields=['is_offered', 'is_rejected'])
+        if req.status and req.status.code in {'closed', 'cancelled'}:
+            return Response(
+                {'detail': 'Нельзя подтверждать вариант по закрытой заявке.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         from .signals import property_match_confirmed
-        property_match_confirmed.send(
-            sender=self.__class__,
-            match=match,
-            confirmed_by=request.user,
-        )
+        with transaction.atomic():
+            req.matches.exclude(pk=match.pk).filter(
+                is_confirmed=True,
+            ).update(
+                is_confirmed=False,
+                confirmed_at=None,
+                confirmed_by=None,
+            )
+
+            already_confirmed = (
+                match.is_confirmed
+                and match.is_offered
+                and not match.is_rejected
+            )
+            if not already_confirmed:
+                match.is_offered = True
+                match.is_rejected = False
+                match.is_confirmed = True
+                match.confirmed_at = timezone.now()
+                match.confirmed_by = request.user
+                match.save(update_fields=[
+                    'is_offered', 'is_rejected', 'is_confirmed',
+                    'confirmed_at', 'confirmed_by',
+                ])
+                transaction.on_commit(
+                    lambda: property_match_confirmed.send(
+                        sender=self.__class__,
+                        match=match,
+                        confirmed_by=request.user,
+                    ),
+                )
 
         return Response({
-            'detail': 'Вариант подтверждён. Задачи подбора закрыты, '
-                      'письмо клиенту поставлено в очередь.',
+            'detail': (
+                'Вариант уже подтверждён.'
+                if already_confirmed else
+                'Вариант подтверждён. Задачи подбора закрыты, '
+                'письмо клиенту поставлено в очередь.'
+            ),
             'match': serializers.RequestPropertyMatchSerializer(match).data,
         })
 
@@ -622,7 +798,7 @@ class RequestViewSet(viewsets.ModelViewSet):
 class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
     """Только чтение подборки; модификация — через действия RequestViewSet."""
     queryset = models.RequestPropertyMatch.objects.select_related(
-        'property', 'agent', 'request'
+        'property', 'agent', 'request', 'confirmed_by',
     ).all()
     serializer_class = serializers.RequestPropertyMatchSerializer
     permission_classes = [IsAuthenticated]
@@ -643,7 +819,7 @@ class DealViewSet(viewsets.ModelViewSet):
         'property', 'agent', 'client', 'operation_type', 'status'
     ).all()
     serializer_class = serializers.DealSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsEmployeeOrReadOnly]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -786,10 +962,30 @@ class TaskViewSet(viewsets.ModelViewSet):
                     {'detail': exc.detail, 'code': exc.code},
                     status=status.HTTP_409_CONFLICT,
                 )
-        task.status = new_status
         if new_status.code == 'done':
+            from . import task_actions
+            task, _ = task_actions.complete_task(
+                task,
+                actor=request.user,
+                result=request.data.get('result'),
+            )
+            return Response(serializers.TaskSerializer(task).data)
+
+        old_status_code = task.status.code if task.status_id else None
+        task.status = new_status
+        update_fields = ['status', 'updated_at']
+        if new_status.code == 'cancelled':
             task.completed_at = timezone.now()
-        task.save()
+            task.is_auto_closed = False
+            update_fields.extend(['completed_at', 'is_auto_closed'])
+        elif old_status_code in models.Task.TERMINAL_STATUS_CODES:
+            if task.completed_at is not None:
+                task.completed_at = None
+                update_fields.append('completed_at')
+            if task.is_auto_closed:
+                task.is_auto_closed = False
+                update_fields.append('is_auto_closed')
+        task.save(update_fields=list(dict.fromkeys(update_fields)))
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])

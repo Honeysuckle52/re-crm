@@ -19,13 +19,39 @@
       </div>
     </div>
 
-    <Transition name="toast">
-      <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
-        {{ toast.message }}
-      </div>
-    </Transition>
+    <div class="kpi-strip">
+      <article class="kpi-card">
+        <span class="kpi-card__label">Текущий этап</span>
+        <strong class="kpi-card__value">{{ currentStep.label }}</strong>
+        <span class="kpi-card__meta">Следующее действие по workflow</span>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-card__label">Заявка</span>
+        <strong class="kpi-card__value">{{ requestStateLabel }}</strong>
+        <span class="kpi-card__meta">
+          {{ linkedRequest?.status_name || clientActiveRequest?.status_name || 'Связка пока не определена' }}
+        </span>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-card__label">Срок</span>
+        <strong class="kpi-card__value">{{ dueStateLabel }}</strong>
+        <span class="kpi-card__meta">{{ task.is_overdue ? 'Нужна быстрая реакция' : 'Контроль по дедлайну' }}</span>
+      </article>
+      <article class="kpi-card kpi-card--accent">
+        <span class="kpi-card__label">Прогресс</span>
+        <strong class="kpi-card__value">{{ completedStepCount }} / {{ visibleStepCount }}</strong>
+        <span class="kpi-card__meta">Завершённых этапов</span>
+      </article>
+    </div>
 
     <div class="panel panel--light">
+      <div class="surface-head workflow-surface-head">
+        <div>
+          <div class="surface-head__meta">Маршрут выполнения</div>
+          <h2 class="h3">Этапы задачи</h2>
+        </div>
+        <div class="surface-head__caption">Готово: {{ completedStepCount }} из {{ visibleStepCount }}</div>
+      </div>
       <ol class="steps">
         <li v-for="(s, i) in steps" :key="s.id"
             class="step"
@@ -266,12 +292,14 @@ import api from '../api'
 import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
+import { extractError, useToastsStore } from '../store/toasts'
 import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const workload = useWorkloadStore()
+const toasts = useToastsStore()
 
 const task = ref(null)
 const linkedRequest = ref(null)
@@ -291,15 +319,8 @@ const newRequest = reactive({
   description: '',
 })
 
-const toast = reactive({ show: false, message: '', type: 'success' })
-function showToast (message, type = 'success') {
-  toast.message = message
-  toast.type = type
-  toast.show = true
-  setTimeout(() => { toast.show = false }, 4000)
-}
-
 const MATCH_TASK_TYPES = ['property_search', 'showing']
+const TERMINAL_REQUEST_STATUS_CODES = ['closed', 'cancelled']
 
 const steps = computed(() => {
   const isMatchRelevant = MATCH_TASK_TYPES.includes(task.value?.task_type)
@@ -329,10 +350,23 @@ const currentStepIdx = computed(() => {
   return list.length - 1
 })
 const currentStep = computed(() => steps.value[currentStepIdx.value])
+const visibleStepCount = computed(() => (
+  steps.value.filter((step) => !step.skipped).length
+))
+const completedStepCount = computed(() => (
+  steps.value.filter((step) => !step.skipped && doneStepIds.value.has(step.id)).length
+))
 
 const activeRequestId = computed(() => (
   task.value?.request || clientActiveRequest.value?.id || null
 ))
+const requestStateLabel = computed(() => (
+  activeRequestId.value ? `№${activeRequestId.value}` : 'Не привязана'
+))
+const dueStateLabel = computed(() => {
+  if (!task.value?.due_date) return 'Без срока'
+  return task.value.is_overdue ? 'Просрочена' : formatDate(task.value.due_date)
+})
 
 const clientContacts = ref(null)
 
@@ -366,10 +400,12 @@ async function load () {
     }).catch(() => {}))
   } else if (task.value.client) {
     extra.push(api.get('/requests/', {
-      params: { client: task.value.client, page_size: 5 },
+      params: { client: task.value.client, page_size: 100 },
     }).then((r) => {
       const list = r.data.results || r.data
-      const open = list.find(x => x.status_code !== 'closed')
+      const open = list.find(
+        x => !TERMINAL_REQUEST_STATUS_CODES.includes(x.status_code),
+      )
       clientActiveRequest.value = open || null
     }).catch(() => {}))
   }
@@ -407,9 +443,9 @@ async function submitContact (outcome) {
   if (ok) {
     task.value = data
     contactNote.value = ''
-    showToast('Этап «Контакт» зафиксирован')
+    toasts.success('Этап «Контакт» зафиксирован')
   } else {
-    showToast(error, 'error')
+    toasts.error(error || 'Не удалось зафиксировать этап')
   }
   busy.value = false
 }
@@ -419,11 +455,19 @@ async function submitRequestStep (outcome, requestId = null) {
   if (!task.value.request && requestId) {
     const patch = await tasksApi.patchTask(task.value.id, { request: requestId })
     if (!patch.ok) {
-      showToast(patch.error || 'Не удалось привязать заявку', 'error')
+      toasts.error(patch.error || 'Не удалось привязать заявку')
       busy.value = false
       return
     }
     task.value = patch.data
+    if (clientActiveRequest.value?.id === requestId) {
+      linkedRequest.value = clientActiveRequest.value
+      clientActiveRequest.value = null
+      clientContacts.value = {
+        phone: linkedRequest.value.client_phone || clientContacts.value?.phone || null,
+        email: linkedRequest.value.client_email || clientContacts.value?.email || null,
+      }
+    }
   }
   const { ok, data, error } = await tasksApi.recordTaskStep(task.value.id, {
     step: 'request',
@@ -432,9 +476,9 @@ async function submitRequestStep (outcome, requestId = null) {
   })
   if (ok) {
     task.value = data
-    showToast('Этап «Заявка» зафиксирован')
+    toasts.success('Этап «Заявка» зафиксирован')
   } else {
-    showToast(error, 'error')
+    toasts.error(error || 'Не удалось зафиксировать этап')
   }
   busy.value = false
 }
@@ -449,17 +493,37 @@ async function createRequest () {
   }
   try {
     const { data: req } = await api.post('/requests/', payload)
-    await tasksApi.patchTask(task.value.id, { request: req.id })
+    clientActiveRequest.value = req
+    linkedRequest.value = req
+    clientContacts.value = {
+      phone: req.client_phone || clientContacts.value?.phone || null,
+      email: req.client_email || clientContacts.value?.email || null,
+    }
+    const patch = await tasksApi.patchTask(task.value.id, { request: req.id })
+    if (!patch.ok) {
+      toasts.warn(
+        `Заявка №${req.id} создана, но не привязана к задаче: ${patch.error || 'неизвестная ошибка'}`,
+      )
+      busy.value = false
+      return
+    }
+    task.value = patch.data
+    clientActiveRequest.value = null
     const res = await tasksApi.recordTaskStep(task.value.id, {
       step: 'request',
       outcome: 'created',
       note: `Создана заявка №${req.id}`,
     })
-    if (res.ok) task.value = res.data
-    clientActiveRequest.value = req
-    showToast('Заявка создана')
+    if (res.ok) {
+      task.value = res.data
+      toasts.success('Заявка создана')
+    } else {
+      toasts.warn(
+        `Заявка №${req.id} создана и привязана, но этап не удалось зафиксировать: ${res.error || 'неизвестная ошибка'}`,
+      )
+    }
   } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось создать заявку', 'error')
+    toasts.error(extractError(err, 'Не удалось создать заявку'))
   }
   busy.value = false
 }
@@ -473,9 +537,9 @@ async function submitMatchStep (outcome) {
   })
   if (ok) {
     task.value = data
-    showToast('Этап «Подбор» зафиксирован')
+    toasts.success('Этап «Подбор» зафиксирован')
   } else {
-    showToast(error, 'error')
+    toasts.error(error || 'Не удалось зафиксировать этап')
   }
   busy.value = false
 }
@@ -489,11 +553,11 @@ async function submitComplete () {
   const { ok, error } = await tasksApi.completeTask(task.value.id, payload)
   busy.value = false
   if (ok) {
-    showToast('Задача завершена')
+    toasts.success('Задача завершена')
     router.push('/tasks')
   } else {
     workload.refresh()
-    showToast(error || 'Не удалось завершить задачу', 'error')
+    toasts.error(error || 'Не удалось завершить задачу')
   }
 }
 
@@ -501,15 +565,32 @@ onMounted(load)
 </script>
 
 <style scoped>
-.link { color: var(--c-accent); font-weight: 500; }
-.link:hover { text-decoration: underline; }
+.link {
+  color: var(--c-accent);
+  font-weight: 600;
+}
 
-.tag--type { background: #e8f4f3; color: #1a5a52; font-size: 11px; }
+.link:hover {
+  color: var(--c-accent-2);
+  text-decoration: underline;
+  text-decoration-color: rgba(99, 208, 197, 0.36);
+}
+
+.tag--type {
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  font-size: 11px;
+  border-color: rgba(99, 208, 197, 0.2);
+}
+
+.workflow-surface-head {
+  margin-bottom: 14px;
+}
 
 .steps {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
   padding: 4px 0;
   list-style: none;
@@ -519,12 +600,16 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  min-height: 40px;
+  padding: 0 14px;
   border-radius: 999px;
-  background: #f1f4f3;
-  color: #6a7a77;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--c-text-muted);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
 }
 .step__num {
   display: inline-flex;
@@ -534,44 +619,50 @@ onMounted(load)
   height: 22px;
   padding: 0 7px;
   border-radius: 999px;
-  background: #dbe2e0;
-  color: #546664;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--c-ink-soft);
   font-weight: 700;
   font-size: 12px;
 }
 .step__hint {
   font-size: 11px;
-  color: #8a9a97;
+  color: var(--c-text-muted);
   font-style: italic;
 }
 .step--done {
-  background: #e0efe9;
-  color: #0f3a33;
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  border-color: rgba(99, 208, 197, 0.2);
 }
 .step--done .step__num {
-  background: #0f3a33;
-  color: #fff;
+  background: rgba(99, 208, 197, 0.22);
+  color: #effffd;
 }
 .step--active {
-  background: #0f3a33;
-  color: #fff;
+  background: var(--grad-accent);
+  color: #143634;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 24px rgba(46, 159, 152, 0.14);
 }
 .step--active .step__num {
-  background: #3ddbc7;
-  color: #0f3a33;
+  background: rgba(4, 21, 32, 0.12);
+  color: #143634;
 }
 .step--skipped {
   opacity: .55;
   text-decoration: line-through;
 }
 
-.workflow-body { min-height: 200px; }
+.workflow-body {
+  min-height: 240px;
+}
 
 .contact-card {
   margin-top: 14px;
   padding: 14px 16px;
-  background: var(--c-paper-2, #f5f7f6);
-  border-radius: 8px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
@@ -581,8 +672,9 @@ onMounted(load)
 .linked-request {
   margin-top: 14px;
   padding: 14px 16px;
-  background: var(--c-paper-2, #f5f7f6);
-  border-radius: 8px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -592,21 +684,23 @@ onMounted(load)
 
 .warn {
   margin-top: 12px;
-  background: #fdece9;
-  color: #9a3b32;
+  border: 1px solid rgba(255, 111, 134, 0.24);
+  background: rgba(255, 111, 134, 0.12);
+  color: #ffd6de;
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: 18px;
   font-size: 13px;
 }
 
 .steps-log {
   margin-top: 12px;
-  background: var(--c-paper-2, #f5f7f6);
-  border-radius: 8px;
-  padding: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
 }
 .steps-log__row {
@@ -615,26 +709,30 @@ onMounted(load)
   align-items: baseline;
 }
 .steps-log__time {
-  color: #8a9a97;
+  color: var(--c-text-muted);
   font-size: 12px;
   flex: 0 0 auto;
   min-width: 90px;
 }
-.steps-log__body b { font-weight: 700; color: #0f3a33; }
 
-.toast {
-  position: fixed;
-  top: 20px; right: 20px;
-  z-index: 1000;
-  padding: 14px 20px;
-  border-radius: 8px;
-  font-size: 14px; font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0,0,0,.15);
+.steps-log__body b {
+  font-weight: 700;
+  color: var(--c-text);
 }
-.toast--success { background: #0f3a33; color: #fff; }
-.toast--error { background: #c2554a; color: #fff; }
-.toast-enter-active, .toast-leave-active { transition: all .3s ease; }
-.toast-enter-from, .toast-leave-to {
-  opacity: 0; transform: translateX(30px);
+
+@media (max-width: 720px) {
+  .linked-request {
+    align-items: flex-start;
+  }
+
+  .steps-log__row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .steps-log__time {
+    min-width: 0;
+  }
 }
+
 </style>

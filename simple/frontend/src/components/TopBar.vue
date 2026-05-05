@@ -45,9 +45,15 @@ function logout() {
 
 <style scoped>
 .topbar__nav-admin {
-  background: var(--c-accent);
-  color: #fff !important;
-  font-weight: 600;
+  background: linear-gradient(135deg, rgba(27, 77, 62, 0.98), rgba(46, 139, 87, 0.82));
+  color: var(--c-text) !important;
+  font-weight: 700;
+  border: 1px solid rgba(120, 216, 206, 0.18);
+  box-shadow: 0 10px 20px rgba(4, 24, 22, 0.18);
 }
-.topbar__nav-admin:hover { background: var(--c-accent); opacity: .92; }
+
+.topbar__nav-admin:hover {
+  color: var(--c-text) !important;
+  box-shadow: 0 12px 24px rgba(4, 24, 22, 0.22);
+}
 </style>

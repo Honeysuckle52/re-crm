@@ -64,32 +64,40 @@
     </div>
 
     <div class="panel panel--light">
-      <div class="row row--between" style="margin-bottom: 12px">
-        <h2 class="h2">Сотрудники агентства</h2>
-        <router-link to="/clients" class="btn btn--sm">Все →</router-link>
+      <div class="surface-head admin-section-head">
+        <div>
+          <div class="surface-head__meta">Команда агентства</div>
+          <h2 class="h2">Сотрудники агентства</h2>
+        </div>
+        <div class="row" style="gap: 10px; flex-wrap: wrap">
+          <div class="surface-head__caption">Показано: {{ Math.min(employees.length, 8) }}</div>
+          <router-link to="/clients" class="btn btn--sm">Все →</router-link>
+        </div>
       </div>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Логин</th>
-            <th>Почта</th>
-            <th>Должность</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in employees.slice(0, 8)" :key="u.id">
-            <td><b>{{ u.username }}</b></td>
-            <td>{{ u.email || '—' }}</td>
-            <td>{{ u.role_name || '—' }}</td>
-            <td style="text-align: right">
-              <button class="btn btn--sm" @click="openAssign(u)">
-                Редактировать
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-wrap admin-table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Логин</th>
+              <th>Почта</th>
+              <th>Должность</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in employees.slice(0, 8)" :key="u.id">
+              <td><b>{{ u.username }}</b></td>
+              <td>{{ u.email || '—' }}</td>
+              <td>{{ u.role_name || '—' }}</td>
+              <td style="text-align: right">
+                <button class="btn btn--sm" @click="openAssign(u)">
+                  Редактировать
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div v-if="!employees.length" class="empty">Сотрудники ещё не назначены.</div>
     </div>
 
@@ -145,24 +153,26 @@
           <h2 class="h3">Справочник должностей</h2>
           <button class="btn btn--sm" @click="rolesOpen = false">×</button>
         </div>
-        <table class="table">
-          <thead>
-            <tr><th>Код</th><th>Название</th><th></th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in roles" :key="r.id">
-              <td><code>{{ r.code }}</code></td>
-              <td>{{ r.name }}</td>
-              <td style="text-align: right">
-                <button class="btn btn--sm btn--danger"
-                        @click="removeRole(r)">
-                  Удалить
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <form class="row" style="gap: 8px" @submit.prevent="createRole">
+        <div class="table-wrap admin-roles-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Код</th><th>Название</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in roles" :key="r.id">
+                <td><code>{{ r.code }}</code></td>
+                <td>{{ r.name }}</td>
+                <td style="text-align: right">
+                  <button class="btn btn--sm btn--danger"
+                          @click="removeRole(r)">
+                    Удалить
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <form class="row admin-role-form" style="gap: 8px" @submit.prevent="createRole">
           <input class="input" v-model="newRole.code" placeholder="код (agent)"
                  style="flex: 0 0 140px" required />
           <input class="input" v-model="newRole.name" placeholder="название (Агент)"
@@ -288,24 +298,70 @@ onMounted(async () => {
 
 <style scoped>
 .admin-hero {
-  background: linear-gradient(135deg, var(--c-panel) 0%, var(--c-panel-2) 100%);
+  background:
+    linear-gradient(135deg, rgba(22, 88, 84, 0.92), rgba(18, 56, 53, 0.82)),
+    radial-gradient(circle at top right, rgba(99, 208, 197, 0.12), transparent 24%);
   padding: 24px 28px;
 }
-.admin-role-badge { align-self: flex-start; }
-.admin-panel { min-height: 180px; display: flex; flex-direction: column; }
+
+.admin-role-badge {
+  align-self: flex-start;
+}
+
+.admin-panel {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.admin-panel:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-glow);
+}
 
 .modal {
-  position: fixed; inset: 0; z-index: 80;
-  background: rgba(11, 37, 36, 0.55);
-  display: grid; place-items: center;
-  padding: 16px;
+  z-index: 80;
 }
+
 .modal__card {
-  width: 100%; max-width: 560px;
-  max-height: calc(100vh - 32px); overflow: auto;
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
+
+.admin-section-head {
+  margin-bottom: 14px;
+}
+
+.admin-table-wrap .table {
+  min-width: 720px;
+}
+
+.admin-roles-wrap .table {
+  min-width: 460px;
+}
+
+.admin-role-form {
+  flex-wrap: wrap;
+}
+
 code {
-  background: var(--c-paper-2); padding: 2px 8px;
-  border-radius: var(--r-xs); font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(99, 208, 197, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #effffd;
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .admin-panel {
+    min-height: auto;
+  }
 }
 </style>
