@@ -13,6 +13,16 @@ const DEFAULT_WORKLOAD = {
   can_start_task: true,
 }
 
+function withDerivedWorkloadFlags(payload = {}) {
+  const next = { ...DEFAULT_WORKLOAD, ...(payload || {}) }
+  return {
+    ...next,
+    can_take_request: next.active_requests < next.max_active_requests,
+    can_take_task: next.active_tasks < next.max_active_tasks,
+    can_start_task: next.in_progress_tasks < next.max_in_progress_tasks,
+  }
+}
+
 let _bumpTimer = null
 
 export const useWorkloadStore = defineStore('workload', {
@@ -40,8 +50,26 @@ export const useWorkloadStore = defineStore('workload', {
           api.get('/users/me/workload/'),
           api.get('/tasks/current/'),
         ])
-        this.workload = { ...DEFAULT_WORKLOAD, ...(wl.data || {}) }
-        this.currentTask = cur.data || null
+        const nextWorkload = withDerivedWorkloadFlags(wl.data)
+        let currentTask = cur.data || null
+
+        if (!currentTask && nextWorkload.in_progress_tasks > 0) {
+          try {
+            const fallback = await api.get('/tasks/', {
+              params: {
+                assignee: 'me',
+                status_code: 'in_progress',
+                ordering: '-updated_at',
+                page: 1,
+                page_size: 1,
+              },
+            })
+            currentTask = fallback.data?.results?.[0] || null
+          } catch (_fallbackError) {}
+        }
+
+        this.workload = nextWorkload
+        this.currentTask = currentTask
         this.lastSyncAt = new Date()
       } catch (err) {
         console.warn('[workload] refresh failed', err)
@@ -50,7 +78,7 @@ export const useWorkloadStore = defineStore('workload', {
       }
     },
     reset() {
-      this.workload = { ...DEFAULT_WORKLOAD }
+      this.workload = withDerivedWorkloadFlags()
       this.currentTask = null
       this.lastSyncAt = null
     },
@@ -65,7 +93,7 @@ export const useWorkloadStore = defineStore('workload', {
       if (this.currentTask && this.currentTask.id === taskId) {
         this.currentTask = null
       }
-      this.workload = {
+      this.workload = withDerivedWorkloadFlags({
         ...this.workload,
         in_progress_tasks: Math.max(
           0, (this.workload.in_progress_tasks || 0) - 1,
@@ -73,16 +101,25 @@ export const useWorkloadStore = defineStore('workload', {
         active_tasks: Math.max(
           0, (this.workload.active_tasks || 0) - 1,
         ),
-        can_start_task: true,
+      })
+    },
+    optimisticPauseTask(taskId) {
+      if (this.currentTask && this.currentTask.id === taskId) {
+        this.currentTask = null
       }
+      this.workload = withDerivedWorkloadFlags({
+        ...this.workload,
+        in_progress_tasks: Math.max(
+          0, (this.workload.in_progress_tasks || 0) - 1,
+        ),
+      })
     },
     optimisticStartTask(task) {
       if (task) this.currentTask = task
-      this.workload = {
+      this.workload = withDerivedWorkloadFlags({
         ...this.workload,
         in_progress_tasks: (this.workload.in_progress_tasks || 0) + 1,
-        can_start_task: false,
-      }
+      })
     },
   },
 })

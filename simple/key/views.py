@@ -33,6 +33,47 @@ from .permissions import (
 
 User = get_user_model()
 
+REQUEST_STATUS_DEFAULT_NAMES = {
+    'open': 'Открыта',
+    'processing': 'В обработке',
+    'closed': 'Закрыта',
+    'completed': 'Завершена',
+    'cancelled': 'Отменена',
+    'rejected': 'Отклонена',
+    'lost': 'Потеряна',
+}
+
+
+def _get_or_create_request_status(code: str) -> models.RequestStatus:
+    return models.RequestStatus.objects.get_or_create(
+        code=code,
+        defaults={'name': REQUEST_STATUS_DEFAULT_NAMES.get(code, code)},
+    )[0]
+
+
+def _employee_visible_requests_q(user, *, prefix: str = '') -> Q:
+    agent_lookup = f'{prefix}agent'
+    return (
+        Q(**{agent_lookup: user})
+        | (
+            Q(**{f'{agent_lookup}__isnull': True})
+            & Q(**{
+                f'{prefix}status__code__in': models.Request.ACTIVE_STATUS_CODES,
+            })
+        )
+    )
+
+
+def _parse_bool_param(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {'1', 'true', 'yes', 'y'}:
+        return True
+    if normalized in {'0', 'false', 'no', 'n'}:
+        return False
+    return None
+
 
 class RegisterView(APIView):
     """Регистрация клиента."""
@@ -165,20 +206,35 @@ class DadataSuggestAddressView(APIView):
 
 class UserViewSet(viewsets.ModelViewSet):
     """Пользователи системы."""
-    queryset = User.objects.select_related('role').all()
+    queryset = User.objects.select_related('role').order_by('username', 'id')
     serializer_class = serializers.UserSerializer
     permission_classes = [IsEmployee]
     filter_backends = [filters.SearchFilter]
-    search_fields = ['username', 'email', 'phone']
+    search_fields = [
+        'username',
+        'email',
+        'phone',
+        'client_profile__first_name',
+        'client_profile__last_name',
+        'employee_profile__first_name',
+        'employee_profile__last_name',
+    ]
 
     def get_queryset(self):
         qs = super().get_queryset()
-        user_type = self.request.query_params.get('user_type')
+        params = self.request.query_params
+        user_type = params.get('user_type')
         if user_type:
             qs = qs.filter(user_type=user_type)
-        role_code = self.request.query_params.get('role')
+        role_code = params.get('role')
         if role_code:
             qs = qs.filter(role__code=role_code)
+        is_superuser = _parse_bool_param(params.get('is_superuser'))
+        if is_superuser is not None:
+            qs = qs.filter(is_superuser=is_superuser)
+        is_active = _parse_bool_param(params.get('is_active'))
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active)
         return qs
 
     def get_permissions(self):
@@ -302,7 +358,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.PropertySerializer
     permission_classes = [IsEmployeeOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['title', 'description']
+    search_fields = ['=id', 'title', 'description']
     ordering_fields = ['price', 'created_at', 'area_total']
 
     def get_queryset(self):
@@ -330,11 +386,24 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if not new_status_id:
             return Response({'detail': 'Не указан статус.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        property_obj.status_id = new_status_id
-        property_obj.save()
+        next_status = models.PropertyStatus.objects.filter(pk=new_status_id).first()
+        if not next_status:
+            return Response({'detail': 'Неизвестный статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if property_obj.status_id == next_status.pk:
+            return Response(serializers.PropertySerializer(
+                property_obj, context={'request': request}).data)
+        transition_error = business_rules.property_status_transition_error(
+            property_obj, next_status,
+        )
+        if transition_error:
+            return Response({'detail': transition_error},
+                            status=status.HTTP_400_BAD_REQUEST)
+        property_obj.status = next_status
+        property_obj.save(update_fields=['status', 'updated_at'])
         models.PropertyStatusHistory.objects.create(
             property=property_obj,
-            status_id=new_status_id,
+            status=next_status,
             changed_by=request.user,
         )
         return Response(serializers.PropertySerializer(
@@ -546,8 +615,17 @@ class RequestViewSet(viewsets.ModelViewSet):
     ).all()
     serializer_class = serializers.RequestSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [filters.OrderingFilter]
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['created_at', 'updated_at']
+    search_fields = [
+        '=id',
+        'description',
+        'client__username',
+        'client__email',
+        'client__phone',
+        'agent__username',
+        'property__title',
+    ]
 
     def get_permissions(self):
         if self.action in {
@@ -563,6 +641,21 @@ class RequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(client=user)
+        elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+            mutable_actions = {
+                'update', 'partial_update', 'destroy',
+                'close', 'attach_property', 'detach_property',
+                'confirm_property', 'accept_match',
+            }
+            if self.action in mutable_actions:
+                qs = qs.filter(agent=user)
+            elif self.action == 'take':
+                qs = qs.filter(
+                    _employee_visible_requests_q(user),
+                    status__code__in=models.Request.ACTIVE_STATUS_CODES,
+                )
+            else:
+                qs = qs.filter(_employee_visible_requests_q(user))
 
         params = self.request.query_params
         if params.get('client'):
@@ -580,7 +673,9 @@ class RequestViewSet(viewsets.ModelViewSet):
         if params.get('status'):
             qs = qs.filter(status_id=params['status'])
         if params.get('status_code'):
-            qs = qs.filter(status__code=params['status_code'])
+            codes = [c.strip() for c in params['status_code'].split(',')
+                     if c.strip()]
+            qs = qs.filter(status__code__in=codes)
         scope = params.get('scope')
         if scope == 'unassigned' and user.is_employee:
             qs = qs.filter(agent__isnull=True)
@@ -599,27 +694,50 @@ class RequestViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 {'client': 'Укажите клиента заявки.'}
             )
+        assigned_agent = serializer.validated_data.get('agent')
+        request_status = serializer.validated_data.get('status')
+        if assigned_agent and (request_status is None or request_status.code == 'open'):
+            processing = models.RequestStatus.objects.filter(
+                code='processing',
+            ).first()
+            if processing:
+                extra['status'] = processing
         serializer.save(**extra)
 
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
         """Закрыть заявку и при необходимости создать сделку."""
         req = self.get_object()
-        if req.status and req.status.code in {'closed', 'cancelled'}:
+        if req.is_terminal:
             return Response(
                 {'detail': 'Заявка уже закрыта.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        closed = models.RequestStatus.objects.filter(code='closed').first()
-        if closed:
-            req.status = closed
-        req.closed_at = timezone.now()
-        req.save()
+        serializer = serializers.RequestCloseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        deal = create_deal_from_request(req, actor=request.user)
+        outcome = serializer.validated_data['outcome']
+        req.status = _get_or_create_request_status(outcome)
+        req.closed_at = timezone.now()
+        req.save(update_fields=['status', 'closed_at', 'updated_at'])
+
+        deal = None
+        if outcome in models.Request.SUCCESS_STATUS_CODES:
+            deal = create_deal_from_request(req, actor=request.user)
         enqueue_request_closed(request=req, actor=request.user, deal=deal)
 
         payload = serializers.RequestSerializer(req).data
+        payload['outcome'] = outcome
+        payload['detail'] = {
+            'completed': (
+                'Заявка завершена.'
+                if deal is None else
+                'Заявка завершена, сделка создана.'
+            ),
+            'cancelled': 'Заявка отменена.',
+            'rejected': 'Заявка отклонена.',
+            'lost': 'Заявка помечена как потерянная.',
+        }[outcome]
         if deal is not None:
             payload['deal'] = serializers.DealSerializer(deal).data
         return Response(payload)
@@ -633,6 +751,11 @@ class RequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         req = self.get_object()
+        if req.is_terminal:
+            return Response(
+                {'detail': 'Нельзя взять в работу уже закрытую заявку.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if req.agent_id and req.agent_id != request.user.id:
             return Response(
                 {'detail': 'Заявка уже взята другим сотрудником.'},
@@ -740,7 +863,7 @@ class RequestViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Вариант не найден.'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        if req.status and req.status.code in {'closed', 'cancelled'}:
+        if req.is_terminal:
             return Response(
                 {'detail': 'Нельзя подтверждать вариант по закрытой заявке.'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -808,6 +931,8 @@ class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(request__client=user)
+        elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+            qs = qs.filter(_employee_visible_requests_q(user, prefix='request__'))
         request_id = self.request.query_params.get('request')
         if request_id:
             qs = qs.filter(request_id=request_id)
@@ -820,12 +945,32 @@ class DealViewSet(viewsets.ModelViewSet):
     ).all()
     serializer_class = serializers.DealSerializer
     permission_classes = [IsEmployeeOrReadOnly]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['deal_date', 'contract_generated_at', 'price_final']
 
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(client=user)
+        elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+            qs = qs.filter(agent=user)
+
+        params = self.request.query_params
+        if params.get('status'):
+            qs = qs.filter(status_id=params['status'])
+        if params.get('status_code'):
+            codes = [c.strip() for c in params['status_code'].split(',')
+                     if c.strip()]
+            qs = qs.filter(status__code__in=codes)
+        if params.get('request'):
+            qs = qs.filter(request_id=params['request'])
+        if params.get('agent'):
+            value = params['agent']
+            if value == 'me' and user.is_employee:
+                qs = qs.filter(agent=user)
+            elif value != 'me':
+                qs = qs.filter(agent_id=value)
         return qs
 
     @action(detail=True, methods=['post'], url_path='change_status')
@@ -836,8 +981,20 @@ class DealViewSet(viewsets.ModelViewSet):
         if not status_id:
             return Response({'detail': 'Не указан статус.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        deal.status_id = status_id
-        deal.save()
+        next_status = models.DealStatus.objects.filter(pk=status_id).first()
+        if not next_status:
+            return Response({'detail': 'Неизвестный статус.'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if deal.status_id == next_status.pk:
+            return Response(serializers.DealSerializer(deal).data)
+        transition_error = business_rules.deal_status_transition_error(
+            deal, next_status,
+        )
+        if transition_error:
+            return Response({'detail': transition_error},
+                            status=status.HTTP_400_BAD_REQUEST)
+        deal.status = next_status
+        deal.save(update_fields=['status'])
         return Response(serializers.DealSerializer(deal).data)
 
     @action(detail=True, methods=['get'], url_path='contract')
@@ -904,6 +1061,10 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = qs.exclude(
+            completed_at__isnull=False,
+            status__code__in=business_rules.ACTIVE_TASK_STATUS_CODES,
+        )
         user = self.request.user
         params = self.request.query_params
         if user.is_authenticated and not user.is_admin_or_manager:
@@ -1013,8 +1174,17 @@ class TaskViewSet(viewsets.ModelViewSet):
                 {'detail': exc.detail, 'code': exc.code},
                 status=status.HTTP_409_CONFLICT,
             )
+        old_status_code = task.status.code if task.status_id else None
         task.status = in_progress
-        task.save(update_fields=['status', 'updated_at'])
+        update_fields = ['status', 'updated_at']
+        if old_status_code in models.Task.TERMINAL_STATUS_CODES:
+            if task.completed_at is not None:
+                task.completed_at = None
+                update_fields.append('completed_at')
+            if task.is_auto_closed:
+                task.is_auto_closed = False
+                update_fields.append('is_auto_closed')
+        task.save(update_fields=list(dict.fromkeys(update_fields)))
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -1035,8 +1205,17 @@ class TaskViewSet(viewsets.ModelViewSet):
                 {'detail': 'Справочник статусов не заполнен.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+        old_status_code = task.status.code if task.status_id else None
         task.status = waiting
-        task.save(update_fields=['status', 'updated_at'])
+        update_fields = ['status', 'updated_at']
+        if old_status_code in models.Task.TERMINAL_STATUS_CODES:
+            if task.completed_at is not None:
+                task.completed_at = None
+                update_fields.append('completed_at')
+            if task.is_auto_closed:
+                task.is_auto_closed = False
+                update_fields.append('is_auto_closed')
+        task.save(update_fields=list(dict.fromkeys(update_fields)))
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -1095,6 +1274,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         ).filter(
             assignee=request.user,
             status__code='in_progress',
+            completed_at__isnull=True,
         ).order_by('-updated_at').first()
         if task is None:
             return Response(None)

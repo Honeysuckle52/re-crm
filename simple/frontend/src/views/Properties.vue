@@ -78,7 +78,7 @@
 
         <div class="row properties-filter__actions">
           <button class="btn btn--sm" @click="reset">Сбросить</button>
-          <button class="btn btn--primary btn--sm" @click="load">Применить</button>
+          <button class="btn btn--primary btn--sm" @click="applyFilters">Применить</button>
         </div>
       </aside>
 
@@ -86,10 +86,11 @@
         <div class="panel panel--light properties-main__head">
           <div class="properties-main__meta">
             <div class="hero__eyebrow properties-main__eyebrow">Каталог</div>
-            <h2 class="h2">Найдено {{ items.length }} объектов</h2>
+            <h2 class="h2">Найдено {{ propertyCount }} объектов</h2>
           </div>
           <div class="muted properties-main__caption">
             Просторная сетка, фильтр всегда под рукой и без лишнего сжатия по центру.
+            Сейчас показано {{ items.length }} карточек на странице {{ propertyPage }}.
           </div>
         </div>
 
@@ -103,6 +104,16 @@
               Ничего не найдено по выбранным фильтрам.
             </div>
           </div>
+          <ListPagination
+            v-if="propertyCount > items.length"
+            :count="propertyCount"
+            :page="propertyPage"
+            :visible-count="items.length"
+            :page-size="PROPERTY_PAGE_SIZE"
+            label="объектов"
+            :disabled="loading"
+            @change="setPropertyPage"
+          />
         </div>
       </section>
     </div>
@@ -110,12 +121,15 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
+import ListPagination from '../components/ListPagination.vue'
 import PropertyCard from '../components/PropertyCard.vue'
 import { useAuthStore } from '../store/auth'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
+const PROPERTY_PAGE_SIZE = 12
 
 const filters = reactive({
   operation_type: '',
@@ -129,22 +143,37 @@ const filters = reactive({
 const dict = reactive({ operations: [], statuses: [] })
 const items = ref([])
 const loading = ref(false)
+const propertyPage = ref(1)
+const propertyCount = ref(0)
 
 async function load () {
   loading.value = true
   try {
-    const params = {}
+    const params = {
+      page: propertyPage.value,
+      page_size: PROPERTY_PAGE_SIZE,
+    }
     for (const [k, v] of Object.entries(filters)) {
       if (v !== '' && v !== null) params[k] = v
     }
     const { data } = await api.get('/properties/', { params })
-    items.value = data.results || data
+    const payload = unpackPaginated(data)
+    items.value = payload.items
+    propertyCount.value = payload.count
   } finally {
     loading.value = false
   }
 }
 
-function reset () {
+async function applyFilters () {
+  if (propertyPage.value !== 1) {
+    propertyPage.value = 1
+    return
+  }
+  await load()
+}
+
+async function reset () {
   Object.assign(filters, {
     operation_type: '',
     status: '',
@@ -153,16 +182,29 @@ function reset () {
     max_price: null,
     search: '',
   })
-  load()
+  if (propertyPage.value !== 1) {
+    propertyPage.value = 1
+    return
+  }
+  await load()
 }
+
+function setPropertyPage (page) {
+  if (page < 1 || page === propertyPage.value) return
+  propertyPage.value = page
+}
+
+watch(propertyPage, async () => {
+  await load()
+})
 
 onMounted(async () => {
   const [o, s] = await Promise.all([
-    api.get('/operation-types/'),
-    api.get('/property-statuses/'),
+    api.get('/operation-types/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/property-statuses/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
   ])
-  dict.operations = o.data.results || o.data
-  dict.statuses = s.data.results || s.data
+  dict.operations = unpackPaginated(o.data).items
+  dict.statuses = unpackPaginated(s.data).items
   await load()
 })
 </script>

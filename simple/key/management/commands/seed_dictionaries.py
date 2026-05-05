@@ -30,7 +30,10 @@ REQUEST_STATUSES = [
     {"code": "open",       "name": "Открыта"},
     {"code": "processing", "name": "В обработке"},
     {"code": "closed",     "name": "Закрыта"},
+    {"code": "completed",  "name": "Завершена"},
     {"code": "cancelled",  "name": "Отменена"},
+    {"code": "rejected",   "name": "Отклонена"},
+    {"code": "lost",       "name": "Потеряна"},
 ]
 
 DEAL_STATUSES = [

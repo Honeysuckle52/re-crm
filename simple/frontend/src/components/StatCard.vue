@@ -15,23 +15,62 @@ defineProps({
 
 <style scoped>
 .stat {
+  --stat-surface: linear-gradient(180deg, #124346 0%, #073434 100%);
+  --stat-border: rgba(120, 216, 206, 0.2);
   position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 22px 24px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--c-border);
-  background: var(--grad-card);
+  min-height: 128px;
+  padding: 22px 24px 24px;
+  border-radius: 18px 28px 18px 28px;
+  border: 1px solid var(--stat-border);
+  background: var(--stat-surface);
   box-shadow: var(--shadow-1);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
 }
 
+.stat::before,
+.stat::after {
+  content: '';
+  position: absolute;
+  width: 74px;
+  height: 16px;
+  border: 1px solid var(--stat-border);
+  background: var(--stat-surface);
+  z-index: -1;
+}
+
+.stat::before {
+  top: -9px;
+  left: 26px;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+}
+
+.stat::after {
+  right: 24px;
+  bottom: -9px;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+}
+
+.stat:nth-child(even)::before {
+  right: 26px;
+  left: auto;
+}
+
+.stat:nth-child(even)::after {
+  right: auto;
+  left: 24px;
+}
+
 .stat:hover {
-  transform: translateY(-5px);
-  background: var(--grad-card-soft);
+  transform: translateY(-4px);
+  background: linear-gradient(180deg, #165053 0%, #0a3d3f 100%);
   box-shadow: var(--shadow-glow-strong);
 }
 
@@ -52,18 +91,16 @@ defineProps({
 }
 
 .stat--accent {
-  border-color: rgba(120, 216, 206, 0.24);
-  background:
-    linear-gradient(135deg, rgba(27, 77, 62, 0.94), rgba(46, 139, 87, 0.86)),
-    linear-gradient(180deg, #0d3b3e 0%, #032b2b 100%);
+  --stat-surface: linear-gradient(180deg, #124346 0%, #073434 100%);
+  --stat-border: rgba(120, 216, 206, 0.2);
 }
 
 .stat--accent .stat__label {
-  color: rgba(239, 255, 253, 0.82);
+  color: var(--c-text-muted);
 }
 
 .stat--accent .stat__value {
-  color: #f4fffd;
-  text-shadow: 0 0 18px rgba(120, 216, 206, 0.14);
+  color: var(--c-text);
+  text-shadow: none;
 }
 </style>

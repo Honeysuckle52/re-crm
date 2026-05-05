@@ -1,7 +1,7 @@
 <template>
   <section v-if="auth.isManager" class="stack">
     <div class="hero admin-hero">
-      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
+      <div class="row row--between admin-hero__row" style="flex-wrap: wrap; gap: 12px">
         <div>
           <div class="hero__eyebrow">АДМИНИСТРИРОВАНИЕ</div>
           <h1 class="h2" style="color: #fff; margin-top: 8px">
@@ -13,25 +13,18 @@
           </div>
         </div>
         <div class="admin-role-badge">
-          <span class="tag tag--accent" style="font-size: 13px; padding: 6px 14px">
+          <span class="tag tag--accent admin-role-pill">
             {{ auth.roleLabel }}
           </span>
         </div>
       </div>
     </div>
 
-    <div class="grid grid--stats">
-      <StatCard label="Сотрудников" :value="counters.employees" accent />
-      <StatCard label="Клиентов"    :value="counters.clients" />
-      <StatCard label="Ролей"       :value="roles.length" />
-      <StatCard label="Супер-админов" :value="counters.superusers" />
-    </div>
-
     <div class="grid grid--2">
       <div class="panel panel--light admin-panel">
         <div class="row row--between">
           <span class="tag tag--accent">Пользователи</span>
-          <span class="muted">всего: {{ users.length }}</span>
+          <span class="muted">всего: {{ counters.total }}</span>
         </div>
         <h2 class="h2" style="margin-top: 8px">Назначение должностей</h2>
         <p class="muted" style="margin: 4px 0 12px">
@@ -70,7 +63,7 @@
           <h2 class="h2">Сотрудники агентства</h2>
         </div>
         <div class="row" style="gap: 10px; flex-wrap: wrap">
-          <div class="surface-head__caption">Показано: {{ Math.min(employees.length, 8) }}</div>
+          <div class="surface-head__caption">Показано: {{ employees.length }} из {{ counters.employees }}</div>
           <router-link to="/clients" class="btn btn--sm">Все →</router-link>
         </div>
       </div>
@@ -85,7 +78,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in employees.slice(0, 8)" :key="u.id">
+            <tr v-for="u in employees" :key="u.id">
               <td><b>{{ u.username }}</b></td>
               <td>{{ u.email || '—' }}</td>
               <td>{{ u.role_name || '—' }}</td>
@@ -108,13 +101,23 @@
           <button class="btn btn--sm" @click="assignOpen = false">×</button>
         </div>
         <div v-if="!assignUser" class="field">
+          <label>Поиск пользователя</label>
+          <input
+            class="input"
+            v-model="assignSearch"
+            placeholder="Логин, почта или телефон" />
+        </div>
+        <div v-if="!assignUser" class="field">
           <label>Пользователь</label>
           <select class="select" v-model.number="assignUserId">
             <option :value="null" disabled>— выберите пользователя —</option>
-            <option v-for="u in users" :key="u.id" :value="u.id">
+            <option v-for="u in assignableUsers" :key="u.id" :value="u.id">
               {{ u.username }} — {{ u.email || 'без почты' }}
             </option>
           </select>
+          <div class="muted" style="margin-top: 6px">
+            Найдено: {{ assignableTotal }}
+          </div>
         </div>
         <div v-else class="muted">
           Пользователь <b>{{ assignUser.username }}</b>.
@@ -194,29 +197,30 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
-import StatCard from '../components/StatCard.vue'
 import { useAuthStore } from '../store/auth'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
-const users = ref([])
+const employees = ref([])
+const assignableUsers = ref([])
+const assignableTotal = ref(0)
 const roles = ref([])
 
-const employees = computed(() =>
-  users.value.filter((u) => u.user_type === 'employee')
-)
-const counters = computed(() => ({
-  employees: employees.value.length,
-  clients: users.value.filter((u) => u.user_type === 'client').length,
-  superusers: users.value.filter((u) => u.is_superuser).length,
-}))
+const counters = reactive({
+  total: 0,
+  employees: 0,
+  clients: 0,
+  superusers: 0,
+})
 
 const assignOpen = ref(false)
 const assignUser = ref(null)
 const assignUserId = ref(null)
 const assignLoading = ref(false)
 const assignError = ref('')
+const assignSearch = ref('')
 const assignForm = reactive({ user_type: 'client', role_id: null })
 
 function openAssign (u) {
@@ -224,8 +228,12 @@ function openAssign (u) {
   assignUserId.value = u?.id ?? null
   assignForm.user_type = u?.user_type || 'client'
   assignForm.role_id = u?.role ?? null
+  assignSearch.value = ''
   assignError.value = ''
   assignOpen.value = true
+  if (!u) {
+    loadAssignableUsers()
+  }
 }
 
 async function saveAssign () {
@@ -239,7 +247,11 @@ async function saveAssign () {
         ? assignForm.role_id : null,
     })
     assignOpen.value = false
-    await loadUsers()
+    await Promise.all([
+      loadPreviewEmployees(),
+      loadAssignableUsers(),
+      loadCounters(),
+    ])
   } catch (e) {
     assignError.value = e.response?.data?.detail
       || 'Не удалось сохранить. Проверьте права доступа.'
@@ -278,34 +290,98 @@ async function removeRole (r) {
   }
 }
 
-async function loadUsers () {
-  const { data } = await api.get('/users/')
-  users.value = data.results || data
+async function fetchUserCount (params = {}) {
+  const { data } = await api.get('/users/', {
+    params: { page: 1, page_size: 1, ...params },
+  })
+  return Number(data?.count ?? (data?.results || data || []).length)
+}
+
+async function loadCounters () {
+  const [total, employeesCount, clientsCount, superusersCount] = await Promise.all([
+    fetchUserCount(),
+    fetchUserCount({ user_type: 'employee' }),
+    fetchUserCount({ user_type: 'client' }),
+    fetchUserCount({ is_superuser: true }),
+  ])
+  counters.total = total
+  counters.employees = employeesCount
+  counters.clients = clientsCount
+  counters.superusers = superusersCount
+}
+
+async function loadPreviewEmployees () {
+  const { data } = await api.get('/users/', {
+    params: { user_type: 'employee', page: 1, page_size: 8 },
+  })
+  const payload = unpackPaginated(data)
+  employees.value = payload.items
+}
+
+async function loadAssignableUsers () {
+  const params = { page: 1, page_size: LOOKUP_PAGE_SIZE }
+  if (assignSearch.value.trim()) params.search = assignSearch.value.trim()
+  const { data } = await api.get('/users/', { params })
+  const payload = unpackPaginated(data)
+  assignableUsers.value = payload.items
+  assignableTotal.value = payload.count
 }
 async function loadRoles () {
   try {
-    const { data } = await api.get('/user-roles/')
-    roles.value = data.results || data
+    const { data } = await api.get('/user-roles/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    })
+    roles.value = unpackPaginated(data).items
   } catch {
     roles.value = []
   }
 }
 
+let assignSearchTimer = null
+
+watch(assignSearch, () => {
+  if (!assignOpen.value || assignUser.value) return
+  if (assignSearchTimer) clearTimeout(assignSearchTimer)
+  assignSearchTimer = setTimeout(() => {
+    loadAssignableUsers()
+  }, 250)
+})
+
+onBeforeUnmount(() => {
+  if (assignSearchTimer) clearTimeout(assignSearchTimer)
+})
+
 onMounted(async () => {
-  await Promise.all([loadUsers(), loadRoles()])
+  await Promise.all([loadPreviewEmployees(), loadRoles(), loadCounters()])
 })
 </script>
 
 <style scoped>
 .admin-hero {
+  position: relative;
+  overflow: visible;
   background:
     linear-gradient(135deg, rgba(22, 88, 84, 0.92), rgba(18, 56, 53, 0.82)),
     radial-gradient(circle at top right, rgba(99, 208, 197, 0.12), transparent 24%);
   padding: 24px 28px;
 }
 
+.admin-hero__row {
+  align-items: flex-start;
+}
+
 .admin-role-badge {
-  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.admin-role-pill {
+  font-size: 13px;
+  padding: 6px 14px;
 }
 
 .admin-panel {
@@ -360,6 +436,11 @@ code {
 }
 
 @media (max-width: 960px) {
+  .admin-role-badge {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
   .admin-panel {
     min-height: auto;
   }

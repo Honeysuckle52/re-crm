@@ -41,12 +41,12 @@ export function deleteTask(id) {
   return call(() => api.delete(`/tasks/${id}/`))
 }
 
-export function startTask(id) {
-  return call(() => api.post(`/tasks/${id}/start/`))
+export function startTask(id, opts = {}) {
+  return call(() => api.post(`/tasks/${id}/start/`), opts)
 }
 
-export function pauseTask(id) {
-  return call(() => api.post(`/tasks/${id}/pause/`))
+export function pauseTask(id, opts = {}) {
+  return call(() => api.post(`/tasks/${id}/pause/`), opts)
 }
 
 export function changeTaskStatus(id, statusId) {
@@ -55,8 +55,8 @@ export function changeTaskStatus(id, statusId) {
   }))
 }
 
-export function completeTask(id, result = {}) {
-  return call(() => api.post(`/tasks/${id}/complete/`, { result }))
+export function completeTask(id, result = {}, opts = {}) {
+  return call(() => api.post(`/tasks/${id}/complete/`, { result }), opts)
 }
 
 export function recordTaskStep(id, payload) {
@@ -67,6 +67,10 @@ export function recordTaskStep(id, payload) {
 
 export function takeRequest(id) {
   return call(() => api.post(`/requests/${id}/take/`))
+}
+
+export function closeRequest(id, outcome) {
+  return call(() => api.post(`/requests/${id}/close/`, { outcome }))
 }
 
 export function acceptRequestMatch(requestId, matchId) {

@@ -3,7 +3,9 @@
     <div class="hero hero--compact">
       <div class="hero__eyebrow">CRM агентства недвижимости</div>
       <h1 class="hero__title hero__title--compact">РИЭЛТ</h1>
-      <div class="hero__subtitle">Объекты, заявки, задачи и сделки в одном рабочем контуре</div>
+      <div class="hero__subtitle">
+        Объекты, заявки, задачи и сделки в одном рабочем контуре
+      </div>
       <div class="hero__actions">
         <router-link v-if="canEdit" to="/properties/new" class="btn btn--accent">
           + Новый объект
@@ -21,31 +23,10 @@
       <div class="hero__callout">
         <h3>Текущий рабочий фокус</h3>
         <p>
-          Открывайте заявки, распределяйте задачи, ведите сделки и контролируйте загрузку
-          сотрудников без переключения между разрозненными инструментами.
+          Открывайте заявки, распределяйте задачи, ведите сделки и контролируйте
+          загрузку сотрудников без переключения между разрозненными инструментами.
         </p>
       </div>
-    </div>
-
-    <div class="surface-head dashboard__surface-head">
-      <div class="surface-head__meta">
-        <h2 class="h3">Ключевые показатели</h2>
-        <div class="muted">Быстрая сводка по воронке агентства и текущему объёму работы.</div>
-      </div>
-    </div>
-
-    <div class="grid grid--stats">
-      <StatCard label="Объектов" :value="stats.properties_total" />
-      <StatCard label="Активных" :value="stats.properties_active" accent />
-      <StatCard label="Открытых заявок" :value="stats.requests_open" />
-      <StatCard label="Сделок" :value="stats.deals_total" />
-      <StatCard label="Сумма сделок, ₽" :value="formatMoney(stats.deals_sum)" />
-      <StatCard label="Клиентов" :value="stats.clients_total" />
-      <StatCard
-        v-if="stats.tasks_open !== undefined"
-        label="Задач в работе"
-        :value="stats.tasks_open"
-      />
     </div>
 
     <div class="surface-head dashboard__surface-head">
@@ -58,7 +39,11 @@
     </div>
 
     <div class="grid grid--4 dashboard__showcase">
-      <article v-for="card in showcaseCards" :key="card.title" class="card dashboard__showcase-card">
+      <article
+        v-for="card in showcaseCards"
+        :key="card.title"
+        class="card dashboard__showcase-card"
+      >
         <span class="tag tag--panel">{{ card.badge }}</span>
         <h3 class="dashboard__showcase-title">{{ card.title }}</h3>
         <p class="dashboard__showcase-text">{{ card.text }}</p>
@@ -78,12 +63,16 @@
           <div class="surface-head__caption">Основные CRM-сценарии</div>
         </div>
         <p class="dashboard__text">
-          Создавайте новые объекты, открывайте заявки клиентов и быстро переходите к основным
-          рабочим контурам команды.
+          Создавайте новые объекты, открывайте заявки клиентов и быстро
+          переходите к основным рабочим контурам команды.
         </p>
         <div class="dashboard__actions">
-          <router-link to="/requests" class="btn btn--accent">Открыть заявки</router-link>
-          <router-link to="/properties" class="btn btn--ghost">Смотреть объекты</router-link>
+          <router-link to="/requests" class="btn btn--accent">
+            Открыть заявки
+          </router-link>
+          <router-link to="/properties" class="btn btn--ghost">
+            Смотреть объекты
+          </router-link>
         </div>
       </div>
 
@@ -98,15 +87,23 @@
         <div class="dashboard__tips">
           <div class="dashboard__tip">
             <b>Каталог объектов</b>
-            <span>Используйте широкий каталог и закреплённый фильтр для быстрого подбора вариантов.</span>
+            <span>
+              Используйте широкий каталог и закреплённый фильтр для быстрого
+              подбора вариантов.
+            </span>
           </div>
           <div class="dashboard__tip">
             <b>Заявки и задачи</b>
-            <span>Сначала разбирайте нераспределённые заявки, затем переводите процесс в задачи и подборку.</span>
+            <span>
+              Сначала разбирайте нераспределённые заявки, затем переводите
+              процесс в задачи и подборку.
+            </span>
           </div>
           <div class="dashboard__tip">
             <b>Сделки и договоры</b>
-            <span>Контролируйте статусы и PDF-договоры прямо из журнала сделок.</span>
+            <span>
+              Контролируйте статусы и PDF-договоры прямо из журнала сделок.
+            </span>
           </div>
         </div>
       </div>
@@ -115,14 +112,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import api from '../api'
-import StatCard from '../components/StatCard.vue'
+import { computed } from 'vue'
 import { useAuthStore } from '../store/auth'
-import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const auth = useAuthStore()
-const stats = ref({})
 
 const showcaseCards = [
   {
@@ -156,15 +149,6 @@ const showcaseCards = [
 ]
 
 const canEdit = computed(() => auth.user?.user_type === 'employee')
-
-onMounted(async () => {
-  const { data } = await api.get('/dashboard/stats/')
-  stats.value = data
-})
-
-function formatMoney(v) {
-  return fmtMoney(v, '0')
-}
 </script>
 
 <style scoped>

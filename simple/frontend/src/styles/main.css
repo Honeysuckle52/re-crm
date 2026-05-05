@@ -504,19 +504,19 @@ textarea:focus-visible,
 .textarea {
   width: 100%;
   appearance: none;
-  background: var(--grad-control);
-  color: #fff;
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
   font-size: 16px;
   line-height: 1.35;
   padding: 14px 18px;
   min-height: 52px;
   border-radius: 50px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(21, 56, 57, 0.14);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 10px 20px rgba(4, 24, 22, 0.16);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 10px 20px rgba(16, 55, 52, 0.08);
   transition: all 0.3s ease;
 }
 
@@ -530,24 +530,27 @@ textarea:focus-visible,
 
 .input::placeholder,
 .textarea::placeholder {
-  color: rgba(239, 255, 253, 0.7);
+  color: rgba(21, 56, 57, 0.52);
 }
 
 .input:hover,
 .select:hover,
 .textarea:hover {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(21, 56, 57, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 12px 24px rgba(16, 55, 52, 0.1);
 }
 
 .input:focus,
 .select:focus,
 .textarea:focus {
   outline: none;
-  border-color: rgba(239, 255, 253, 0.92);
+  border-color: rgba(21, 56, 57, 0.28);
   box-shadow:
-    0 0 0 1px rgba(239, 255, 253, 0.24),
-    0 0 0 5px rgba(46, 139, 87, 0.18),
-    0 12px 24px rgba(4, 24, 22, 0.2);
+    0 0 0 1px rgba(21, 56, 57, 0.16),
+    0 0 0 5px rgba(230, 238, 242, 0.95),
+    0 12px 24px rgba(16, 55, 52, 0.12);
 }
 
 .select {
@@ -563,13 +566,13 @@ textarea:focus-visible,
 }
 
 select option {
-  background: #15463a;
-  color: #fff;
+  background: #f4f8fa;
+  color: var(--c-page-text);
 }
 
 input[type='date'],
 input[type='datetime-local'] {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 .card {
@@ -756,13 +759,14 @@ input[type='datetime-local'] {
 
 .table {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0 10px;
+  border-collapse: collapse;
+  border-spacing: 0;
 }
 
 .table-wrap {
   overflow-x: auto;
   padding-bottom: 4px;
+  border-radius: var(--r-md);
 }
 
 .table-wrap .table {
@@ -770,41 +774,95 @@ input[type='datetime-local'] {
 }
 
 .table th {
-  padding: 0 18px 6px;
+  padding: 0 18px 12px;
   text-align: left;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--c-text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .table td {
-  padding: 16px 18px;
+  padding: 15px 18px;
   font-size: 15px;
   line-height: 1.45;
   color: var(--c-text);
-  background: rgba(255, 255, 255, 0.045);
-  border-top: 1px solid rgba(31, 163, 154, 0.18);
-  border-bottom: 1px solid rgba(31, 163, 154, 0.12);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: middle;
+  transition: background-color 0.22s ease, border-color 0.22s ease;
 }
 
 .table tbody tr:hover td {
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: 0 12px 24px rgba(3, 14, 14, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
 }
 
 .table tr td:first-child {
-  border-top-left-radius: var(--r-md);
-  border-bottom-left-radius: var(--r-md);
-  border-left: 1px solid rgba(31, 163, 154, 0.18);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
 }
 
 .table tr td:last-child {
-  border-top-right-radius: var(--r-md);
-  border-bottom-right-radius: var(--r-md);
-  border-right: 1px solid rgba(31, 163, 154, 0.18);
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+
+.table .link,
+.table a {
+  color: #f4fbfa;
+  font-weight: 700;
+}
+
+.table .link:hover,
+.table a:hover {
+  color: #ffffff;
+  text-shadow: none;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.38);
+  text-underline-offset: 3px;
+}
+
+.table .select,
+.table .input,
+.table .textarea {
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(16, 55, 52, 0.08);
+}
+
+.table .select:hover,
+.table .input:hover,
+.table .textarea:hover {
+  border-color: rgba(21, 56, 57, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 10px 20px rgba(16, 55, 52, 0.1);
+}
+
+.table .select:focus,
+.table .input:focus,
+.table .textarea:focus {
+  border-color: rgba(21, 56, 57, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(21, 56, 57, 0.16),
+    0 0 0 4px rgba(230, 238, 242, 0.9),
+    0 10px 22px rgba(16, 55, 52, 0.12);
+}
+
+.select--sm {
+  min-height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 14px;
+  padding-right: 42px;
 }
 
 .empty {

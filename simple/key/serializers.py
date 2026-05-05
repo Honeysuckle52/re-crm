@@ -509,15 +509,11 @@ class RequestSerializer(serializers.ModelSerializer):
 
 class RequestCloseSerializer(serializers.Serializer):
     outcome = serializers.ChoiceField(choices=[
-        'completed', 'cancelled', 'rejected', 'lost',
+        ('completed', 'completed'),
+        ('cancelled', 'cancelled'),
+        ('rejected', 'rejected'),
+        ('lost', 'lost'),
     ])
-
-    def validate_outcome(self, value):
-        if not models.RequestStatus.objects.filter(code=value).exists():
-            raise serializers.ValidationError(
-                'Справочник статусов заявки не содержит выбранный исход.',
-            )
-        return value
 
 
 class DealSerializer(serializers.ModelSerializer):

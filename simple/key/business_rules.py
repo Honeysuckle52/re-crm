@@ -15,7 +15,26 @@ MAX_ACTIVE_REQUESTS = 2
 
 ACTIVE_TASK_STATUS_CODES: tuple[str, ...] = ('new', 'in_progress', 'waiting')
 IN_PROGRESS_TASK_STATUS_CODES: tuple[str, ...] = ('in_progress',)
-ACTIVE_REQUEST_STATUS_CODES: tuple[str, ...] = ('processing',)
+ACTIVE_REQUEST_STATUS_CODES: tuple[str, ...] = models.Request.ACTIVE_STATUS_CODES
+PROPERTY_FINAL_STATUS_BY_OPERATION: dict[str, str] = {
+    'sale': 'sold',
+    'rent': 'rented',
+}
+PROPERTY_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    'active': {'reserved', 'archived'},
+    'reserved': {'active', 'archived'},
+    'sold': {'archived'},
+    'rented': {'archived'},
+    'archived': {'active'},
+}
+DEAL_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    'new': {'negotiation', 'cancelled'},
+    'negotiation': {'new', 'documents', 'cancelled'},
+    'documents': {'negotiation', 'signed', 'cancelled'},
+    'signed': {'documents', 'completed', 'cancelled'},
+    'completed': set(),
+    'cancelled': set(),
+}
 
 
 class WorkloadLimitExceeded(Exception):
@@ -32,6 +51,7 @@ def active_tasks_qs(user, *, exclude_pk: int | None = None):
     qs = models.Task.objects.filter(
         assignee=user,
         status__code__in=ACTIVE_TASK_STATUS_CODES,
+        completed_at__isnull=True,
     )
     if exclude_pk is not None:
         qs = qs.exclude(pk=exclude_pk)
@@ -43,6 +63,7 @@ def in_progress_tasks_qs(user, *, exclude_pk: int | None = None):
     qs = models.Task.objects.filter(
         assignee=user,
         status__code__in=IN_PROGRESS_TASK_STATUS_CODES,
+        completed_at__isnull=True,
     )
     if exclude_pk is not None:
         qs = qs.exclude(pk=exclude_pk)
@@ -145,3 +166,57 @@ def assert_can_start_task(user, task) -> None:
 def status_by_code(model, code: str):
     """Удобная выборка статуса по коду."""
     return model.objects.filter(code=code).first()
+
+
+def property_status_transition_error(property_obj, next_status) -> str | None:
+    """Вернуть текст ошибки, если переход статуса объекта недопустим."""
+    current_code = getattr(property_obj.status, 'code', None)
+    next_code = getattr(next_status, 'code', None)
+    if not current_code or not next_code or current_code == next_code:
+        return None
+
+    allowed_codes = PROPERTY_STATUS_TRANSITIONS.get(current_code)
+    if allowed_codes is None:
+        return None
+
+    allowed = set(allowed_codes)
+    if current_code in {'active', 'reserved'}:
+        operation_code = getattr(property_obj.operation_type, 'code', None)
+        terminal_code = PROPERTY_FINAL_STATUS_BY_OPERATION.get(operation_code)
+        if terminal_code:
+            allowed.add(terminal_code)
+        else:
+            allowed.update({'sold', 'rented'})
+
+        if next_code in {'sold', 'rented'} and terminal_code and next_code != terminal_code:
+            operation_name = getattr(property_obj.operation_type, 'name', 'Текущая операция')
+            expected_name = 'Продано' if terminal_code == 'sold' else 'Сдано'
+            return (
+                f'Для операции «{operation_name}» объект можно завершить '
+                f'только статусом «{expected_name}».'
+            )
+
+    if next_code in allowed:
+        return None
+
+    return (
+        f'Нельзя перевести объект из статуса «{property_obj.status.name}» '
+        f'в «{next_status.name}».'
+    )
+
+
+def deal_status_transition_error(deal, next_status) -> str | None:
+    """Вернуть текст ошибки, если переход статуса сделки недопустим."""
+    current_code = getattr(deal.status, 'code', None)
+    next_code = getattr(next_status, 'code', None)
+    if not current_code or not next_code or current_code == next_code:
+        return None
+
+    allowed = DEAL_STATUS_TRANSITIONS.get(current_code)
+    if allowed is None or next_code in allowed:
+        return None
+
+    return (
+        f'Нельзя перевести сделку из статуса «{deal.status.name}» '
+        f'в «{next_status.name}».'
+    )

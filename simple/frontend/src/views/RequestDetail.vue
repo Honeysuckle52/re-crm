@@ -21,7 +21,7 @@
           </button>
           <button v-if="auth.isStaff && request.can_close"
                   class="btn btn--danger"
-                  @click="closeRequest">
+                  @click="closeDialogOpen = true">
             Закрыть заявку
           </button>
         </div>
@@ -222,7 +222,14 @@
       </div>
     </div>
   </section>
-  <div v-else class="empty">Загрузка заявки…</div>
+  <RequestCloseDialog
+    v-if="closeDialogOpen && request"
+    :request-id="request.id"
+    :loading="closeLoading"
+    @cancel="closeDialogOpen = false"
+    @submit="submitCloseRequest"
+  />
+  <div v-if="!request" class="empty">Загрузка заявки…</div>
 </template>
 
 <script setup>
@@ -230,11 +237,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
+import RequestCloseDialog from '../components/RequestCloseDialog.vue'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney, formatDate } from '@/utils/formatters'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import {
+  getRequestCloseSuccessMessage,
+  terminalRequestStatusCodes,
+} from '@/utils/requestClose'
+import {
+  closeRequest as closeRequestAction,
   takeRequest as takeRequestAction,
   acceptRequestMatch,
 } from '../api/tasks'
@@ -251,11 +265,12 @@ const relatedDeal = ref(null)
 const attachPropertyId = ref(null)
 const attachNote = ref('')
 const confirmingId = ref(null)
+const closeDialogOpen = ref(false)
+const closeLoading = ref(false)
 
 const statusClass = computed(() => {
   const code = request.value?.status_code
-  if (code === 'closed') return 'tag--panel'
-  if (code === 'cancelled') return ''
+  if (terminalRequestStatusCodes.includes(code)) return 'tag--panel'
   return 'tag--accent'
 })
 
@@ -301,20 +316,24 @@ async function load () {
   try {
     const calls = [
       api.get(`/requests/${requestId}/`),
-      api.get('/properties/'),
-      api.get('/deals/', { params: { page_size: 200 } }).catch(() => ({ data: [] })),
+      api.get('/properties/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+      api.get('/deals/', {
+        params: { request: requestId, page_size: 1 },
+      }).catch(() => ({ data: [] })),
     ]
     if (auth.isStaff) {
-      calls.push(api.get('/tasks/', { params: { request: requestId } })
+      calls.push(api.get('/tasks/', {
+        params: { request: requestId, page_size: LOOKUP_PAGE_SIZE },
+      })
         .catch(() => ({ data: [] })))
     }
     const [requestResponse, propertiesResponse, dealsResponse, tasksResponse] = await Promise.all(calls)
     request.value = requestResponse.data
-    availableProperties.value = propertiesResponse.data.results || propertiesResponse.data
-    const allDeals = dealsResponse.data.results || dealsResponse.data
-    relatedDeal.value = allDeals.find((item) => item.request === requestId) || null
+    availableProperties.value = unpackPaginated(propertiesResponse.data).items
+    const allDeals = unpackPaginated(dealsResponse.data).items
+    relatedDeal.value = allDeals[0] || null
     if (tasksResponse) {
-      const allTasks = tasksResponse.data.results || tasksResponse.data
+      const allTasks = unpackPaginated(tasksResponse.data).items
       requestTasks.value = allTasks.filter((item) => item.request === requestId)
     } else {
       requestTasks.value = []
@@ -334,21 +353,23 @@ async function takeRequest () {
   await Promise.all([load(), workload.refresh()])
 }
 
-async function closeRequest () {
-  if (!confirm('Закрыть заявку?')) return
-  try {
-    const response = await api.post(`/requests/${route.params.id}/close/`)
-    if (response?.data?.deal?.deal_number) {
-      toasts.success(
-        `Заявка закрыта. Создана сделка ${response.data.deal.deal_number}, договор готов к скачиванию.`,
-      )
-    } else {
-      toasts.success('Заявка закрыта')
-    }
-    await Promise.all([load(), workload.refresh()])
-  } catch (err) {
-    toasts.error(extractError(err, 'Не удалось закрыть заявку'))
+async function submitCloseRequest (outcome) {
+  closeLoading.value = true
+  const result = await closeRequestAction(route.params.id, outcome)
+  closeLoading.value = false
+
+  if (!result.ok) {
+    toasts.error(result.error || 'Не удалось закрыть заявку')
+    return
   }
+
+  closeDialogOpen.value = false
+  toasts.success(getRequestCloseSuccessMessage({
+    outcome,
+    data: result.data,
+    requestId: request.value?.id,
+  }))
+  await Promise.all([load(), workload.refresh()])
 }
 
 async function attachProperty () {

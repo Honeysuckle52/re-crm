@@ -19,31 +19,6 @@
       </div>
     </div>
 
-    <div class="kpi-strip">
-      <article class="kpi-card">
-        <span class="kpi-card__label">Текущий этап</span>
-        <strong class="kpi-card__value">{{ currentStep.label }}</strong>
-        <span class="kpi-card__meta">Следующее действие по workflow</span>
-      </article>
-      <article class="kpi-card">
-        <span class="kpi-card__label">Заявка</span>
-        <strong class="kpi-card__value">{{ requestStateLabel }}</strong>
-        <span class="kpi-card__meta">
-          {{ linkedRequest?.status_name || clientActiveRequest?.status_name || 'Связка пока не определена' }}
-        </span>
-      </article>
-      <article class="kpi-card">
-        <span class="kpi-card__label">Срок</span>
-        <strong class="kpi-card__value">{{ dueStateLabel }}</strong>
-        <span class="kpi-card__meta">{{ task.is_overdue ? 'Нужна быстрая реакция' : 'Контроль по дедлайну' }}</span>
-      </article>
-      <article class="kpi-card kpi-card--accent">
-        <span class="kpi-card__label">Прогресс</span>
-        <strong class="kpi-card__value">{{ completedStepCount }} / {{ visibleStepCount }}</strong>
-        <span class="kpi-card__meta">Завершённых этапов</span>
-      </article>
-    </div>
-
     <div class="panel panel--light">
       <div class="surface-head workflow-surface-head">
         <div>
@@ -294,6 +269,8 @@ import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatDateShort as formatDate } from '@/utils/formatters'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { activeRequestStatusCodes } from '@/utils/requestClose'
 
 const route = useRoute()
 const router = useRouter()
@@ -320,7 +297,6 @@ const newRequest = reactive({
 })
 
 const MATCH_TASK_TYPES = ['property_search', 'showing']
-const TERMINAL_REQUEST_STATUS_CODES = ['closed', 'cancelled']
 
 const steps = computed(() => {
   const isMatchRelevant = MATCH_TASK_TYPES.includes(task.value?.task_type)
@@ -360,13 +336,6 @@ const completedStepCount = computed(() => (
 const activeRequestId = computed(() => (
   task.value?.request || clientActiveRequest.value?.id || null
 ))
-const requestStateLabel = computed(() => (
-  activeRequestId.value ? `№${activeRequestId.value}` : 'Не привязана'
-))
-const dueStateLabel = computed(() => {
-  if (!task.value?.due_date) return 'Без срока'
-  return task.value.is_overdue ? 'Просрочена' : formatDate(task.value.due_date)
-})
 
 const clientContacts = ref(null)
 
@@ -386,27 +355,38 @@ async function load () {
   }
 
   const extra = []
-  extra.push(api.get('/operation-types/').then((r) => {
-    operationTypes.value = r.data.results || r.data
+  extra.push(api.get('/operation-types/', {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  }).then((r) => {
+    operationTypes.value = unpackPaginated(r.data).items
   }).catch(() => {}))
+
+  if (task.value.client) {
+    extra.push(api.get(`/users/${task.value.client}/`).then((r) => {
+      clientContacts.value = {
+        phone: r.data.phone || null,
+        email: r.data.email || null,
+      }
+    }).catch(() => {}))
+  }
 
   if (task.value.request) {
     extra.push(api.get(`/requests/${task.value.request}/`).then((r) => {
       linkedRequest.value = r.data
       clientContacts.value = {
-        phone: r.data.client_phone || null,
-        email: r.data.client_email || null,
+        phone: r.data.client_phone || clientContacts.value?.phone || null,
+        email: r.data.client_email || clientContacts.value?.email || null,
       }
     }).catch(() => {}))
   } else if (task.value.client) {
     extra.push(api.get('/requests/', {
-      params: { client: task.value.client, page_size: 100 },
+      params: {
+        client: task.value.client,
+        status_code: activeRequestStatusCodes.join(','),
+        page_size: 1,
+      },
     }).then((r) => {
-      const list = r.data.results || r.data
-      const open = list.find(
-        x => !TERMINAL_REQUEST_STATUS_CODES.includes(x.status_code),
-      )
-      clientActiveRequest.value = open || null
+      clientActiveRequest.value = unpackPaginated(r.data).items[0] || null
     }).catch(() => {}))
   }
 

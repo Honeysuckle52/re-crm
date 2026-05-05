@@ -10,7 +10,7 @@
           <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
             {{ auth.isStaff
               ? 'Распределяйте заявки между агентами, следите за воронкой и закрывайте обращения без потери контекста.'
-              : 'Здесь собраны все ваши обращения в агентство и текущий статус по каждому из них.' }}
+              : 'Здесь собраны все ваши обращения в агентство и их текущий статус.' }}
           </div>
         </div>
         <button class="btn btn--accent" @click="toggleForm">
@@ -19,34 +19,29 @@
       </div>
     </div>
 
-    <div class="kpi-strip">
-      <article v-for="item in requestStats" :key="item.label"
-               class="kpi-card" :class="{ 'kpi-card--accent': item.accent }">
-        <div class="kpi-card__label">{{ item.label }}</div>
-        <div class="kpi-card__value">{{ item.value }}</div>
-        <div class="kpi-card__meta">{{ item.meta }}</div>
-      </article>
-    </div>
-
     <div v-if="auth.isStaff" class="panel panel--light">
       <div class="surface-head requests-head">
         <div class="surface-head__meta">
           <h2 class="h3">Область просмотра</h2>
-          <div class="muted">Переключайтесь между общей очередью, неразобранными и своими заявками.</div>
+          <div class="muted">
+            Переключайтесь между общей очередью, неразобранными и своими заявками.
+          </div>
         </div>
       </div>
       <div class="row requests-tabs" style="gap: 8px; flex-wrap: wrap">
-        <button v-for="t in staffTabs" :key="t.value"
-                class="btn btn--sm"
-                :class="{ 'btn--primary': scope === t.value }"
-                @click="scope = t.value">
-          {{ t.label }} ({{ t.count }})
+        <button
+          v-for="tab in staffTabs"
+          :key="tab.value"
+          class="btn btn--sm"
+          :class="{ 'btn--primary': scope === tab.value }"
+          @click="scope = tab.value"
+        >
+          {{ tab.label }} ({{ tab.count }})
         </button>
       </div>
     </div>
 
-    <form v-if="showForm" class="panel panel--light stack"
-          @submit.prevent="createRequest">
+    <form v-if="showForm" class="panel panel--light stack" @submit.prevent="createRequest">
       <div class="surface-head">
         <div class="surface-head__meta">
           <h2 class="h3">Создание заявки</h2>
@@ -59,62 +54,66 @@
       </div>
 
       <div class="grid grid--3 request-form__grid">
-        <div v-if="auth.isStaff" class="field">
-          <label>Клиент</label>
-          <select class="select" v-model.number="form.client" required>
-            <option :value="null" disabled>— выберите —</option>
-            <option v-for="c in clients" :key="c.id" :value="c.id">
-              {{ c.username }}
-            </option>
-          </select>
-        </div>
-        <div v-if="auth.isStaff" class="field">
-          <label>Агент</label>
-          <select class="select" v-model.number="form.agent">
-            <option :value="null">— не назначен —</option>
-            <option v-for="a in agents" :key="a.id" :value="a.id">
-              {{ a.username }}
-            </option>
-          </select>
-        </div>
+        <RemoteLookupField
+          v-if="auth.isStaff"
+          v-model="form.client"
+          label="Клиент"
+          placeholder="Найти клиента по логину, почте или телефону"
+          endpoint="/users/"
+          :params="{ user_type: 'client' }"
+          :map-option="mapClientOption"
+          :clearable="false"
+        />
+        <RemoteLookupField
+          v-if="auth.isStaff"
+          v-model="form.agent"
+          label="Агент"
+          placeholder="Найти сотрудника по логину, почте или имени"
+          endpoint="/users/"
+          :params="{ user_type: 'employee' }"
+          :map-option="mapAgentOption"
+        />
         <div class="field">
           <label>Операция</label>
           <select class="select" v-model.number="form.operation_type" required>
-            <option v-for="o in operations" :key="o.id" :value="o.id">
-              {{ o.name }}
+            <option v-for="operation in operations" :key="operation.id" :value="operation.id">
+              {{ operation.name }}
             </option>
           </select>
         </div>
-        <div class="field">
-          <label>Конкретный объект</label>
-          <select class="select" v-model.number="form.property">
-            <option :value="null">— подбор по критериям —</option>
-            <option v-for="p in properties" :key="p.id" :value="p.id">
-              {{ p.title || 'Объект №' + p.id }} · {{ formatMoney(p.price) }} ₽
-            </option>
-          </select>
-        </div>
+        <RemoteLookupField
+          v-model="form.property"
+          label="Конкретный объект"
+          placeholder="Найти объект по номеру или названию"
+          endpoint="/properties/"
+          :params="{ ordering: '-created_at' }"
+          :map-option="mapPropertyOption"
+          no-results-text="Объекты не найдены."
+        />
         <div class="field">
           <label>Тип недвижимости</label>
-          <input class="input" v-model="form.property_type"
-                 placeholder="Квартира, дом, коммерция" />
+          <input
+            v-model="form.property_type"
+            class="input"
+            placeholder="Квартира, дом, коммерция"
+          />
         </div>
         <div class="field">
           <label>Комнат</label>
-          <input class="input" type="number" v-model.number="form.rooms_count" />
+          <input v-model.number="form.rooms_count" class="input" type="number" />
         </div>
         <div class="field request-form__budget">
           <label>Цена от / до</label>
           <div class="request-form__budget-row">
-            <input class="input" type="number" v-model.number="form.min_price" />
-            <input class="input" type="number" v-model.number="form.max_price" />
+            <input v-model.number="form.min_price" class="input" type="number" />
+            <input v-model.number="form.max_price" class="input" type="number" />
           </div>
         </div>
       </div>
 
       <div class="field">
         <label>Пожелания</label>
-        <textarea class="textarea" v-model="form.description" rows="3"></textarea>
+        <textarea v-model="form.description" class="textarea" rows="3"></textarea>
       </div>
 
       <div v-if="formError" class="error">{{ formError }}</div>
@@ -128,7 +127,9 @@
       <div class="surface-head">
         <div class="surface-head__meta">
           <h2 class="h3">Список заявок</h2>
-          <div class="muted">Показано {{ visibleRequests.length }} заявок в текущем режиме.</div>
+          <div class="muted">
+            Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
+          </div>
         </div>
         <div class="surface-head__caption">
           Быстрые действия по взятию и закрытию заявок доступны прямо из таблицы.
@@ -151,44 +152,55 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in visibleRequests" :key="r.id">
+            <tr v-for="requestItem in visibleRequests" :key="requestItem.id">
               <td>
-                <router-link :to="`/requests/${r.id}`" class="link">
-                  #{{ r.id }}
+                <router-link :to="`/requests/${requestItem.id}`" class="link">
+                  #{{ requestItem.id }}
                 </router-link>
               </td>
-              <td v-if="auth.isStaff">{{ r.client_username }}</td>
+              <td v-if="auth.isStaff">{{ requestItem.client_username }}</td>
               <td>
-                <span v-if="r.agent_username">{{ r.agent_username }}</span>
+                <span v-if="requestItem.agent_username">{{ requestItem.agent_username }}</span>
                 <span v-else class="tag">не назначен</span>
               </td>
               <td>
-                <router-link v-if="r.property"
-                             :to="`/properties/${r.property}`" class="link">
-                  {{ r.property_title || 'Объект №' + r.property }}
+                <router-link
+                  v-if="requestItem.property"
+                  :to="`/properties/${requestItem.property}`"
+                  class="link"
+                >
+                  {{ requestItem.property_title || `Объект №${requestItem.property}` }}
                 </router-link>
                 <span v-else class="muted">подбор</span>
               </td>
-              <td>{{ r.operation_type_name }}</td>
-              <td>{{ formatMoney(r.min_price) }}–{{ formatMoney(r.max_price) }} ₽</td>
-              <td><span class="tag" :class="statusClass(r)">{{ r.status_name }}</span></td>
+              <td>{{ requestItem.operation_type_name }}</td>
+              <td>{{ formatBudget(requestItem) }}</td>
+              <td>
+                <span class="tag" :class="statusClass(requestItem)">
+                  {{ requestItem.status_name }}
+                </span>
+              </td>
               <td class="muted">
-                {{ new Date(r.created_at).toLocaleDateString('ru-RU') }}
+                {{ new Date(requestItem.created_at).toLocaleDateString('ru-RU') }}
               </td>
               <td>
                 <div class="row requests-table__actions" style="gap: 6px; flex-wrap: wrap">
-                  <button v-if="auth.isStaff && !r.agent"
-                          class="btn btn--sm btn--accent"
-                          :disabled="takeDisabled"
-                          :title="takeDisabled
-                            ? 'Достигнут лимит активных заявок (' + workload.activeRequestsLabel + ')'
-                            : 'Взять заявку в работу'"
-                          @click="takeRequest(r)">
+                  <button
+                    v-if="auth.isStaff && !requestItem.agent"
+                    class="btn btn--sm btn--accent"
+                    :disabled="takeDisabled"
+                    :title="takeDisabled
+                      ? `Достигнут лимит активных заявок (${workload.activeRequestsLabel})`
+                      : 'Взять заявку в работу'"
+                    @click="takeRequest(requestItem)"
+                  >
                     Взять
                   </button>
-                  <button v-if="auth.isStaff && r.can_close"
-                          class="btn btn--sm btn--danger"
-                          @click="closeRequest(r)">
+                  <button
+                    v-if="auth.isStaff && requestItem.can_close"
+                    class="btn btn--sm btn--danger"
+                    @click="closeRequest(requestItem)"
+                  >
                     Закрыть
                   </button>
                 </div>
@@ -201,35 +213,73 @@
       <div v-if="!visibleRequests.length" class="empty">
         {{ emptyLabel }}
       </div>
+
+      <ListPagination
+        v-if="requestCount > visibleRequests.length"
+        :count="requestCount"
+        :page="requestPage"
+        :visible-count="visibleRequests.length"
+        label="заявок"
+        @change="setRequestPage"
+      />
     </div>
+
+    <RequestCloseDialog
+      v-if="closeDialog.open"
+      :request-id="closeDialog.requestId"
+      :loading="closeLoading"
+      @cancel="resetCloseDialog"
+      @submit="submitCloseRequest"
+    />
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
+import ListPagination from '../components/ListPagination.vue'
+import RemoteLookupField from '../components/RemoteLookupField.vue'
+import RequestCloseDialog from '../components/RequestCloseDialog.vue'
+import { closeRequest as closeRequestAction } from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney } from '@/utils/formatters'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import {
+  activeRequestStatusCodes,
+  getRequestCloseSuccessMessage,
+  terminalRequestStatusCodes,
+} from '@/utils/requestClose'
 
 const auth = useAuthStore()
 const workload = useWorkloadStore()
 const toasts = useToastsStore()
 
 const requests = ref([])
-const clients = ref([])
-const agents = ref([])
 const operations = ref([])
-const properties = ref([])
 
 const showForm = ref(false)
 const formError = ref('')
 const scope = ref('all')
+const closeLoading = ref(false)
+const requestPage = ref(1)
+const requestCount = ref(0)
+const closeDialog = reactive({
+  open: false,
+  requestId: null,
+})
+const requestStatsSnapshot = reactive({
+  total: 0,
+  active: 0,
+  closed: 0,
+  unassigned: 0,
+  mine: 0,
+})
 
 const form = reactive(defaultForm())
 
-function defaultForm () {
+function defaultForm() {
   return {
     client: null,
     agent: null,
@@ -244,82 +294,20 @@ function defaultForm () {
 }
 
 const staffTabs = computed(() => [
-  { value: 'all', label: 'Все', count: requests.value.length },
+  { value: 'all', label: 'Все', count: requestStatsSnapshot.total },
   {
     value: 'unassigned',
     label: 'Неразобранные',
-    count: requests.value.filter(r => !r.agent).length,
+    count: requestStatsSnapshot.unassigned,
   },
   {
     value: 'mine',
     label: 'Мои',
-    count: requests.value.filter(r => r.agent === auth.user?.id).length,
+    count: requestStatsSnapshot.mine,
   },
 ])
 
-const visibleRequests = computed(() => {
-  if (!auth.isStaff) return requests.value
-  if (scope.value === 'unassigned') return requests.value.filter(r => !r.agent)
-  if (scope.value === 'mine') return requests.value.filter(r => r.agent === auth.user?.id)
-  return requests.value
-})
-
-const openCount = computed(() =>
-  requests.value.filter(r => ['new', 'processing'].includes(r.status_code)).length,
-)
-
-const closedCount = computed(() =>
-  requests.value.filter(r => r.status_code === 'closed').length,
-)
-
-const requestStats = computed(() => {
-  if (auth.isStaff) {
-    return [
-      {
-        label: 'Всего заявок',
-        value: requests.value.length,
-        meta: 'Полный объём обращений в текущем контуре.',
-      },
-      {
-        label: 'В работе',
-        value: openCount.value,
-        meta: 'Активные обращения, требующие действий команды.',
-        accent: true,
-      },
-      {
-        label: 'Неразобранные',
-        value: requests.value.filter(r => !r.agent).length,
-        meta: 'Заявки без закреплённого сотрудника.',
-      },
-      {
-        label: 'Мои заявки',
-        value: requests.value.filter(r => r.agent === auth.user?.id).length,
-        meta: auth.isManager
-          ? 'Личный участок работы администратора/менеджера.'
-          : 'Ваш текущий рабочий пул заявок.',
-      },
-    ]
-  }
-
-  return [
-    {
-      label: 'Всего обращений',
-      value: requests.value.length,
-      meta: 'Все заявки, отправленные вами через систему.',
-    },
-    {
-      label: 'Активные',
-      value: openCount.value,
-      meta: 'Сейчас находятся в работе у агентства.',
-      accent: true,
-    },
-    {
-      label: 'Закрытые',
-      value: closedCount.value,
-      meta: 'Уже завершённые обращения.',
-    },
-  ]
-})
+const visibleRequests = computed(() => requests.value)
 
 const emptyLabel = computed(() => {
   if (!auth.isStaff) return 'Вы пока не подавали заявок.'
@@ -328,18 +316,47 @@ const emptyLabel = computed(() => {
   return 'Заявок ещё не создано.'
 })
 
-const takeDisabled = computed(() =>
-  !auth.isManager && !workload.workload.can_take_request,
-)
+const takeDisabled = computed(() => !auth.isManager && !workload.workload.can_take_request)
 
-function statusClass (requestItem) {
+function formatBudget(requestItem) {
+  const min = requestItem.min_price ? `${formatMoney(requestItem.min_price)} ₽` : '—'
+  const max = requestItem.max_price ? `${formatMoney(requestItem.max_price)} ₽` : '—'
+  return `${min}–${max}`
+}
+
+function statusClass(requestItem) {
   const code = requestItem.status_code
-  if (code === 'closed') return 'tag--panel'
-  if (code === 'cancelled') return ''
+  if (terminalRequestStatusCodes.includes(code)) return 'tag--panel'
   return 'tag--accent'
 }
 
-function toggleForm () {
+function mapClientOption(user) {
+  return {
+    id: user.id,
+    label: user.username,
+    hint: [user.email, user.phone].filter(Boolean).join(' · ') || 'Клиент',
+  }
+}
+
+function mapAgentOption(user) {
+  return {
+    id: user.id,
+    label: user.username,
+    hint: [user.role_name, user.email].filter(Boolean).join(' · ') || 'Сотрудник',
+  }
+}
+
+function mapPropertyOption(property) {
+  const title = property.title || `Объект №${property.id}`
+  const price = property.price ? `${formatMoney(property.price)} ₽` : ''
+  return {
+    id: property.id,
+    label: title,
+    hint: [property.operation_type_name, price].filter(Boolean).join(' · ') || 'Объект',
+  }
+}
+
+function toggleForm() {
   showForm.value = !showForm.value
   if (showForm.value) {
     formError.value = ''
@@ -350,44 +367,99 @@ function toggleForm () {
   }
 }
 
-async function load () {
-  const requestsReq = api.get('/requests/')
-  const operationsReq = api.get('/operation-types/')
-  const propertiesReq = api.get('/properties/')
-  const clientsReq = auth.isStaff
-    ? api.get('/users/', { params: { user_type: 'client' } })
-    : Promise.resolve({ data: [] })
-  const agentsReq = auth.isStaff
-    ? api.get('/users/', { params: { user_type: 'employee' } })
-    : Promise.resolve({ data: [] })
+async function load() {
+  const { data } = await api.get('/requests/', { params: listParams() })
+  const payload = unpackPaginated(data)
+  requests.value = payload.items
+  requestCount.value = payload.count
+}
 
-  const [r, c, a, o, p] = await Promise.all([
-    requestsReq, clientsReq, agentsReq, operationsReq, propertiesReq,
-  ])
-  requests.value = r.data.results || r.data
-  clients.value = c.data.results || c.data
-  agents.value = a.data.results || a.data
-  operations.value = o.data.results || o.data
-  properties.value = p.data.results || p.data
+async function loadLookups() {
+  const { data } = await api.get('/operation-types/', {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  })
+  operations.value = unpackPaginated(data).items
   if (operations.value.length && !form.operation_type) {
     form.operation_type = operations.value[0].id
   }
 }
 
-async function createRequest () {
+function listParams() {
+  const params = { page: requestPage.value }
+  if (auth.isStaff && scope.value !== 'all') {
+    params.scope = scope.value
+  }
+  return params
+}
+
+async function fetchRequestCount(params = {}) {
+  const { data } = await api.get('/requests/', {
+    params: { page: 1, ...params },
+  })
+  return Number(data?.count ?? (data?.results || data || []).length)
+}
+
+async function loadRequestCounts() {
+  if (auth.isStaff) {
+    const [total, active, unassigned, mine] = await Promise.all([
+      fetchRequestCount(),
+      fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
+      fetchRequestCount({ scope: 'unassigned' }),
+      fetchRequestCount({ scope: 'mine' }),
+    ])
+    requestStatsSnapshot.total = total
+    requestStatsSnapshot.active = active
+    requestStatsSnapshot.closed = Math.max(total - active, 0)
+    requestStatsSnapshot.unassigned = unassigned
+    requestStatsSnapshot.mine = mine
+    return
+  }
+
+  const [total, active, closed] = await Promise.all([
+    fetchRequestCount(),
+    fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
+    fetchRequestCount({ status_code: terminalRequestStatusCodes.join(',') }),
+  ])
+  requestStatsSnapshot.total = total
+  requestStatsSnapshot.active = active
+  requestStatsSnapshot.closed = closed
+  requestStatsSnapshot.unassigned = 0
+  requestStatsSnapshot.mine = 0
+}
+
+function setRequestPage(page) {
+  if (page < 1 || page === requestPage.value) return
+  requestPage.value = page
+}
+
+async function createRequest() {
   formError.value = ''
+  if (auth.isStaff && !form.client) {
+    formError.value = 'Выберите клиента для заявки.'
+    return
+  }
+
   try {
     const payload = { ...form }
     if (!auth.isStaff) {
       delete payload.client
       delete payload.agent
     }
+    if (!payload.agent) delete payload.agent
     if (!payload.property) delete payload.property
+    if (!payload.rooms_count) delete payload.rooms_count
+    if (!payload.min_price) delete payload.min_price
+    if (!payload.max_price) delete payload.max_price
+    if (!payload.property_type) delete payload.property_type
+
     await api.post('/requests/', payload)
     showForm.value = false
     Object.assign(form, defaultForm())
-    if (operations.value.length) form.operation_type = operations.value[0].id
-    await load()
+    if (operations.value.length) {
+      form.operation_type = operations.value[0].id
+    }
+    requestPage.value = 1
+    await Promise.all([load(), loadRequestCounts()])
     toasts.success('Заявка создана')
   } catch (err) {
     formError.value = err.response?.data
@@ -397,11 +469,11 @@ async function createRequest () {
   }
 }
 
-async function takeRequest (requestItem) {
+async function takeRequest(requestItem) {
   if (!auth.isManager && !workload.workload.can_take_request) {
     toasts.warn(
       `Нельзя взять заявку: уже ${workload.workload.active_requests} в работе `
-      + `из ${workload.workload.max_active_requests}. Закройте текущую.`,
+        + `из ${workload.workload.max_active_requests}. Закройте текущую.`,
     )
     return
   }
@@ -415,31 +487,56 @@ async function takeRequest (requestItem) {
     )
   }
 
-  await Promise.all([load(), workload.refresh()])
+  await Promise.all([load(), loadRequestCounts(), workload.refresh()])
 }
 
-async function closeRequest (requestItem) {
-  if (!confirm('Закрыть заявку?')) return
+function closeRequest(requestItem) {
+  closeDialog.open = true
+  closeDialog.requestId = requestItem.id
+}
 
-  try {
-    const res = await api.post(`/requests/${requestItem.id}/close/`)
-    if (res?.data?.deal?.deal_number) {
-      toasts.success(
-        `Заявка закрыта. Создана сделка ${res.data.deal.deal_number}, договор готов к скачиванию.`,
-      )
-    } else {
-      toasts.success(`Заявка #${requestItem.id} закрыта`)
-    }
-  } catch (err) {
-    toasts.error(extractError(err, 'Не удалось закрыть заявку'))
+function resetCloseDialog() {
+  closeDialog.open = false
+  closeDialog.requestId = null
+  closeLoading.value = false
+}
+
+async function submitCloseRequest(outcome) {
+  if (!closeDialog.requestId) return
+
+  closeLoading.value = true
+  const requestId = closeDialog.requestId
+  const result = await closeRequestAction(requestId, outcome)
+  closeLoading.value = false
+
+  if (!result.ok) {
+    toasts.error(result.error || 'Не удалось закрыть заявку')
+    return
   }
 
-  await Promise.all([load(), workload.refresh()])
+  toasts.success(getRequestCloseSuccessMessage({
+    outcome,
+    data: result.data,
+    requestId,
+  }))
+  resetCloseDialog()
+  await Promise.all([load(), loadRequestCounts(), workload.refresh()])
 }
 
-onMounted(async () => {
+watch(scope, async () => {
+  requestPage.value = 1
   await load()
-  if (auth.isStaff) await workload.refresh()
+})
+
+watch(requestPage, async () => {
+  await load()
+})
+
+onMounted(async () => {
+  await Promise.all([load(), loadLookups(), loadRequestCounts()])
+  if (auth.isStaff) {
+    await workload.refresh()
+  }
 })
 </script>
 

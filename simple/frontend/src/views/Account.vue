@@ -133,6 +133,7 @@ import api from '../api'
 import { useAuthStore } from '../store/auth'
 import { extractError, useToastsStore } from '../store/toasts'
 import InfoRow from '../components/InfoRow.vue'
+import { unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -178,8 +179,10 @@ async function loadProfile () {
   if (auth.user?.user_type !== 'client') return
   loadingProfile.value = true
   try {
-    const { data } = await api.get('/client-profiles/')
-    const list = data.results || data
+    const { data } = await api.get('/client-profiles/', {
+      params: { page_size: 1 },
+    })
+    const list = unpackPaginated(data).items
     const mine = list[0]
     if (mine) {
       profileId.value = mine.id
@@ -214,8 +217,8 @@ async function saveProfile () {
   }
 }
 
-function logout () {
-  auth.logout()
+async function logout () {
+  await auth.logout()
   router.push('/login')
 }
 

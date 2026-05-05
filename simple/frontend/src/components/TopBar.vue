@@ -37,8 +37,8 @@ const canSeeDeals   = computed(() => auth.isStaff)
 const canSeeTasks   = computed(() => auth.isStaff)
 const canSeeAdmin   = computed(() => auth.isManager)
 
-function logout() {
-  auth.logout()
+async function logout() {
+  await auth.logout()
   router.push('/login')
 }
 </script>

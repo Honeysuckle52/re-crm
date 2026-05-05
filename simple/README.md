@@ -148,8 +148,9 @@ simple/
   на сервере, клиент обращается к прокси-эндпоинту
   `/api/dadata/suggest-address/`. Изображения и характеристики объектов
   вводятся сотрудником вручную — DaData даёт только адресные данные.
-- **Регистрация без выбора роли.** `RegisterSerializer` принимает только
-  `username`, `email`, `phone`, `password`, и всегда создаёт клиента
+- **Регистрация без выбора роли.** `RegisterSerializer` принимает
+  `username`, `email`, `phone`, `password`, а также обязательные
+  `first_name` и `last_name`; учётная запись всегда создаётся как клиент
   без должности. Назначение роли делает администратор или менеджер
   через `/api/users/{id}/assign_role/`.
 - **`django-vite`** подключает сборку Vue как обычный статический ассет,
@@ -200,6 +201,7 @@ python manage.py collectstatic --noinput
 |-------|---------------------------------------------|-----------------------------------------------|
 | POST  | `/api/auth/register/`                       | Регистрация (всегда клиент, без роли)         |
 | POST  | `/api/auth/login/`                          | Логин → `{access, refresh}`                   |
+| POST  | `/api/auth/logout/`                         | Logout и blacklist текущего `refresh`         |
 | POST  | `/api/auth/refresh/`                        | Обновление `access`                           |
 | GET   | `/api/auth/me/`                             | Текущий пользователь                          |
 | GET   | `/api/dadata/suggest-address/?q=...`        | Подсказки адресов через DaData                |
@@ -212,7 +214,7 @@ python manage.py collectstatic --noinput
 | CRUD  | `/api/property-photos/`                     | Фото объектов                                 |
 | CRUD  | `/api/property-features/`                   | Справочник характеристик                      |
 | CRUD  | `/api/requests/`                            | Заявки клиентов                               |
-| POST  | `/api/requests/{id}/close/`                 | Закрыть заявку                                |
+| POST  | `/api/requests/{id}/close/`                 | Закрыть заявку с `outcome`                    |
 | CRUD  | `/api/deals/`                               | Сделки                                        |
 | POST  | `/api/deals/{id}/change_status/`            | Смена статуса сделки (воронка)                |
 | CRUD  | `/api/tasks/`                               | Задачи сотрудников                            |
@@ -222,6 +224,9 @@ python manage.py collectstatic --noinput
 | GET   | `/api/dashboard/stats/`                     | Сводка для главного экрана                    |
 
 ## Безопасность
+
+- Для `POST /api/requests/{id}/close/` ожидается тело вида
+  `{ "outcome": "completed|cancelled|rejected|lost" }`.
 
 - Ключ DaData живёт **только в `.env`** на сервере, в заголовок
   `Authorization: Token <api-key>` подставляется на серверной стороне.

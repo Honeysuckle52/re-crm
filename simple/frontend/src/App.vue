@@ -10,7 +10,6 @@
     </main>
     <ToastHost />
     <AppFooter v-if="auth.isAuthenticated" />
-    <CurrentTaskWidget v-if="auth.isAuthenticated && auth.isStaff" />
   </div>
 </template>
 
@@ -18,7 +17,6 @@
 import { useAuthStore } from './store/auth'
 import TopBar from './components/TopBar.vue'
 import AppFooter from './components/AppFooter.vue'
-import CurrentTaskWidget from './components/CurrentTaskWidget.vue'
 import ToastHost from './components/ToastHost.vue'
 
 const auth = useAuthStore()

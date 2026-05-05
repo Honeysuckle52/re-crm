@@ -27,7 +27,7 @@
       </div>
     </div>
 
-    <div class="kpi-strip">
+    <div v-if="false" class="kpi-strip">
       <article class="kpi-card">
         <span class="kpi-card__label">Статус</span>
         <strong class="kpi-card__value">{{ property.status_name || '—' }}</strong>
@@ -209,6 +209,7 @@ import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
@@ -252,11 +253,13 @@ async function submitRequest () {
 async function load() {
   const [p, s, h] = await Promise.all([
     api.get(`/properties/${route.params.id}/`),
-    api.get('/property-statuses/'),
+    api.get('/property-statuses/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    }),
     api.get(`/properties/${route.params.id}/history/`).catch(() => ({ data: [] })),
   ])
   property.value = p.data
-  statuses.value = s.data.results || s.data
+  statuses.value = unpackPaginated(s.data).items
   history.value = h.data
 }
 

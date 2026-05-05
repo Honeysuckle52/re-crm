@@ -28,6 +28,13 @@ export const useAuthStore = defineStore('auth', {
       || s.user?.role_code === 'manager',
   },
   actions: {
+    clearSession() {
+      this.user = null
+      this.access = null
+      this.refresh = null
+      localStorage.removeItem('access')
+      localStorage.removeItem('refresh')
+    },
     hydrate() {
       this.access = localStorage.getItem('access')
       this.refresh = localStorage.getItem('refresh')
@@ -49,12 +56,16 @@ export const useAuthStore = defineStore('auth', {
       const { data } = await api.get('/auth/me/')
       this.user = data
     },
-    logout() {
-      this.user = null
-      this.access = null
-      this.refresh = null
-      localStorage.removeItem('access')
-      localStorage.removeItem('refresh')
+    async logout() {
+      const refresh = this.refresh || localStorage.getItem('refresh')
+      try {
+        if (refresh) {
+          await api.post('/auth/logout/', { refresh })
+        }
+      } catch (_err) {
+      } finally {
+        this.clearSession()
+      }
     },
   },
 })

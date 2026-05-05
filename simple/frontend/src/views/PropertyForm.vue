@@ -15,7 +15,7 @@
       </div>
     </div>
 
-    <div class="kpi-strip">
+    <div v-if="false" class="kpi-strip">
       <article class="kpi-card">
         <span class="kpi-card__label">Режим</span>
         <strong class="kpi-card__value">{{ formModeLabel }}</strong>
@@ -221,6 +221,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const route = useRoute()
 const router = useRouter()
@@ -378,11 +379,15 @@ async function submit() {
 
 onMounted(async () => {
   const [o, f] = await Promise.all([
-    api.get('/operation-types/'),
-    api.get('/property-features/'),
+    api.get('/operation-types/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    }),
+    api.get('/property-features/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    }),
   ])
-  dict.operations = o.data.results || o.data
-  dict.features = f.data.results || f.data
+  dict.operations = unpackPaginated(o.data).items
+  dict.features = unpackPaginated(f.data).items
 
   if (isEdit.value) {
     const { data } = await api.get(`/properties/${route.params.id}/`)

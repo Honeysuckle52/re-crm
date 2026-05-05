@@ -15,7 +15,6 @@
           <div class="surface-head__meta">Реестр пользователей</div>
           <h2 class="h3">Поиск и фильтрация</h2>
         </div>
-        <div class="surface-head__caption">С ролями: {{ usersWithRoleCount }}</div>
       </div>
 
       <div class="row" style="gap: 10px; flex-wrap: wrap; margin-bottom: 12px">
@@ -42,7 +41,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in filtered" :key="u.id">
+            <tr v-for="u in users" :key="u.id">
               <td><b>{{ u.username }}</b></td>
               <td>{{ u.email || '—' }}</td>
               <td>{{ u.phone || '—' }}</td>
@@ -62,7 +61,16 @@
           </tbody>
         </table>
       </div>
-      <div v-if="!filtered.length" class="empty">Пользователи не найдены.</div>
+      <div v-if="!users.length" class="empty">Пользователи не найдены.</div>
+
+      <ListPagination
+        v-if="totalUsers > users.length"
+        :count="totalUsers"
+        :page="userPage"
+        :visible-count="users.length"
+        label="пользователей"
+        @change="setUserPage"
+      />
     </div>
 
     <div v-if="assignOpen" class="modal" @click.self="assignOpen = false">
@@ -104,15 +112,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
+import ListPagination from '../components/ListPagination.vue'
 import { useAuthStore } from '../store/auth'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
 const users = ref([])
 const roles = ref([])
 const search = ref('')
 const typeFilter = ref('')
+const totalUsers = ref(0)
+const userPage = ref(1)
 
 const assignOpen = ref(false)
 const assignUser = ref(null)
@@ -120,30 +132,30 @@ const assignLoading = ref(false)
 const assignError = ref('')
 const assignForm = reactive({ user_type: 'client', role_id: null })
 
-const filtered = computed(() => {
-  const q = search.value.toLowerCase()
-  return users.value.filter((u) => {
-    if (typeFilter.value && u.user_type !== typeFilter.value) return false
-    if (!q) return true
-    return (
-      u.username?.toLowerCase().includes(q) ||
-      u.email?.toLowerCase().includes(q) ||
-      (u.phone || '').includes(q)
-    )
-  })
-})
+async function loadUsers() {
+  const { data } = await api.get('/users/', { params: listParams() })
+  const payload = unpackPaginated(data)
+  users.value = payload.items
+  totalUsers.value = payload.count
+}
 
-const usersWithRoleCount = computed(() => (
-  users.value.filter((u) => u.role_name).length
-))
+async function loadRoles() {
+  const response = await api.get('/user-roles/', {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  }).catch(() => ({ data: [] }))
+  roles.value = unpackPaginated(response.data).items
+}
 
-async function load() {
-  const [u, r] = await Promise.all([
-    api.get('/users/'),
-    api.get('/user-roles/').catch(() => ({ data: [] })),
-  ])
-  users.value = u.data.results || u.data
-  roles.value = r.data.results || r.data
+function listParams () {
+  const params = { page: userPage.value }
+  if (search.value.trim()) params.search = search.value.trim()
+  if (typeFilter.value) params.user_type = typeFilter.value
+  return params
+}
+
+function setUserPage (page) {
+  if (page < 1 || page === userPage.value) return
+  userPage.value = page
 }
 
 function openAssign(u) {
@@ -162,7 +174,7 @@ async function saveAssign() {
       role_id: assignForm.user_type === 'employee' ? assignForm.role_id : null,
     })
     assignOpen.value = false
-    await load()
+    await loadUsers()
   } catch (e) {
     assignError.value = e.response?.data?.detail
       || 'Не удалось сохранить. Проверьте права доступа.'
@@ -171,7 +183,27 @@ async function saveAssign() {
   }
 }
 
-onMounted(load)
+let filtersTimer = null
+
+watch([search, typeFilter], () => {
+  if (filtersTimer) clearTimeout(filtersTimer)
+  filtersTimer = setTimeout(async () => {
+    userPage.value = 1
+    await loadUsers()
+  }, 250)
+})
+
+watch(userPage, async () => {
+  await loadUsers()
+})
+
+onBeforeUnmount(() => {
+  if (filtersTimer) clearTimeout(filtersTimer)
+})
+
+onMounted(async () => {
+  await Promise.all([loadUsers(), loadRoles()])
+})
 </script>
 
 <style scoped>
@@ -184,6 +216,7 @@ onMounted(load)
   color: var(--c-page-text);
   border-color: rgba(21, 56, 57, 0.16);
   box-shadow: 0 10px 22px rgba(16, 55, 52, 0.08);
+  border-radius: 24px;
 }
 
 .clients-section-head + .row .input::placeholder {
@@ -193,7 +226,10 @@ onMounted(load)
 .clients-section-head + .row .select {
   color: var(--c-page-text);
   border-color: rgba(21, 56, 57, 0.16);
-  box-shadow: 0 10px 22px rgba(16, 55, 52, 0.08);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 10px 22px rgba(16, 55, 52, 0.08);
   background-image:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
     linear-gradient(45deg, transparent 50%, rgba(21, 56, 57, 0.62) 50%),
@@ -212,7 +248,9 @@ onMounted(load)
 .clients-section-head + .row .input:hover,
 .clients-section-head + .row .select:hover {
   border-color: rgba(21, 56, 57, 0.26);
-  box-shadow: 0 12px 26px rgba(16, 55, 52, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 26px rgba(16, 55, 52, 0.1);
 }
 
 .clients-section-head + .row .input:focus,
@@ -226,6 +264,34 @@ onMounted(load)
 
 .clients-table-wrap .table {
   min-width: 980px;
+}
+
+.clients-table-wrap {
+  min-height: 420px;
+}
+
+.clients-table-wrap .tag,
+.clients-table-wrap .tag--accent,
+.clients-table-wrap .tag--panel {
+  justify-content: center;
+  min-width: 126px;
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.2;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(16, 55, 52, 0.08);
+}
+
+.clients-table-wrap .btn--sm {
+  min-width: 126px;
 }
 
 .modal {

@@ -43,7 +43,7 @@
       <div class="surface-head">
         <div class="surface-head__meta">
           <h2 class="h3">Сделки в работе</h2>
-          <div class="muted">Показано {{ filtered.length }} записей по текущему фильтру.</div>
+          <div class="muted">Показано {{ filtered.length }} из {{ filteredTotalCount }} записей по текущему фильтру.</div>
         </div>
         <div class="surface-head__caption">
           Смена статуса и работа с договором доступны без перехода на отдельный экран.
@@ -98,21 +98,18 @@
               <td class="muted">
                 {{ new Date(deal.deal_date).toLocaleDateString('ru-RU') }}
               </td>
-              <td>
+              <td class="deals-table__contract">
                 <button v-if="deal.contract_url"
-                        class="btn btn--sm"
+                        class="btn btn--sm deals-table__contract-btn"
                         @click="downloadContract(deal)">
                   Скачать PDF
                 </button>
                 <button v-else
-                        class="btn btn--sm btn--ghost"
+                        class="btn btn--sm btn--ghost deals-table__contract-btn"
                         @click="regenerate(deal)"
                         title="Сгенерировать PDF-договор">
                   Сформировать
                 </button>
-                <div v-if="deal.contract_generated_at" class="muted deals-table__contract-meta">
-                  {{ new Date(deal.contract_generated_at).toLocaleDateString('ru-RU') }}
-                </div>
               </td>
               <td class="deals-table__status">
                 <select class="select select--sm" :value="deal.status"
@@ -131,19 +128,33 @@
       <div v-if="!filtered.length" class="empty">
         Сделок по выбранному статусу нет.
       </div>
+
+      <ListPagination
+        v-if="filteredTotalCount > filtered.length"
+        :count="filteredTotalCount"
+        :page="dealPage"
+        :visible-count="filtered.length"
+        label="сделок"
+        @change="setDealPage"
+      />
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import api from '../api'
+import ListPagination from '../components/ListPagination.vue'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
+import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const deals = ref([])
 const statuses = ref([])
 const statusFilter = ref('')
+const dealPage = ref(1)
+const dealCount = ref(0)
+const statusCounts = ref({})
 const toasts = useToastsStore()
 
 function formatMoney (value) {
@@ -151,8 +162,7 @@ function formatMoney (value) {
 }
 
 const filtered = computed(() => {
-  if (!statusFilter.value) return deals.value
-  return deals.value.filter(deal => deal.status === statusFilter.value)
+  return deals.value
 })
 
 const contractsReady = computed(() =>
@@ -167,39 +177,38 @@ const totalCommission = computed(() =>
   deals.value.reduce((sum, deal) => sum + Number(deal.commission_amount || 0), 0),
 )
 
-const activeDeals = computed(() =>
-  deals.value.filter(deal => {
-    const normalized = (deal.status_name || '').toLowerCase()
-    return !normalized.includes('заверш') && !normalized.includes('отмен')
-  }).length,
-)
+const filteredTotalCount = computed(() => (
+  statusFilter.value ? (statusCounts.value[statusFilter.value] || 0) : dealCount.value
+))
 
 const dealStats = computed(() => [
   {
     label: 'Всего сделок',
-    value: deals.value.length,
-    meta: 'Полный журнал оформленных и текущих сделок.',
+    value: dealCount.value,
+    meta: 'Полный журнал доступных сделок.',
   },
   {
-    label: 'В работе',
-    value: activeDeals.value,
-    meta: 'Сделки, которые ещё не завершены.',
+    label: 'В выборке',
+    value: filteredTotalCount.value,
+    meta: statusFilter.value
+      ? 'Количество сделок по выбранному статусу.'
+      : 'Текущая выборка без дополнительного фильтра.',
     accent: true,
   },
   {
-    label: 'Сумма сделок',
+    label: 'Сумма на странице',
     value: formatMoney(totalAmount.value) + ' ₽',
-    meta: 'Общий объём по финальной стоимости.',
+    meta: 'Суммарная стоимость записей на текущей странице.',
   },
   {
-    label: 'Комиссия',
-    value: formatMoney(totalCommission.value) + ' ₽',
-    meta: `PDF готово: ${contractsReady.value} из ${deals.value.length}`,
+    label: 'PDF на странице',
+    value: `${contractsReady.value} из ${deals.value.length || 0}`,
+    meta: `Комиссия на странице: ${formatMoney(totalCommission.value)} ₽`,
   },
 ])
 
 function countByStatus (id) {
-  return deals.value.filter(deal => deal.status === id).length
+  return statusCounts.value[id] || 0
 }
 
 function statusClass (name) {
@@ -215,7 +224,7 @@ async function changeStatus (deal, statusId) {
     await api.post(`/deals/${deal.id}/change_status/`, {
       status_id: Number(statusId),
     })
-    await load()
+    await Promise.all([load(), loadStatusCounts()])
     const nextStatus = statuses.value.find(item => String(item.id) === String(statusId))
     toasts.success(
       `Статус сделки ${deal.deal_number} обновлён`
@@ -257,30 +266,85 @@ async function regenerate (deal) {
 
 async function load () {
   try {
-    const [dealsResponse, statusesResponse] = await Promise.all([
-      api.get('/deals/'),
-      api.get('/deal-statuses/'),
-    ])
-    deals.value = dealsResponse.data.results || dealsResponse.data
-    statuses.value = statusesResponse.data.results || statusesResponse.data
+    const { data } = await api.get('/deals/', {
+      params: listParams(),
+    })
+    const payload = unpackPaginated(data)
+    deals.value = payload.items
+    if (!statusFilter.value) {
+      dealCount.value = payload.count
+    }
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось загрузить сделки'))
   }
 }
 
-onMounted(load)
+async function loadStatuses () {
+  const { data } = await api.get('/deal-statuses/', {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  })
+  statuses.value = unpackPaginated(data).items
+}
+
+async function fetchDealCount (params = {}) {
+  const { data } = await api.get('/deals/', {
+    params: { page: 1, ...params },
+  })
+  return Number(data?.count ?? (data?.results || data || []).length)
+}
+
+async function loadStatusCounts () {
+  const requests = [
+    fetchDealCount(),
+    ...statuses.value.map((status) => fetchDealCount({ status: status.id })),
+  ]
+  const [total, ...counts] = await Promise.all(requests)
+  dealCount.value = total
+  const nextCounts = {}
+  statuses.value.forEach((status, index) => {
+    nextCounts[status.id] = counts[index]
+  })
+  statusCounts.value = nextCounts
+}
+
+function listParams () {
+  const params = { page: dealPage.value }
+  if (statusFilter.value) {
+    params.status = Number(statusFilter.value)
+  }
+  return params
+}
+
+function setDealPage (page) {
+  if (page < 1 || page === dealPage.value) return
+  dealPage.value = page
+}
+
+watch(statusFilter, async () => {
+  dealPage.value = 1
+  await load()
+})
+
+watch(dealPage, async () => {
+  await load()
+})
+
+onMounted(async () => {
+  await loadStatuses()
+  await Promise.all([load(), loadStatusCounts()])
+})
 </script>
 
 <style scoped>
 .link {
-  color: var(--c-accent);
-  font-weight: 600;
+  color: #f4fbfa;
+  font-weight: 700;
 }
 
 .link:hover {
-  color: var(--c-accent-2);
+  color: #ffffff;
   text-decoration: underline;
-  text-decoration-color: rgba(99, 208, 197, 0.36);
+  text-decoration-color: rgba(255, 255, 255, 0.38);
 }
 
 .deal-filter__head {
@@ -295,12 +359,19 @@ onMounted(load)
   min-width: 1120px;
 }
 
-.deals-table__sub {
-  font-size: 11px;
+.deals-table .tag,
+.deals-table .tag--accent,
+.deals-table .deal-status--cancelled {
+  min-height: 38px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
 }
 
-.deals-table__contract-meta {
-  margin-top: 6px;
+.deals-table__sub {
   font-size: 11px;
 }
 
@@ -308,9 +379,27 @@ onMounted(load)
   min-width: 180px;
 }
 
+.deals-table__status .select {
+  width: 100%;
+  min-width: 180px;
+}
+
+.deals-table__contract {
+  white-space: nowrap;
+}
+
+.deals-table__contract-btn {
+  min-width: 154px;
+  min-height: 38px;
+  padding: 7px 14px;
+  border-color: rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
+}
+
 .deal-status--cancelled {
-  border-color: rgba(194, 85, 74, 0.26);
-  background: rgba(194, 85, 74, 0.14);
-  color: #ffd8d1;
+  border-color: rgba(194, 85, 74, 0.22);
+  color: #7b4741;
 }
 </style>

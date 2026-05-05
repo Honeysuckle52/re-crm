@@ -1,24 +1,50 @@
 <template>
   <div class="toast-host" role="status" aria-live="polite">
     <transition-group name="toast">
-      <div v-for="t in toasts.items" :key="t.id"
-           class="toast" :class="`toast--${t.type}`">
+      <div
+        v-for="t in toasts.items"
+        :key="t.id"
+        class="toast"
+        :class="`toast--${t.type}`"
+        @mouseenter="cancelDismiss(t.id)"
+        @mouseleave="scheduleDismiss(t.id)"
+      >
         <div class="toast__body">
           <div v-if="t.title" class="toast__title">{{ t.title }}</div>
           <div class="toast__text">{{ t.text }}</div>
         </div>
-        <button class="toast__close" type="button"
-                @click="toasts.dismiss(t.id)"
-                aria-label="Закрыть уведомление">x</button>
       </div>
     </transition-group>
   </div>
 </template>
 
 <script setup>
+import { onBeforeUnmount } from 'vue'
 import { useToastsStore } from '../store/toasts'
 
 const toasts = useToastsStore()
+const dismissTimers = new Map()
+
+function cancelDismiss(id) {
+  const timerId = dismissTimers.get(id)
+  if (!timerId) return
+  window.clearTimeout(timerId)
+  dismissTimers.delete(id)
+}
+
+function scheduleDismiss(id) {
+  cancelDismiss(id)
+  const timerId = window.setTimeout(() => {
+    dismissTimers.delete(id)
+    toasts.dismiss(id)
+  }, 300)
+  dismissTimers.set(id, timerId)
+}
+
+onBeforeUnmount(() => {
+  dismissTimers.forEach((timerId) => window.clearTimeout(timerId))
+  dismissTimers.clear()
+})
 </script>
 
 <style scoped>
@@ -73,29 +99,9 @@ const toasts = useToastsStore()
   color: var(--c-ink-soft);
 }
 
-.toast__close {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: rgba(7, 52, 52, 0.86);
-  color: var(--c-text-muted);
-  font-size: 16px;
-  line-height: 1.1;
-  text-transform: lowercase;
-  transition: all 0.3s ease;
-}
-
-.toast__close:hover {
-  background: var(--grad-control);
-  color: var(--c-accent-2);
-  box-shadow: 0 0 16px rgba(120, 216, 206, 0.12);
-}
-
 .toast-enter-active,
 .toast-leave-active {
-  transition: all 0.24s ease;
+  transition: opacity 0.24s ease, transform 0.24s ease;
 }
 
 .toast-enter-from,
