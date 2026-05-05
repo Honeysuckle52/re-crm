@@ -1,11 +1,4 @@
-"""
-Запись и выборка KPI сотрудников.
-
-Фиксация статистики идёт строго атомарно (``F('…') + 1``), чтобы при
-параллельных завершениях задач счётчики не ломались. Выборки —
-сгруппированные по дню и/или типу задачи: используются в
-``/users/{id}/kpi/`` и в личном кабинете.
-"""
+"""Запись и выборка KPI."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -83,20 +76,13 @@ def record_completion(task: models.Task, *, auto_closed: bool = False) -> None:
     )
 
 
-# ------------------------------------------------------------------ читалки
-
 def kpi_for_range(
     employee_id: int,
     *,
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> dict:
-    """
-    Агрегированная статистика сотрудника за интервал дат.
-
-    Возвращает словарь формата, удобного фронтенду:
-    ``{ totals: {...}, by_kind: [...], by_day: [...] }``.
-    """
+    """Сводка KPI за период."""
     if not _is_enabled():
         return {
             'date_from': (date_from or timezone.localdate()).isoformat(),

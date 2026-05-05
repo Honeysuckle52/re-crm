@@ -1,15 +1,3 @@
-<!--
-  TaskMineBadge — компактный бейдж «ваша задача» / «вы выполняете».
-
-  Используется в таблице /tasks и в виджете CurrentTaskWidget. Цвет и
-  форма вписаны в существующую систему .tag — подчёркнуто-аккуратно,
-  без «ярких пятен», чтобы не ломать дизайн.
-
-  Props:
-    - task:   объект Task из API (нужны assignee и status_code)
-    - userId: id текущего пользователя (из auth.user.id)
-    - mode:   'full' | 'dot' — полный текстовый бейдж или только точка.
--->
 <template>
   <span v-if="isMine" class="mine" :class="stateClass">
     <span class="mine__dot" aria-hidden="true"></span>
@@ -30,8 +18,6 @@ const isMine = computed(
   () => props.userId != null && props.task?.assignee === props.userId,
 )
 
-// Два состояния: «назначена мне» и «я выполняю прямо сейчас».
-// Оба визуально отличаются — первая спокойная, вторая акцентная.
 const isActive = computed(() => props.task?.status_code === 'in_progress')
 
 const stateClass = computed(() => (
@@ -66,14 +52,12 @@ const label = computed(() => (
   display: inline-block;
 }
 
-/* Спокойный вариант — просто маркер принадлежности. */
 .mine--assigned {
   background: rgba(15, 58, 51, .08);
   color: #0f3a33;
   border-color: rgba(15, 58, 51, .18);
 }
 
-/* Акцентный — сотрудник уже взял задачу в работу. */
 .mine--active {
   background: #0f3a33;
   color: #fff;

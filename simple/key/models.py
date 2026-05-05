@@ -1,26 +1,10 @@
-"""
-ORM-модели приложения ``key``.
-
-Соответствуют 3НФ-схеме БД учётной системы агентства недвижимости:
-справочники, адресная иерархия, пользователи, профили, объекты, заявки,
-сделки, история статусов, просмотры, задачи сотрудников.
-
-Адресные идентификаторы хранятся в поле ``external_id`` — это GUID из
-реестра, который возвращает сервис подсказок DaData.
-"""
+"""ORM-модели приложения ``key``."""
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
 
-# Псевдоним встроенного декоратора ``property``.
-# В модели ``Task`` есть поле с именем ``property`` (FK на Property),
-# которое внутри тела класса затеняет встроенный ``property``.
-# Чтобы ниже можно было объявлять вычисляемые атрибуты через ``@_property``
-# без конфликта имён, сохраняем ссылку на встроенный декоратор здесь.
+# Поле ``Task.property`` перекрывает builtins.property.
 _property = property
-
-
-# ====== СПРАВОЧНИКИ =========================================================
 
 class OperationType(models.Model):
     """Тип операции с недвижимостью (продажа / аренда)."""
@@ -110,9 +94,6 @@ class UserRole(models.Model):
     def __str__(self):
         return self.name
 
-
-# ====== АДРЕСА (иерархия) ==================================================
-
 class City(models.Model):
     """Город / населённый пункт."""
     name = models.CharField(max_length=100)
@@ -193,9 +174,6 @@ class Address(models.Model):
             base += f', кв. {self.apartment_number}'
         return base
 
-
-# ====== ПОЛЬЗОВАТЕЛИ ========================================================
-
 class UserManager(BaseUserManager):
     """Менеджер кастомной модели пользователя."""
 
@@ -219,12 +197,7 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """
-    Единая таблица пользователей: сотрудники и клиенты.
-
-    Тип пользователя и роль назначает администратор/менеджер — при
-    самостоятельной регистрации всегда создаётся клиент без роли.
-    """
+    """Единая таблица сотрудников и клиентов."""
     USER_TYPE_CHOICES = [
         ('employee', 'Сотрудник'),
         ('client', 'Клиент'),
@@ -263,8 +236,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return f'{self.username} ({self.get_user_type_display()})'
 
-    # --- утилиты прав доступа ------------------------------------------
-
     @property
     def role_code(self) -> str | None:
         return self.role.code if self.role_id else None
@@ -288,9 +259,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def is_client(self) -> bool:
         return self.user_type == 'client'
-
-
-# ====== ПРОФИЛИ =============================================================
 
 class EmployeeProfile(models.Model):
     """Профиль сотрудника."""
@@ -346,9 +314,6 @@ class ClientProfile(models.Model):
 
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
-
-
-# ====== ОБЪЕКТЫ НЕДВИЖИМОСТИ ===============================================
 
 class Property(models.Model):
     """Объект недвижимости."""
@@ -427,31 +392,15 @@ class PropertyFeatureValue(models.Model):
 
 
 class PropertyPhoto(models.Model):
-    """
-    Фотография объекта.
-
-    Изображение загружает сотрудник агентства — DaData возвращает только
-    адресные данные, а визуальный контент заполняется вручную. Допустимы
-    оба варианта: загрузка файла (``image``) или внешний URL (``url``).
-
-    Ранее файлы складывались в ``properties/%Y/%m/``. Теперь путь упрощён
-    до ``%Y/%m/`` — ровно там, где лежат демо-картинки из
-    ``seed_demo`` (``media/2026/04/1.jpg`` и т. д.). Старые файлы в
-    ``media/properties/...`` можно либо удалить вручную, либо оставить —
-    они останутся валидными ссылками у ранее созданных записей.
-    """
+    """Фотография объекта."""
     property = models.ForeignKey(Property, on_delete=models.CASCADE,
                                  related_name='photos')
     image = models.ImageField(upload_to='%Y/%m/',
                               blank=True, null=True)
     url = models.TextField(blank=True, null=True)
     caption = models.CharField(max_length=255, blank=True, null=True)
-    # Обложка — первое фото, которое показывается на карточке.
     is_cover = models.BooleanField(default=False)
-    # «Мягкое» скрытие. Позволяет сотруднику исключить фото из выдачи
-    # клиенту, не удаляя его физически — для ручного управления альбомом.
     is_hidden = models.BooleanField(default=False)
-    # Ручной порядок сортировки. 0 — самый верх, дальше по возрастанию.
     order = models.PositiveIntegerField(default=0)
     uploaded_at = models.DateTimeField(default=timezone.now)
 
@@ -480,30 +429,15 @@ class PropertyDocument(models.Model):
         verbose_name = 'Документ объекта'
         verbose_name_plural = 'Документы объектов'
 
-
-# ====== ЗАЯВКИ, СДЕЛКИ, ПРОСМОТРЫ, ЗАДАЧИ ==================================
-
 class Request(models.Model):
-    """
-    Заявка клиента на подбор/покупку/аренду недвижимости.
-
-    Два сценария подачи:
-      * «быстрая заявка» с карточки объекта — заполняется поле ``property``;
-      * «заявка на подбор» в личном кабинете — указываются только критерии.
-    Дополнительно агент может предлагать клиенту варианты через
-    :class:`RequestPropertyMatch`.
-    """
+    """Заявка клиента на подбор или конкретный объект."""
     client = models.ForeignKey(User, on_delete=models.PROTECT,
                                related_name='client_requests',
                                limit_choices_to={'user_type': 'client'})
-    # Агент назначается сотрудником после подачи заявки клиентом,
-    # поэтому поле опциональное — до «взятия в работу» агента нет.
     agent = models.ForeignKey(User, on_delete=models.PROTECT,
                               related_name='agent_requests',
                               blank=True, null=True,
                               limit_choices_to={'user_type': 'employee'})
-    # Конкретный объект, привязанный к заявке (если клиент нажал
-    # «Оставить заявку» на странице конкретной квартиры/дома).
     property = models.ForeignKey('Property', on_delete=models.PROTECT,
                                  related_name='direct_requests',
                                  blank=True, null=True)
@@ -540,13 +474,7 @@ class Request(models.Model):
 
 
 class RequestPropertyMatch(models.Model):
-    """
-    Вариант объекта, предложенный агентом по заявке клиента.
-
-    Позволяет вести «подборку» — несколько объектов, которые агент
-    отправил клиенту на рассмотрение. Клиент не может редактировать
-    эту таблицу, но видит её в деталях своей заявки.
-    """
+    """Вариант объекта по заявке клиента."""
     request = models.ForeignKey(Request, on_delete=models.CASCADE,
                                 related_name='matches')
     property = models.ForeignKey('Property', on_delete=models.PROTECT,
@@ -576,15 +504,7 @@ class RequestPropertyMatch(models.Model):
 
 
 class Deal(models.Model):
-    """
-    Сделка (продажа / аренда) — воронка продаж.
-
-    Может быть создана вручную сотрудником (:class:`DealViewSet.create`)
-    или автоматически при закрытии заявки с подтверждённым объектом
-    (см. :func:`key.deals_service.create_deal_from_request`). В последнем
-    случае поле ``request`` хранит ссылку на исходную заявку, а
-    ``contract_file`` — сгенерированный PDF-договор.
-    """
+    """Сделка по объекту и клиенту."""
     deal_number = models.CharField(max_length=50, unique=True)
     property = models.ForeignKey(Property, on_delete=models.PROTECT,
                                  related_name='deals')
@@ -600,10 +520,6 @@ class Deal(models.Model):
                                related_name='deals',
                                blank=True, null=True)
 
-    # Исходная заявка клиента. OneToOne гарантирует, что из одной заявки
-    # не будут создаваться дубли сделок. ``null=True`` — для уже
-    # существующих «ручных» сделок, которые были созданы до внедрения
-    # связи и не имеют родительской заявки.
     request = models.OneToOneField(
         Request, on_delete=models.SET_NULL,
         related_name='deal', blank=True, null=True,
@@ -617,8 +533,6 @@ class Deal(models.Model):
     deal_date = models.DateField()
     notes = models.TextField(blank=True, null=True)
 
-    # Автосгенерированный PDF-договор (DejaVuSans, кириллица).
-    # Лежит в media/contracts/<год>/<месяц>/.
     contract_file = models.FileField(
         upload_to='contracts/%Y/%m/', blank=True, null=True,
     )
@@ -673,12 +587,7 @@ class PropertyViewing(models.Model):
 
 
 class Task(models.Model):
-    """
-    Задача сотрудника (звонок, показ, подготовка документов и т. п.).
-
-    Универсальная CRM-сущность: задача может быть связана с клиентом,
-    объектом, заявкой или сделкой — любой из этих связей достаточно.
-    """
+    """Задача сотрудника."""
     PRIORITY_CHOICES = [
         ('low',    'Низкий'),
         ('normal', 'Обычный'),
@@ -694,7 +603,6 @@ class Task(models.Model):
         ('other', 'Прочее'),
     ]
 
-    # Коды статусов, при которых задача считается завершённой
     TERMINAL_STATUS_CODES = ('done', 'cancelled')
 
     title = models.CharField(max_length=255)
@@ -727,10 +635,7 @@ class Task(models.Model):
     completed_at = models.DateTimeField(blank=True, null=True)
     result = models.TextField(blank=True, null=True,
                               help_text='Результат выполнения задачи')
-    # Пошаговый журнал выполнения: сотрудник идёт «позвонил → заявка
-    # → подобрал объект → завершил», каждый шаг пишется сюда как
-    # {'step': 'contact', 'outcome': 'called', 'note': '...', 'at': ISO,
-    # 'by': user_id}. См. task_actions.record_step().
+    # История шагов из TaskWorkflow.
     steps_log = models.JSONField(
         default=list, blank=True,
         help_text='Журнал этапов выполнения (список объектов).',
@@ -749,19 +654,12 @@ class Task(models.Model):
     def __str__(self):
         return self.title
 
-    # Используем @_property (ссылка на builtins.property),
-    # т.к. поле ``property = models.ForeignKey(...)`` выше в теле класса
-    # затенило встроенное имя ``property``.
     @_property
     def is_completed(self):
         """Проверяет, завершена ли задача."""
         return (self.status_id is not None
                 and self.status.code in self.TERMINAL_STATUS_CODES)
 
-    # Алиас, который ожидает :mod:`key.task_actions` и движок событий.
-    # Семантически совпадает с :attr:`is_completed` — оба названия
-    # означают «задача в терминальном статусе и дальнейшие переходы
-    # запрещены».
     @_property
     def is_terminal(self):
         return self.is_completed
@@ -773,21 +671,13 @@ class Task(models.Model):
 
 
 class OutgoingEmail(models.Model):
-    """
-    Очередь исходящих писем клиентам.
-
-    Используется для автоматических уведомлений (например, при
-    подтверждении варианта подборки) и ручной отправки из CRM.
-    Статус отслеживается для повторных попыток и логирования.
-    """
+    """Очередь исходящих писем."""
     STATUS_CHOICES = [
         ('pending', 'Ожидает отправки'),
         ('sent', 'Отправлено'),
         ('failed', 'Ошибка отправки'),
     ]
 
-    # Получателем может быть и клиент, и сотрудник (например, уведомление
-    # о назначении задачи). Поэтому не ограничиваем user_type.
     recipient = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='outgoing_emails',
     )
@@ -797,16 +687,12 @@ class OutgoingEmail(models.Model):
                                limit_choices_to={'user_type': 'employee'})
     subject = models.CharField(max_length=255)
     body = models.TextField()
-    # Код шаблона, из которого собрано письмо (property_matched, task_assigned…).
     template_code = models.CharField(max_length=64, blank=True, null=True)
-    # Причина/триггер отправки (request_taken, task_assigned, request_closed…).
     trigger_code = models.CharField(max_length=64, blank=True, null=True, db_index=True)
-    # Структурированный контекст отправки для аудита и отладки цепочки.
     context = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES,
                               default='pending', db_index=True)
 
-    # Связи с бизнес-объектами (опциональные)
     task = models.ForeignKey(Task, on_delete=models.SET_NULL,
                              blank=True, null=True, related_name='emails')
     request = models.ForeignKey(Request, on_delete=models.SET_NULL,

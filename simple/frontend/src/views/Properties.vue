@@ -16,7 +16,6 @@
       </div>
     </div>
 
-    <!-- Фильтры -->
     <div class="panel panel--light">
       <div class="grid grid--3">
         <div class="field">
@@ -63,7 +62,6 @@
       </div>
     </div>
 
-    <!-- Список -->
     <div v-if="loading" class="empty">Загрузка…</div>
     <div v-else-if="items.length" class="grid grid--3">
       <PropertyCard v-for="p in items" :key="p.id" :property="p" />

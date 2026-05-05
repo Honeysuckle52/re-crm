@@ -16,20 +16,12 @@ export const useAuthStore = defineStore('auth', {
       return s.user.role_name
         || (s.user.user_type === 'client' ? 'Клиент' : 'Сотрудник')
     },
-    // Суперпользователь Django — полный доступ ко всему, включая назначение
-    // других администраторов, независимо от role_code и user_type.
     isSuperuser: (s) => !!s.user?.is_superuser,
-    // Сотрудник агентства. Суперюзер автоматически считается сотрудником —
-    // иначе его бы не пускало к /tasks, /clients, /deals.
     isStaff: (s) =>
       s.user?.user_type === 'employee' || !!s.user?.is_superuser,
-    // Администратор: либо is_superuser, либо role.code === 'admin'.
     isAdmin: (s) =>
       !!s.user?.is_superuser || s.user?.role_code === 'admin'
       || !!s.user?.is_admin,
-    // Руководитель: администратор или менеджер. Используем серверный флаг
-    // is_manager (= is_admin_or_manager в модели), чтобы не копировать
-    // логику прав в клиент.
     isManager: (s) =>
       !!s.user?.is_superuser || !!s.user?.is_manager
       || s.user?.role_code === 'admin'

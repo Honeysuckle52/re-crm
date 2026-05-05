@@ -8,7 +8,6 @@
           <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
             Поручения сотрудникам: звонки, показы, документы
           </div>
-          <!-- Индикатор личной нагрузки сотрудника — сразу под заголовком. -->
           <div
               v-if="!auth.isManager"
               class="workload-banner"
@@ -28,14 +27,12 @@
       </div>
     </div>
 
-    <!-- Уведомления (тосты) -->
     <Transition name="toast">
       <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
         {{ toast.message }}
       </div>
     </Transition>
 
-    <!-- Форма создания -->
     <form v-if="showForm" class="panel panel--light stack" @submit.prevent="create">
       <div class="grid grid--3">
         <div class="field">
@@ -108,8 +105,6 @@
       </div>
     </form>
 
-    <!-- Вкладки «Активные / История». Для менеджера история показывает
-         все завершённые задачи, для сотрудника — только его собственные. -->
     <div class="panel panel--light">
       <div class="tabs">
         <button class="tab"
@@ -124,8 +119,6 @@
         </button>
       </div>
 
-      <!-- Фильтры видны только в «Активных», в истории они не нужны:
-           там и так показываются только завершённые. -->
       <div v-if="viewMode === 'active'" class="filter-row">
         <div class="filter-group">
           <span class="filter-label">Статус:</span>
@@ -155,7 +148,6 @@
       </div>
     </div>
 
-    <!-- Таблица задач: активные -->
     <div v-if="viewMode === 'active'" class="panel panel--light">
       <table class="table">
         <thead>
@@ -216,9 +208,6 @@
               </div>
             </td>
             <td class="task-actions">
-              <!-- Открыть пошаговый экран работы с клиентом.
-                   Показываем только тем, кому эта задача назначена,
-                   и только пока она не завершена. -->
               <button v-if="canOpenWorkflow(t)"
                       class="btn btn--sm btn--primary"
                       @click="openWorkflow(t)">
@@ -258,8 +247,6 @@
       <div v-if="!filtered.length" class="empty">Задач нет.</div>
     </div>
 
-    <!-- Таблица задач: история. Акцент на длительности и результате —
-         это то, что сотруднику / менеджеру нужно видеть первым. -->
     <div v-else class="panel panel--light">
       <table class="table">
         <thead>
@@ -310,7 +297,6 @@
       <div v-if="!history.length" class="empty">Выполненных задач пока нет.</div>
     </div>
 
-    <!-- Модалка завершения задачи -->
     <Teleport to="body">
       <div v-if="completeModal.show" class="modal-overlay" @click.self="closeCompleteModal">
         <div class="modal">
@@ -344,7 +330,6 @@ import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import TaskMineBadge from '../components/TaskMineBadge.vue'
-// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
 import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
@@ -365,7 +350,6 @@ const showForm = ref(false)
 const busyId = ref(null)
 const viewMode = ref('active')
 
-// Типы задач (соответствуют TASK_TYPE_CHOICES в модели)
 const taskTypes = [
   { code: 'contact_client', name: 'Связаться с клиентом' },
   { code: 'property_search', name: 'Подбор объектов' },
@@ -375,7 +359,6 @@ const taskTypes = [
   { code: 'other', name: 'Прочее' },
 ]
 
-// Тост-уведомления
 const toast = reactive({ show: false, message: '', type: 'success' })
 function showToast(message, type = 'success') {
   toast.message = message
@@ -384,7 +367,6 @@ function showToast(message, type = 'success') {
   setTimeout(() => { toast.show = false }, 4000)
 }
 
-// Модалка завершения
 const completeModal = reactive({ show: false, task: null, result: '' })
 function openCompleteModal(task) {
   completeModal.task = task
@@ -406,9 +388,6 @@ function defaultForm () {
   }
 }
 
-// ---- Списки «активные / история» -----------------------------------------
-// «Активные» — это всё, кроме done/cancelled. Фильтр локальный —
-// сортируем в памяти, т.к. массив уже загружен в tasks.
 const TERMINAL_CODES = ['done', 'cancelled']
 const activeTasks = computed(() => (
   tasks.value.filter(t => !TERMINAL_CODES.includes(t.status_code))
@@ -448,10 +427,6 @@ function priorityClass (p) {
   return ''
 }
 
-/**
- * Пытаемся вывести длительность задачи: если на клиенте есть хотя бы
- * created_at и completed_at — считаем разницу; иначе «—».
- */
 function humanDuration (t) {
   if (!t.created_at || !t.completed_at) return '—'
   const ms = new Date(t.completed_at) - new Date(t.created_at)
@@ -465,10 +440,6 @@ function humanDuration (t) {
   return `${days} дн ${hours % 24} ч`
 }
 
-/**
- * Результат может храниться как строка или как объект {summary, ...}.
- * Пользователю показываем summary (первым), либо текст целиком.
- */
 function resultSummary (t) {
   if (!t.result) return ''
   if (typeof t.result === 'string') return t.result
@@ -502,11 +473,6 @@ async function load () {
   properties.value = p.data.results || p.data
 }
 
-/**
- * Загрузка истории: запрос уходит напрямую на /tasks/ с фильтром
- * по статусам done/cancelled, а для сотрудника — дополнительно
- * assignee=me (алиас, который понимает TaskViewSet.get_queryset).
- */
 async function loadHistory () {
   const params = {
     status_code: 'done,cancelled',
@@ -544,7 +510,6 @@ async function changeStatus (task, statusId) {
   if (!statusId) return
   const { ok, data, error } = await tasksApi.changeTaskStatus(task.id, statusId)
   if (ok) {
-    // Применяем свежий объект к строке таблицы без full reload.
     applyTaskPatch(data)
     showToast('Статус изменён')
   } else {
@@ -552,7 +517,6 @@ async function changeStatus (task, statusId) {
   }
 }
 
-// --- права на быстрые действия --------------------------------------------
 function isOwnOrManaged (task) {
   return auth.isManager || task.assignee === auth.user?.id
 }
@@ -568,8 +532,6 @@ function canComplete (task) {
     && ['new', 'in_progress', 'waiting'].includes(task.status_code)
 }
 function canOpenWorkflow (task) {
-  // «Открыть» показываем только владельцу задачи — менеджер смотрит
-  // задачу через обычный просмотр, не мешая пошаговой работе.
   return task.assignee === auth.user?.id
     && !TERMINAL_CODES.includes(task.status_code)
 }
@@ -580,11 +542,6 @@ function canStartBtn (task) {
       < workload.workload.max_in_progress_tasks
 }
 
-/**
- * Встраиваем обновлённый объект задачи в массив tasks. Это позволяет
- * не гонять лишний GET /tasks/ после каждого действия и делает UI
- * мгновенно отзывчивым.
- */
 function applyTaskPatch (task) {
   if (!task || !task.id) return
   const idx = tasks.value.findIndex(t => t.id === task.id)
@@ -594,8 +551,6 @@ function applyTaskPatch (task) {
 
 async function startTask (task) {
   busyId.value = task.id
-  // Оптимистичный апдейт: сразу ставим статус in_progress и
-  // занимаем слот нагрузки. Если API вернёт ошибку — откатим.
   const prevStatusCode = task.status_code
   const prevStatus = task.status
   const inProgress = statuses.value.find(s => s.code === 'in_progress')
@@ -614,7 +569,6 @@ async function startTask (task) {
     applyTaskPatch(data)
     showToast('Задача взята в работу')
   } else {
-    // Откат: возвращаем исходный статус.
     applyTaskPatch({
       ...task,
       status_code: prevStatusCode,
@@ -643,8 +597,6 @@ async function confirmComplete () {
   if (!task) return
   busyId.value = task.id
 
-  // Оптимистично: сразу освобождаем слот, чтобы сотрудник видел,
-  // что может взять следующую задачу, и переносим задачу в «историю».
   workload.optimisticCompleteTask(task.id)
 
   const payload = completeModal.result
@@ -653,12 +605,10 @@ async function confirmComplete () {
   const { ok, data, error } = await tasksApi.completeTask(task.id, payload)
   if (ok) {
     applyTaskPatch(data)
-    // Если открыта вкладка истории — подгрузим свежий срез.
     if (viewMode.value === 'history') loadHistory()
     showToast('Задача завершена')
     closeCompleteModal()
   } else {
-    // Откат нагрузки и возврат статуса.
     workload.refresh()
     showToast(error || 'Не удалось завершить задачу', 'error')
   }
@@ -697,7 +647,6 @@ onMounted(async () => {
   background: rgba(194, 85, 74, .9);
 }
 
-/* Вкладки «Активные / История» */
 .tabs {
   display: flex;
   gap: 4px;
@@ -740,7 +689,6 @@ onMounted(async () => {
   color: #0f3a33;
 }
 
-/* Фильтры */
 .filter-row {
   display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
 }
@@ -751,12 +699,10 @@ onMounted(async () => {
   font-size: 13px; font-weight: 600; color: var(--c-text-muted);
 }
 
-/* Типы задач */
 .tag--type {
   background: #e8f4f3; color: #1a5a52; font-size: 11px;
 }
 
-/* Индикатор автозакрытия */
 .auto-closed-badge {
   display: inline-block;
   font-size: 10px; font-weight: 700;
@@ -766,7 +712,6 @@ onMounted(async () => {
   margin-left: 6px;
 }
 
-/* «Моя задача» — подсветка строк */
 .mine-cell { width: 18px; padding-left: 14px !important; }
 .row--mine > td:first-child {
   box-shadow: inset 3px 0 0 rgba(15, 58, 51, .25);
@@ -785,7 +730,6 @@ onMounted(async () => {
 
 .history-result { min-width: 160px; }
 
-/* Тосты */
 .toast {
   position: fixed;
   top: 20px; right: 20px;
@@ -804,7 +748,6 @@ onMounted(async () => {
   opacity: 0; transform: translateX(30px);
 }
 
-/* Модалка */
 .modal-overlay {
   position: fixed; inset: 0;
   background: rgba(0,0,0,.5);

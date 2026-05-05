@@ -1,14 +1,4 @@
-"""
-Права доступа CRM/ERP агентства недвижимости.
-
-Разграничение:
-    * администратор (superuser или ``role.code == 'admin'``) — всё;
-    * менеджер (``role.code == 'manager'``) — управление пользователями,
-      сделками, объектами, заявками;
-    * агент (``role.code == 'agent'``) — свои заявки/сделки/просмотры,
-      все объекты доступны только на чтение и редактирование своих;
-    * клиент (``user_type == 'client'``) — только собственные записи.
-"""
+"""Права доступа CRM."""
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
@@ -57,17 +47,7 @@ class IsAdminOrManagerOrReadOnly(BasePermission):
 
 
 class IsOwnClientProfileOrEmployee(BasePermission):
-    """
-    Правила для ``ClientProfileViewSet``.
-
-    * Сотрудники агентства — могут всё (read/write/create/delete) —
-      это нужно, чтобы они заполняли/правили данные клиента перед
-      подписанием договора.
-    * Клиент — может читать и редактировать только СВОЙ профиль.
-      Создание запрещено: профиль создаётся вместе с аккаунтом
-      при регистрации (см. :class:`key.serializers.RegisterSerializer`),
-      дубли клиент создавать не должен.
-    """
+    """Клиент редактирует только свой профиль, сотрудник — любой."""
 
     message = 'Можно редактировать только собственный профиль клиента.'
 
@@ -76,7 +56,6 @@ class IsOwnClientProfileOrEmployee(BasePermission):
             return False
         if request.user.is_employee:
             return True
-        # Клиент — запрещаем создание, всё остальное — на object level.
         if request.method == 'POST':
             return False
         return True

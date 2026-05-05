@@ -35,7 +35,6 @@ const initial = computed(() => (auth.displayName?.[0] || '?').toUpperCase())
 const canSeeClients = computed(() => auth.isStaff)
 const canSeeDeals   = computed(() => auth.isStaff)
 const canSeeTasks   = computed(() => auth.isStaff)
-// Админ-панель видят только администраторы и менеджеры.
 const canSeeAdmin   = computed(() => auth.isManager)
 
 function logout() {

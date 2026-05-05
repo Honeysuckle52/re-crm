@@ -1,16 +1,5 @@
 <template>
-  <!--
-    Плавающий виджет текущей задачи. Три режима:
-      - hidden   — свёрнут в FAB-иконку (по умолчанию восстанавливается
-                   из localStorage);
-      - summary  — тонкая шапка с индикатором, заголовком и счётчиками;
-      - expanded — полная карточка с метаданными и действиями.
-    Подъём над футером — через IntersectionObserver на `.footer`:
-    когда футер попадает в область видимости, виджет поднимается
-    ровно на его видимую часть, чтобы никогда не перекрывать.
-  -->
   <template v-if="auth.isStaff">
-    <!-- Свёрнут полностью: круглый FAB в правом нижнем углу. -->
     <button
       v-if="mode === 'hidden'"
       class="ctw-fab"
@@ -38,7 +27,6 @@
       :style="floatStyle"
       aria-label="Текущая задача сотрудника"
     >
-      <!-- Шапка-кликабельная: сворачивает в summary/expanded. -->
       <div class="ctw__head">
         <button
           class="ctw__head-main"
@@ -59,8 +47,6 @@
             {{ mode === 'expanded' ? '▾' : '▴' }}
           </span>
         </button>
-        <!-- Отдельная кнопка «закрыть в FAB», чтобы клик по ней не триггерил
-             toggleExpanded. -->
         <button
           class="ctw__close"
           aria-label="Скрыть виджет"
@@ -69,7 +55,6 @@
         >×</button>
       </div>
 
-      <!-- Полное тело только в режиме expanded. -->
       <div v-if="mode === 'expanded'" class="ctw__body">
         <template v-if="task">
           <div class="ctw__tags">
@@ -95,8 +80,6 @@
           </dl>
 
           <div class="ctw__actions">
-            <!-- Главная кнопка — открывает пошаговый экран работы с клиентом.
-                 Здесь сотрудник фиксирует звонок, создаёт заявку и т. д. -->
             <router-link :to="{ name: 'task-workflow', params: { id: task.id } }"
                          class="ctw__btn ctw__btn--primary">
               Открыть задачу
@@ -134,19 +117,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
 import { pauseTask, completeTask } from '../api/tasks'
-// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
 import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const wl = useWorkloadStore()
 const busy = ref(false)
 
-// ---------------------------------------------------------------------------
-// Режим отображения
-// ---------------------------------------------------------------------------
-// 'expanded' — полная карточка, 'summary' — тонкая шапка, 'hidden' — FAB.
-// Сохраняем между сессиями, но при появлении срочных поводов
-// (просрочено / перегрузка) принудительно разворачиваем один раз.
 const STORAGE_KEY = 'ctw.mode'
 const mode = ref(loadMode())
 
@@ -154,20 +130,17 @@ function loadMode () {
   try {
     const v = localStorage.getItem(STORAGE_KEY)
     if (v === 'hidden' || v === 'summary' || v === 'expanded') return v
-  } catch (_e) { /* SSR / private mode — ignore */ }
+  } catch (_e) {}
   return 'expanded'
 }
 function setMode (next) {
   mode.value = next
-  try { localStorage.setItem(STORAGE_KEY, next) } catch (_e) { /* ignore */ }
+  try { localStorage.setItem(STORAGE_KEY, next) } catch (_e) {}
 }
 function toggleExpanded () {
   setMode(mode.value === 'expanded' ? 'summary' : 'expanded')
 }
 
-// ---------------------------------------------------------------------------
-// Данные из стора
-// ---------------------------------------------------------------------------
 const task = computed(() => wl.currentTask)
 const isOverdue = computed(() => !!task.value?.is_overdue)
 
@@ -215,10 +188,6 @@ const fabTitle = computed(() => {
   return 'Нет активной задачи'
 })
 
-// ---------------------------------------------------------------------------
-// Форматирование
-// ---------------------------------------------------------------------------
-// formatDate импортируется из utils/formatters (см. шапку script setup).
 function priorityLabel (p) {
   return ({ low: 'Низкий', normal: 'Обычный', high: 'Высокий' })[p] || p
 }
@@ -228,10 +197,6 @@ function priorityClass (p) {
   return ''
 }
 
-// ---------------------------------------------------------------------------
-// Действия: проходят через api/tasks.js, который сам дёргает
-// wl.bumpAfterAction() — виджет синхронно обновится и на других страницах.
-// ---------------------------------------------------------------------------
 async function pause () {
   if (!task.value) return
   busy.value = true
@@ -242,22 +207,11 @@ async function complete () {
   if (!task.value) return
   const id = task.value.id
   busy.value = true
-  // Мгновенно очищаем слот на клиенте, чтобы сотрудник видел,
-  // что можно взять следующую задачу, не дожидаясь ответа сервера.
-  // Если API вернёт ошибку — refresh() подтянет корректное состояние.
   wl.optimisticCompleteTask(id)
   try { await completeTask(id) }
   finally { busy.value = false }
 }
 
-// ---------------------------------------------------------------------------
-// Поддержание актуальности
-// ---------------------------------------------------------------------------
-// 1) Авто-refresh при логине/логауте.
-// 2) Лёгкий polling каждые 30s на случай, если изменения пришли
-//    с другой вкладки или сервера (чат, бот, админка).
-// 3) Refresh при возврате вкладки в фокус — мгновенная синхронизация
-//    после действий в соседней вкладке.
 let pollTimer = null
 function startPolling () {
   stopPolling()
@@ -272,16 +226,8 @@ function onVisibility () {
   if (!document.hidden && auth.isStaff) wl.refresh()
 }
 
-// ---------------------------------------------------------------------------
-// Поднятие виджета над футером
-// ---------------------------------------------------------------------------
-// Следим за `.footer` через IntersectionObserver: как только его верхняя
-// граница заходит в viewport, пересчитываем, насколько он перекрывает
-// нижний край окна, и сдвигаем виджет ровно на эту высоту + зазор 12px.
-// Дополнительно — ResizeObserver, чтобы отрабатывать смену размера футера
-// (например, появление плашки «Сессия истекает»).
-const footerOverlap = ref(0) // px
-const BASE_GAP = 20           // px — базовый отступ от низа
+const footerOverlap = ref(0)
+const BASE_GAP = 20
 let io = null
 let ro = null
 let footerEl = null
@@ -290,7 +236,6 @@ function measureFooter () {
   if (!footerEl) { footerOverlap.value = 0; return }
   const rect = footerEl.getBoundingClientRect()
   const viewport = window.innerHeight || document.documentElement.clientHeight
-  // Насколько низ футера «залез» в нижнюю часть экрана.
   const overlap = Math.max(0, viewport - rect.top)
   footerOverlap.value = Math.min(overlap, rect.height)
 }
@@ -323,9 +268,6 @@ const floatStyle = computed(() => ({
   bottom: `${BASE_GAP + footerOverlap.value}px`,
 }))
 
-// ---------------------------------------------------------------------------
-// Жизненный цикл
-// ---------------------------------------------------------------------------
 watch(() => auth.isAuthenticated, (v) => {
   if (v && auth.isStaff) wl.refresh()
   else wl.reset()
@@ -335,8 +277,6 @@ onMounted(() => {
   if (auth.isStaff) wl.refresh()
   startPolling()
   document.addEventListener('visibilitychange', onVisibility)
-  // Футер рендерится рядом, но на всякий случай ждём кадр —
-  // IntersectionObserver устойчив к тому, что элемент появится позже.
   requestAnimationFrame(attachFooterObservers)
 })
 
@@ -348,16 +288,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ---------- Общие плавающие координаты ---------- */
 .ctw,
 .ctw-fab {
   position: fixed;
   right: 20px;
   z-index: 60;
-  /* bottom задаётся инлайново через :style — он подстраивается под футер. */
 }
 
-/* ---------- FAB (полностью скрытый режим) ---------- */
 .ctw-fab {
   width: 48px; height: 48px; border-radius: 50%;
   border: none; cursor: pointer;
@@ -384,7 +321,6 @@ onBeforeUnmount(() => {
 .ctw-fab.is-overloaded .ctw-fab__badge,
 .ctw-fab.is-overdue   .ctw-fab__badge { box-shadow: 0 0 0 2px #c34a3d; }
 
-/* ---------- Карточка (summary + expanded) ---------- */
 .ctw {
   width: min(360px, calc(100vw - 32px));
   background: #ffffff;
@@ -399,7 +335,6 @@ onBeforeUnmount(() => {
 }
 .ctw.is-overloaded { border-color: #e7b7b1; }
 
-/* Шапка: основная кнопка + close рядом. */
 .ctw__head {
   display: flex; align-items: stretch;
   background: #0f3a33;
@@ -458,7 +393,6 @@ onBeforeUnmount(() => {
 
 .ctw__chevron { font-size: 10px; opacity: .75; }
 
-/* ---------- Тело (только expanded) ---------- */
 .ctw__body {
   padding: 12px 14px 14px;
   display: flex; flex-direction: column; gap: 10px;
@@ -519,7 +453,6 @@ onBeforeUnmount(() => {
   font-size: 12px; font-weight: 500;
 }
 
-/* На узких экранах — растянуть по ширине. */
 @media (max-width: 520px) {
   .ctw {
     left: 12px; right: 12px;

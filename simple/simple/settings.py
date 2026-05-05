@@ -1,7 +1,4 @@
-"""
-Настройки проекта «Учётная система агентства недвижимости».
-Django 6 + DRF + JWT + PostgreSQL + django-vite + Vue 3.
-"""
+"""Настройки проекта."""
 from datetime import timedelta
 from pathlib import Path
 import os
@@ -12,13 +9,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
 
-# --- Core -------------------------------------------------------------------
-
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key-change-me')
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
-
-# --- Applications -----------------------------------------------------------
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -28,7 +21,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # сторонние
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -36,7 +28,6 @@ INSTALLED_APPS = [
     'django_vite',
     'drf_spectacular',
 
-    # локальные
     'key',
 ]
 
@@ -72,8 +63,6 @@ TEMPLATES = [
 WSGI_APPLICATION = 'simple.wsgi.application'
 ASGI_APPLICATION = 'simple.asgi.application'
 
-# --- База данных (PostgreSQL) -----------------------------------------------
-
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -86,8 +75,6 @@ DATABASES = {
     }
 }
 
-# --- Аутентификация ---------------------------------------------------------
-
 AUTH_USER_MODEL = 'key.User'
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -97,14 +84,10 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# --- Локализация ------------------------------------------------------------
-
 LANGUAGE_CODE = 'ru-ru'
 TIME_ZONE = 'Europe/Moscow'
 USE_I18N = True
 USE_TZ = True
-
-# --- Статика и медиа --------------------------------------------------------
 
 VITE_ASSETS_DIR = BASE_DIR / "frontend" / "dist" / ".vite"
 
@@ -119,8 +102,6 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# --- DRF --------------------------------------------------------------------
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -155,8 +136,6 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
-# --- CORS -------------------------------------------------------------------
-
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -164,8 +143,6 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:8000',
 ]
 CORS_ALLOW_CREDENTIALS = True
-
-# --- django-vite ------------------------------------------------------------
 
 DJANGO_VITE = {
     'default': {
@@ -177,8 +154,6 @@ DJANGO_VITE = {
     }
 }
 
-# --- Email / SMTP -----------------------------------------------------------
-
 EMAIL_BACKEND = os.getenv(
     'EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend',
 )
@@ -187,9 +162,7 @@ EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True').lower() == 'true'
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False').lower() == 'true'
 
-# Django жёстко запрещает одновременное включение SSL и TLS. Если
-# админ выставил оба флага в .env — отдаём приоритет SSL, иначе
-# приложение упадёт при старте.
+# SSL приоритетнее TLS, иначе Django падает на старте.
 if EMAIL_USE_SSL and EMAIL_USE_TLS:
     EMAIL_USE_TLS = False
 
@@ -198,14 +171,9 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'danil_naumov_90@bk.ru')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
-# Брендинг/ссылки для почтовых шаблонов.
 AGENCY_NAME = os.getenv('AGENCY_NAME', 'Агентство недвижимости')
 AGENCY_PUBLIC_URL = os.getenv('AGENCY_PUBLIC_URL', 'http://127.0.0.1:8000')
 AGENCY_REPLY_TO = os.getenv('AGENCY_REPLY_TO', EMAIL_HOST_USER)
-
-# --- DaData (подсказки адресов) --------------------------------------------
-#
-# Используется открытый API подсказок DaData. Ключ хранится ТОЛЬКО на сервере
 
 DADATA_API_URL = os.getenv(
     'DADATA_API_URL',

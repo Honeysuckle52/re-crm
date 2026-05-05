@@ -8,7 +8,6 @@
       <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
         {{ auth.user?.email }} · {{ auth.roleLabel }}
       </div>
-      <!-- Приветственный баннер после регистрации -->
       <div v-if="showWelcome"
            style="margin-top: 14px; background: rgba(61, 219, 199, .15);
                   border: 1px solid rgba(61, 219, 199, .35);
@@ -19,7 +18,6 @@
       </div>
     </div>
 
-    <!-- Тосты -->
     <Transition name="toast">
       <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
         {{ toast.message }}
@@ -51,8 +49,6 @@
       </div>
     </div>
 
-    <!-- Договорные данные: только для клиентов. Сотруднику этот блок
-         не нужен, т.к. ClientProfile у сотрудников не создаётся. -->
     <div v-if="auth.user?.user_type === 'client'" class="panel panel--light stack">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <div>
@@ -62,8 +58,6 @@
             Просмотреть их кроме вас могут только сотрудники агентства.
           </div>
         </div>
-        <!-- Индикатор полноты профиля — помогает клиенту понять,
-             что осталось дозаполнить для договора. -->
         <div class="completeness" :class="`is-${completeness.state}`">
           <div class="completeness__bar">
             <div class="completeness__fill"
@@ -149,8 +143,6 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-// Приветственный баннер показываем только один раз — после регистрации
-// мы редиректим на /account?welcome=1.
 const showWelcome = ref(!!route.query.welcome)
 
 const loadingProfile = ref(false)
@@ -178,12 +170,6 @@ function showToast (message, type = 'success') {
   setTimeout(() => { toast.show = false }, 4000)
 }
 
-// ---------------------------------------------------------------------------
-// Индикатор полноты договорного профиля.
-// Поля, которые реально используются в PDF-договоре (см. key/documents.py):
-// ФИО, дата рождения, серия+номер+кем/когда выдан+код, адрес регистрации.
-// Остальное — бонусом.
-// ---------------------------------------------------------------------------
 const REQUIRED_FIELDS = [
   'first_name', 'last_name', 'birth_date',
   'passport_series', 'passport_number',
@@ -200,16 +186,13 @@ const completeness = computed(() => {
   return { percent, state }
 })
 
-// ---------------------------------------------------------------------------
-// Загрузка и сохранение профиля
-// ---------------------------------------------------------------------------
 async function loadProfile () {
   if (auth.user?.user_type !== 'client') return
   loadingProfile.value = true
   try {
     const { data } = await api.get('/client-profiles/')
     const list = data.results || data
-    const mine = list[0] // для клиента get_queryset фильтрует по user=self
+    const mine = list[0]
     if (mine) {
       profileId.value = mine.id
       for (const key of Object.keys(profile)) {
@@ -229,8 +212,6 @@ async function saveProfile () {
     return
   }
   saving.value = true
-  // Пустые строки преобразуем в null, чтобы в БД лежало NULL и
-  // генератор договора выводил прочерк, а не пустую строку.
   const payload = { user: auth.user.id }
   for (const [k, v] of Object.entries(profile)) {
     payload[k] = v === '' ? null : v

@@ -1,14 +1,4 @@
-"""
-Management-команда заполнения справочников учётной системы недвижимости.
-
-Использование::
-
-    python manage.py seed_dictionaries
-    python manage.py seed_dictionaries --flush   # предварительно очистить
-
-Команда идемпотентна: повторный запуск не создаёт дублей — используется
-``update_or_create`` по уникальному полю ``code`` / ``name``.
-"""
+"""Заполняет справочники проекта."""
 from django.core.management.base import BaseCommand
 from django.db import transaction
 

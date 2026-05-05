@@ -5,14 +5,12 @@ const api = axios.create({
   withCredentials: false,
 })
 
-// Интерсептор: подставляем JWT access-токен
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// Автоматическое обновление access по refresh при 401
 let refreshing = null
 api.interceptors.response.use(
   (res) => res,

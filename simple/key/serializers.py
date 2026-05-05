@@ -1,4 +1,4 @@
-"""Сериализаторы DRF приложения ``key``."""
+"""Сериализаторы DRF."""
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
@@ -7,8 +7,6 @@ from . import models
 
 User = get_user_model()
 
-
-# ---------- Справочники ----------------------------------------------------
 
 class OperationTypeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -46,8 +44,6 @@ class UserRoleSerializer(serializers.ModelSerializer):
         fields = ['id', 'code', 'name', 'description']
 
 
-# ---------- Адреса ---------------------------------------------------------
-
 class CitySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.City
@@ -81,15 +77,8 @@ class AddressSerializer(serializers.ModelSerializer):
         return str(obj)
 
 
-# ---------- Пользователи и профили ----------------------------------------
-
 class UserSerializer(serializers.ModelSerializer):
-    """Полное представление пользователя.
-
-    Дополнительно отдаём ``is_superuser``/``is_staff`` и вычисляемый
-    флаг ``is_admin`` — они нужны фронтенду, чтобы показывать админ-UI
-    суперюзеру даже без явно назначенной роли «admin» в справочнике.
-    """
+    """Полное представление пользователя."""
     role_name = serializers.CharField(source='role.name', read_only=True)
     role_code = serializers.CharField(source='role.code', read_only=True)
     user_type_display = serializers.CharField(source='get_user_type_display',
@@ -112,23 +101,10 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    """
-    Самостоятельная регистрация клиента.
-
-    Двухшаговая форма на фронтенде присылает поля одним POST-запросом:
-    на шаге 1 — минимальные данные аккаунта и ФИО (обязательные),
-    на шаге 2 — опциональные данные профиля (паспорт, адреса, дата
-    рождения). Все эти поля нужны для автозаполнения PDF-договора
-    в :mod:`key.documents`, поэтому ClientProfile создаётся сразу.
-
-    Пользователь НЕ выбирает ни ``user_type``, ни ``role`` — тип
-    всегда ``client``, роль назначается отдельным эндпоинтом
-    ``/api/users/{id}/assign_role/``.
-    """
+    """Регистрация клиента с одновременным созданием профиля."""
     password = serializers.CharField(write_only=True,
                                      validators=[validate_password])
 
-    # --- Поля ClientProfile (часть обязательная, часть опциональная) ---
     first_name = serializers.CharField(write_only=True, max_length=50)
     last_name = serializers.CharField(write_only=True, max_length=50)
     middle_name = serializers.CharField(
@@ -159,9 +135,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         write_only=True, required=False, allow_blank=True,
     )
 
-    # Поля, которые мы забираем из ``validated_data`` для построения
-    # ClientProfile. Держим список в одном месте — чтобы create()
-    # не перечислял строки руками и не расходился со списком ниже.
     _PROFILE_FIELDS = (
         'first_name', 'last_name', 'middle_name', 'birth_date',
         'passport_series', 'passport_number', 'passport_issued_by',
@@ -185,9 +158,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
         profile_data = {f: validated_data.pop(f, None)
                         for f in self._PROFILE_FIELDS}
-        # Пустые строки (пришли с не-обязательного шага 2) трактуем как
-        # «поле не заполнено», чтобы в БД лежал NULL и генератор договора
-        # корректно выводил прочерк в паспортной строке.
         profile_kwargs = {}
         for key, value in profile_data.items():
             if value in (None, ''):
@@ -204,8 +174,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
             user.set_password(password)
             user.save()
-            # ФИО обязательны — их валидация уже прошла выше,
-            # т.к. first_name/last_name объявлены без allow_blank.
             models.ClientProfile.objects.create(
                 user=user,
                 first_name=profile_kwargs.pop('first_name'),
@@ -216,11 +184,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class UserRoleAssignSerializer(serializers.Serializer):
-    """Эндпоинт назначения типа и роли пользователя администратором.
-
-    Принимает ``role`` или ``role_id`` (алиас для фронтенда) —
-    оба поля указывают на запись в справочнике :class:`UserRole`.
-    """
+    """Назначение типа и роли пользователя."""
     user_type = serializers.ChoiceField(
         choices=User.USER_TYPE_CHOICES, required=False,
     )
@@ -235,7 +199,6 @@ class UserRoleAssignSerializer(serializers.Serializer):
     is_active = serializers.BooleanField(required=False)
 
     def validate(self, attrs):
-        # Единый ключ ``role`` вне зависимости от того, что прислал клиент.
         if 'role_id' in attrs:
             attrs['role'] = attrs.pop('role_id')
         return attrs
@@ -264,8 +227,6 @@ class ClientProfileSerializer(serializers.ModelSerializer):
                   'preferred_contact_method', 'notes']
 
 
-# ---------- Объекты недвижимости ------------------------------------------
-
 class PropertyFeatureSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.PropertyFeature
@@ -281,12 +242,7 @@ class PropertyFeatureValueSerializer(serializers.ModelSerializer):
 
 
 class PropertyPhotoSerializer(serializers.ModelSerializer):
-    """
-    Фото объекта.
-
-    Поле ``image_url`` всегда содержит итоговую ссылку, по которой можно
-    отобразить фото: либо ссылка на загруженный файл, либо внешний URL.
-    """
+    """Фото объекта с готовой ссылкой для фронта."""
     image_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -317,12 +273,7 @@ class PropertyDocumentSerializer(serializers.ModelSerializer):
 
 
 class AddressNestedWriteSerializer(serializers.Serializer):
-    """
-    Адрес в формате «единой строки» из DaData для записи.
-
-    Фронтенд может передавать полный набор полей, а бэкенд создаст
-    (или найдёт) иерархию City → Street → House → Address.
-    """
+    """Данные адреса из DaData для записи."""
     value = serializers.CharField(max_length=500)
     region = serializers.CharField(max_length=100, required=False, allow_blank=True)
     city = serializers.CharField(max_length=100, required=False, allow_blank=True)
@@ -343,22 +294,11 @@ class AddressNestedWriteSerializer(serializers.Serializer):
 
 
 class PropertySerializer(serializers.ModelSerializer):
-    """
-    Сериализатор объекта.
-
-    Для удобства фронтенда поддерживается два варианта указания адреса:
-      1) ``address`` — id уже существующего ``Address``;
-      2) ``address_data`` — объект с полями DaData, из которого сервер
-         построит иерархию City → Street → House → Address.
-    """
+    """Сериализатор объекта недвижимости."""
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
     full_address = serializers.SerializerMethodField()
-    # Фото возвращаем через метод, чтобы для клиентов (и неавторизованных
-    # пользователей) скрывать флаг ``is_hidden`` — это и есть «ручное
-    # управление альбомом» из бизнес-требований: сотрудник может спрятать
-    # фото от клиента, но не удалять.
     photos = serializers.SerializerMethodField()
     feature_values = PropertyFeatureValueSerializer(many=True, read_only=True)
     feature_ids = serializers.PrimaryKeyRelatedField(
@@ -389,11 +329,7 @@ class PropertySerializer(serializers.ModelSerializer):
         return str(obj.address)
 
     def get_photos(self, obj):
-        """
-        Клиенту и неавторизованному пользователю возвращаем только
-        видимые фото (``is_hidden=False``). Сотрудник/администратор
-        видит весь альбом, чтобы управлять обложкой и скрытием.
-        """
+        """Клиенту отдаём только видимые фото."""
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         is_staff_like = bool(
@@ -407,8 +343,6 @@ class PropertySerializer(serializers.ModelSerializer):
         return PropertyPhotoSerializer(
             qs, many=True, context=self.context,
         ).data
-
-    # --- создание/обновление с построением адресной иерархии ----------
 
     def _resolve_address(self, address_data: dict) -> models.Address:
         """Найти или создать Address → House → Street → City по данным DaData."""
@@ -498,8 +432,6 @@ class PropertySerializer(serializers.ModelSerializer):
         return instance
 
 
-# ---------- Заяв����и, сделки, просмотры, задачи -----------------------------
-
 class RequestPropertyMatchSerializer(serializers.ModelSerializer):
     """Вариант объекта, предложенный агентом по заявке."""
     property_title = serializers.CharField(source='property.title',
@@ -518,15 +450,7 @@ class RequestPropertyMatchSerializer(serializers.ModelSerializer):
 
 
 class RequestSerializer(serializers.ModelSerializer):
-    """
-    Заявка клиента.
-
-    Поле ``client`` автоматически подставляется сервером, когда заявку
-    подаёт клиент — ему не нужно (и он не имеет права) выбирать его
-    вручную. Поле ``agent`` — опциональное: пустая заявка попадает
-    в «неразобранное», откуда сотрудник забирает её действием
-    ``POST /requests/{id}/take/``.
-    """
+    """Заявка клиента."""
     client = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(user_type='client'),
         required=False, allow_null=True,
@@ -597,7 +521,7 @@ class DealSerializer(serializers.ModelSerializer):
         read_only_fields = ['request', 'contract_generated_at']
 
     def get_contract_url(self, obj) -> str | None:
-        """Относительный API-URL для скачивания договора (или None)."""
+        """URL скачивания договора."""
         if not obj.contract_file:
             return None
         return f'/api/deals/{obj.pk}/contract/'

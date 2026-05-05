@@ -1,11 +1,3 @@
-/**
- * Мини-стор тост-уведомлений.
- *
- * Используется вместо штатного ``alert()`` по всему приложению:
- * ошибки API, сообщения об автозакрытии задачи, успех отправки письма
- * и прочие неблокирующие события. Виджет ToastHost (в App.vue)
- * рендерит список и автоматически скрывает тосты по таймеру.
- */
 import { defineStore } from 'pinia'
 
 let uid = 0
@@ -35,13 +27,11 @@ export const useToastsStore = defineStore('toasts', {
   },
 })
 
-/** Универсальный экстрактор текста ошибки из ответа axios. */
 export function extractError (err, fallback = 'Что-то пошло не так') {
   const data = err?.response?.data
   if (!data) return err?.message || fallback
   if (typeof data === 'string') return data
   if (data.detail) return data.detail
-  // DRF-валидация: { field: ['msg', ...] }
   const first = Object.values(data)[0]
   if (Array.isArray(first) && first.length) return String(first[0])
   if (typeof first === 'string') return first

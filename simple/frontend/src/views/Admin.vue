@@ -1,17 +1,5 @@
 <template>
-  <!--
-    Административная панель.
-    Доступ ограничен на двух уровнях:
-      * route meta.manager + router.beforeEach (проверка isManager);
-      * страница дополнительно рендерится через v-if="auth.isManager"
-        — запасной контроль на случай прямого рендера компонента.
-    В секции редактирования (назначение должностей, роли, сотрудники)
-    все мутирующие действия защищены: кнопки активны только для менеджеров,
-    запрос к API всё равно отсечёт попытку со стороны обычного сотрудника
-    на бэкенде (permission IsAdminOrManager).
-  -->
   <section v-if="auth.isManager" class="stack">
-    <!-- Заголовок админ-панели -->
     <div class="hero admin-hero">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <div>
@@ -32,7 +20,6 @@
       </div>
     </div>
 
-    <!-- KPI кратко -->
     <div class="grid grid--stats">
       <StatCard label="Сотрудников" :value="counters.employees" accent />
       <StatCard label="Клиентов"    :value="counters.clients" />
@@ -40,9 +27,7 @@
       <StatCard label="Супер-админов" :value="counters.superusers" />
     </div>
 
-    <!-- Две «управляющие» плитки -->
     <div class="grid grid--2">
-      <!-- Пользователи -->
       <div class="panel panel--light admin-panel">
         <div class="row row--between">
           <span class="tag tag--accent">Пользователи</span>
@@ -63,7 +48,6 @@
         </div>
       </div>
 
-      <!-- Справочник должностей -->
       <div class="panel admin-panel">
         <span class="tag tag--panel">Справочник</span>
         <h2 class="h2" style="color: #fff; margin-top: 8px">
@@ -79,7 +63,6 @@
       </div>
     </div>
 
-    <!-- Быстрый список сотрудников -->
     <div class="panel panel--light">
       <div class="row row--between" style="margin-bottom: 12px">
         <h2 class="h2">Сотрудники агентства</h2>
@@ -110,7 +93,6 @@
       <div v-if="!employees.length" class="empty">Сотрудники ещё не назначены.</div>
     </div>
 
-    <!-- Модалка: назначение должности -->
     <div v-if="assignOpen" class="modal" @click.self="assignOpen = false">
       <div class="panel panel--light modal__card stack">
         <div class="row row--between">
@@ -157,7 +139,6 @@
       </div>
     </div>
 
-    <!-- Модалка: справочник ролей -->
     <div v-if="rolesOpen" class="modal" @click.self="rolesOpen = false">
       <div class="panel panel--light modal__card stack">
         <div class="row row--between">
@@ -193,7 +174,6 @@
     </div>
   </section>
 
-  <!-- Если каким-то образом роут пробили — отказ -->
   <section v-else class="panel panel--light empty">
     <h2 class="h2">Доступ ограничен</h2>
     <p class="muted">
@@ -222,7 +202,6 @@ const counters = computed(() => ({
   superusers: users.value.filter((u) => u.is_superuser).length,
 }))
 
-// --- Назначение должности -------------------------------------------------
 const assignOpen = ref(false)
 const assignUser = ref(null)
 const assignUserId = ref(null)
@@ -259,7 +238,6 @@ async function saveAssign () {
   }
 }
 
-// --- Справочник ролей ------------------------------------------------------
 const rolesOpen = ref(false)
 const rolesError = ref('')
 const newRole = reactive({ code: '', name: '' })
@@ -290,7 +268,6 @@ async function removeRole (r) {
   }
 }
 
-// --- Загрузка --------------------------------------------------------------
 async function loadUsers () {
   const { data } = await api.get('/users/')
   users.value = data.results || data

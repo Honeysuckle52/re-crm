@@ -19,7 +19,6 @@
       </div>
     </div>
 
-    <!-- Вкладки для сотрудника -->
     <div v-if="auth.isStaff" class="panel panel--light">
       <div class="row" style="gap: 8px; flex-wrap: wrap">
         <button v-for="t in staffTabs" :key="t.value"
@@ -31,7 +30,6 @@
       </div>
     </div>
 
-    <!-- Форма создания -->
     <form v-if="showForm" class="panel panel--light stack"
           @submit.prevent="createRequest">
       <div class="grid grid--3">
@@ -97,7 +95,6 @@
       </div>
     </form>
 
-    <!-- Список -->
     <div class="panel panel--light">
       <table class="table">
         <thead>
@@ -174,7 +171,6 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
-// Общий форматтер денег вынесен в utils/formatters.
 import { formatMoney } from '@/utils/formatters'
 
 const auth = useAuthStore()
@@ -188,7 +184,7 @@ const properties = ref([])
 
 const showForm = ref(false)
 const formError = ref('')
-const scope = ref('all')  // all | unassigned | mine (только для сотрудника)
+const scope = ref('all')
 
 const form = reactive(defaultForm())
 
@@ -222,8 +218,6 @@ const emptyLabel = computed(() => {
   return 'Заявок ещё не создано.'
 })
 
-// Кнопка «Взять» блокируется, когда сотрудник упёрся в лимит
-// одновременных активных заявок (для менеджеров/админов ограничения нет).
 const takeDisabled = computed(() =>
   !auth.isManager && !workload.workload.can_take_request,
 )
@@ -251,7 +245,6 @@ async function load () {
   const requests_req = api.get('/requests/')
   const operations_req = api.get('/operation-types/')
   const properties_req = api.get('/properties/')
-  // Список пользователей доступен только сотрудникам.
   const clients_req = auth.isStaff
     ? api.get('/users/', { params: { user_type: 'client' } })
     : Promise.resolve({ data: [] })
@@ -276,7 +269,6 @@ async function createRequest () {
   formError.value = ''
   try {
     const payload = { ...form }
-    // Клиент не отправляет client/agent — сервер подставит сам.
     if (!auth.isStaff) {
       delete payload.client
       delete payload.agent
@@ -295,9 +287,6 @@ async function createRequest () {
 }
 
 async function takeRequest (r) {
-  // Предварительно проверяем локальный срез лимита — экономим 1 запрос
-  // и сразу объясняем пользователю причину отказа. Бэкенд всё равно
-  // защищён business_rules.assert_can_take_request.
   if (!auth.isManager && !workload.workload.can_take_request) {
     alert(`Нельзя взять заявку: уже ${workload.workload.active_requests} в работе `
       + `из ${workload.workload.max_active_requests}. Закройте текущую.`)
@@ -315,7 +304,6 @@ async function takeRequest (r) {
 async function closeRequest (r) {
   if (!confirm('Закрыть заявку?')) return
   const res = await api.post(`/requests/${r.id}/close/`)
-  // Бекенд может вернуть созданную сделку — сообщим сотруднику.
   if (res?.data?.deal?.deal_number) {
     const d = res.data.deal
     alert(

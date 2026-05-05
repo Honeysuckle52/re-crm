@@ -1,11 +1,4 @@
 <template>
-  <!--
-    Футер CRM. Раньше иконка «домика» была position: absolute и «всплывала»
-    над пилюлей. На узких экранах и при частичном скрытии (transition fade,
-    v-show, скрытие по роли и т. п.) абсолютный элемент «съезжал» в сторону
-    и визуально отрывался от самой пилюли. Переводим её во flex-поток — она
-    всегда едет вместе с текстом и никогда не перекрывает надпись «РИЭЛТ».
-  -->
   <footer class="footer">
     <span class="footer__icon" aria-hidden="true">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -22,10 +15,6 @@
 </template>
 
 <style scoped>
-/*
-  Никаких position:absolute. Всё в одной flex-строке — значок не может
-  «съехать» относительно пилюли ни при какой ширине или анимации.
-*/
 .footer {
   position: relative;
   margin: 48px 16px 16px;

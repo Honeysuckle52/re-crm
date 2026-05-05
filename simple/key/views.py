@@ -1,9 +1,4 @@
-"""
-REST-представления приложения ``key``.
-
-Архитектура: ViewSet-ы для CRUD + отдельные APIView для аутентификации
-и интеграции с DaData (подсказки адресов).
-"""
+"""API приложения ``key``."""
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
@@ -38,17 +33,8 @@ from .permissions import (
 User = get_user_model()
 
 
-# ====== Аутентификация =====================================================
-
 class RegisterView(APIView):
-    """
-    Регистрация нового пользователя.
-
-    Принимаются только ``username``, ``email``, ``phone`` и ``password``.
-    Тип пользователя всегда ``client``, должность не назначается —
-    это делает администратор или менеджер агентства через отдельный
-    эндпоинт ``/users/{id}/assign_role/``.
-    """
+    """Регистрация клиента."""
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -71,8 +57,6 @@ class MeView(APIView):
     def get(self, request):
         return Response(serializers.UserSerializer(request.user).data)
 
-
-# ====== Справочники =========================================================
 
 class OperationTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = models.OperationType.objects.all()
@@ -105,19 +89,11 @@ class TaskStatusViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class UserRoleViewSet(viewsets.ModelViewSet):
-    """
-    Справочник должностей сотрудников.
-
-    Чтение доступно любому авторизованному пользователю (нужен для
-    выпадающих списков). Создание, редактирование и удаление — только
-    администратору и менеджеру через админ-панель.
-    """
+    """Справочник ролей сотрудников."""
     queryset = models.UserRole.objects.all()
     serializer_class = serializers.UserRoleSerializer
     permission_classes = [IsAdminOrManagerOrReadOnly]
 
-
-# ====== Адресная иерархия ==================================================
 
 class CityViewSet(viewsets.ModelViewSet):
     queryset = models.City.objects.all()
@@ -162,16 +138,8 @@ class AddressViewSet(viewsets.ModelViewSet):
     permission_classes = [IsEmployeeOrReadOnly]
 
 
-# ====== Подсказки адресов (прокси к DaData) ================================
-
 class DadataSuggestAddressView(APIView):
-    """
-    Прокси-эндпоинт подсказок адресов DaData.
-
-    Ключ к DaData хранится только в настройках сервера и никогда не
-    передаётся в браузер. Принимает ``GET ?q=...`` и возвращает массив
-    нормализованных подсказок.
-    """
+    """Подсказки адресов через DaData."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -194,15 +162,8 @@ class DadataSuggestAddressView(APIView):
         return Response({'results': results})
 
 
-# ====== Пользователи и профили ============================================
-
 class UserViewSet(viewsets.ModelViewSet):
-    """
-    Управление пользователями.
-
-    Просмотр списка доступен сотрудникам. Назначение роли/типа —
-    только администратору и менеджеру.
-    """
+    """Пользователи системы."""
     queryset = User.objects.select_related('role').all()
     serializer_class = serializers.UserSerializer
     permission_classes = [IsEmployee]
@@ -227,12 +188,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='assign_role')
     def assign_role(self, request, pk=None):
-        """
-        Назначить пользователю тип учётной записи и должность.
-
-        Доступно только администратору или менеджеру. Принимает
-        поля ``user_type``, ``role_id`` и/или ``is_active``.
-        """
+        """Назначить тип учётной записи и роль."""
         target = self.get_object()
         serializer = serializers.UserRoleAssignSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -250,11 +206,7 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='me/workload',
             permission_classes=[IsAuthenticated])
     def my_workload(self, request):
-        """
-        Срез текущей загрузки сотрудника: сколько задач/заявок
-        сейчас в работе и каковы лимиты. Используется виджетом в TopBar
-        и формами назначения, чтобы заранее показывать «лимит исчерпан».
-        """
+        """Сводка текущей загрузки сотрудника."""
         if not request.user.is_employee:
             return Response({
                 'active_tasks': 0,
@@ -293,9 +245,6 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
 class ClientProfileViewSet(viewsets.ModelViewSet):
     queryset = models.ClientProfile.objects.select_related('user').all()
     serializer_class = serializers.ClientProfileSerializer
-    # Клиент должен иметь возможность сам дозаполнить паспорт/адреса
-    # перед подписанием договора, поэтому используем правило, которое
-    # явно разрешает редактирование собственного профиля.
     permission_classes = [IsOwnClientProfileOrEmployee]
 
     def get_queryset(self):
@@ -305,8 +254,6 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
             qs = qs.filter(user=user)
         return qs
 
-
-# ====== Объекты недвижимости ==============================================
 
 class PropertyViewSet(viewsets.ModelViewSet):
     queryset = models.Property.objects.select_related(
@@ -370,12 +317,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         permission_classes=[IsEmployee],
     )
     def upload_photo(self, request, pk=None):
-        """
-        Загрузить фото объекта.
-
-        Принимает либо файл в поле ``image`` (multipart/form-data),
-        либо внешний URL в поле ``url`` (application/json).
-        """
+        """Загрузить фото объекта."""
         property_obj = self.get_object()
         image = request.FILES.get('image')
         url = request.data.get('url')
@@ -384,7 +326,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 {'detail': 'Нужно передать файл image или ссылку url.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Если это самое первое фото — сразу делаем его обложкой.
         is_first = not property_obj.photos.exists()
         photo = models.PropertyPhoto.objects.create(
             property=property_obj,
@@ -408,16 +349,7 @@ class PropertyFeatureViewSet(viewsets.ModelViewSet):
 
 
 class PropertyPhotoViewSet(viewsets.ModelViewSet):
-    """
-    Фото объекта. Поддерживает два формата загрузки:
-      * multipart/form-data с полем ``image`` — файл;
-      * application/json с полем ``url`` — внешняя ссылка.
-
-    Для ручного управления альбомом добавлены действия:
-      * ``set_cover``    — назначить обложкой;
-      * ``toggle_hidden`` — скрыть/показать фото без удаления;
-      * ``reorder``      — переставить порядок фото у объекта.
-    """
+    """Фото объекта и действия по альбому."""
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
     permission_classes = [IsEmployee]
@@ -428,9 +360,6 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
         prop = self.request.query_params.get('property')
         if prop:
             qs = qs.filter(property_id=prop)
-        # По умолчанию клиентская часть может скрывать "скрытые" фото,
-        # а сотрудники — видеть всё. Параметр show_hidden=0/1 управляется
-        # фронтом и использует только значения 0/1.
         if self.request.query_params.get('show_hidden') == '0':
             qs = qs.filter(is_hidden=False)
         return qs
@@ -439,8 +368,6 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     def set_cover(self, request, pk=None):
         """Сделать выбранное фото обложкой объекта."""
         photo = self.get_object()
-        # Снимаем флаг у всех остальных фото этого объекта
-        # одним UPDATE и выставляем у выбранного.
         models.PropertyPhoto.objects.filter(
             property_id=photo.property_id
         ).exclude(pk=photo.pk).update(is_cover=False)
@@ -506,19 +433,8 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
         return Response(serializers.PropertyDocumentSerializer(doc).data)
 
 
-# ====== Заявки, сделки, просмотры, задачи =================================
-
 class RequestViewSet(viewsets.ModelViewSet):
-    """
-    Заявки клиентов.
-
-    Правила доступа:
-      * клиент видит и создаёт только свои заявки; закрыть может только
-        свою и только в неоконечном статусе;
-      * сотрудник видит все заявки. Может взять в работу неназначенную
-        заявку (``POST /requests/{id}/take/``), прикрепить объект
-        (``POST /requests/{id}/attach_property/``) и закрыть любую.
-    """
+    """Заявки клиентов."""
     queryset = models.Request.objects.select_related(
         'client', 'agent', 'operation_type', 'status', 'property',
     ).prefetch_related('matches__property', 'matches__agent').all()
@@ -538,7 +454,6 @@ class RequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status_id=params['status'])
         if params.get('status_code'):
             qs = qs.filter(status__code=params['status_code'])
-        # «scope=unassigned» — заявки без агента (для вкладки сотрудника).
         scope = params.get('scope')
         if scope == 'unassigned' and user.is_employee:
             qs = qs.filter(agent__isnull=True)
@@ -547,12 +462,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        """
-        Автозаполнение при подаче заявки клиентом.
-
-        Клиент не имеет права указывать ``client`` (подставляем его из
-        запроса) и не может назначить себе агента.
-        """
+        """Подставить клиента из сессии при самоподаче заявки."""
         user = self.request.user
         extra = {}
         if user.is_authenticated and user.is_client:
@@ -566,17 +476,7 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
-        """
-        Закрыть заявку.
-
-        Клиент может закрыть только свою заявку (отсечение происходит
-        в ``get_queryset``). Повторное закрытие не допускается.
-
-        Побочный эффект (сотрудник): если в заявке указан конкретный
-        объект или в подборке есть подтверждённый вариант, автоматически
-        создаётся сделка (см. :func:`key.deals_service.create_deal_from_request`)
-        и генерируется PDF-договор со шрифтом DejaVuSans.
-        """
+        """Закрыть заявку и при необходимости создать сделку."""
         req = self.get_object()
         if req.status and req.status.code in {'closed', 'cancelled'}:
             return Response(
@@ -589,9 +489,6 @@ class RequestViewSet(viewsets.ModelViewSet):
         req.closed_at = timezone.now()
         req.save()
 
-        # Автосоздание сделки и PDF-договора. Сам метод идемпотентен
-        # (OneToOne на Deal.request — повторные вызовы не плодят дублей)
-        # и бросает исключения только на ошибках БД, но не на «нет объекта».
         deal = create_deal_from_request(req, actor=request.user)
         enqueue_request_closed(request=req, actor=request.user, deal=deal)
 
@@ -602,13 +499,7 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def take(self, request, pk=None):
-        """
-        Сотрудник берёт заявку в работу.
-
-        Назначает себя агентом и переводит статус в «в обработке».
-        Сигнал ``request_taken_create_task`` автоматически создаёт
-        задачу «Связаться с клиентом».
-        """
+        """Взять заявку в работу."""
         if not request.user.is_employee:
             return Response(
                 {'detail': 'Доступно только сотрудникам.'},
@@ -620,9 +511,6 @@ class RequestViewSet(viewsets.ModelViewSet):
                 {'detail': 'Заявка уже взята другим сотрудником.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Лимит «один сотрудник — максимум 2 активные заявки».
-        # Администраторы и менеджеры могут перераспределять нагрузку,
-        # поэтому их не ограничиваем.
         if not request.user.is_admin_or_manager:
             try:
                 business_rules.assert_can_take_request(
@@ -692,15 +580,7 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='confirm_property')
     def confirm_property(self, request, pk=None):
-        """
-        Подтвердить вариант из подборки.
-
-        Это действие:
-        1. Помечает вариант как подтверждённый
-        2. Автоматически закрывает задачи типа 'property_search' по заявке
-        3. Создаёт исходящее письмо клиенту
-        4. Записывает результат в статистику сотрудника
-        """
+        """Подтвердить вариант из подборки."""
         if not request.user.is_employee:
             return Response(
                 {'detail': 'Доступно только сотрудникам.'},
@@ -717,12 +597,9 @@ class RequestViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Вариант не найден.'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # Помечаем как предложенный/подтверждённый
         match.is_offered = True
         match.is_rejected = False
         match.save(update_fields=['is_offered', 'is_rejected'])
-
-        # Отправляем сигнал для автозакрытия задач и создания письма
         from .signals import property_match_confirmed
         property_match_confirmed.send(
             sender=self.__class__,
@@ -738,13 +615,7 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='accept_match')
     def accept_match(self, request, pk=None):
-        """
-        Обратная совместимость для фронтенда.
-
-        Старый клиент вызывает ``accept_match``, а бизнес-логика теперь
-        живёт в ``confirm_property``. Держим алиас, чтобы убрать 404
-        и не дублировать код.
-        """
+        """Алиас для старого фронтенда."""
         return self.confirm_property(request, pk=pk)
 
 
@@ -795,12 +666,7 @@ class DealViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='contract')
     def contract(self, request, pk=None):
-        """
-        Скачать PDF-договор по сделке.
-
-        Если файл ещё не сгенерирован (старые «ручные» сделки до
-        внедрения автогенерации) — генерируем на лету и сохраняем.
-        """
+        """Скачать PDF-договор по сделке."""
         deal = self.get_object()
         if not deal.contract_file:
             from .deals_service import _attach_contract
@@ -817,7 +683,7 @@ class DealViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='regenerate_contract')
     def regenerate_contract(self, request, pk=None):
-        """Перегенерировать PDF-договор (например, после правок сделки)."""
+        """Перегенерировать PDF-договор."""
         if not request.user.is_employee:
             return Response(
                 {'detail': 'Доступно только сотрудникам.'},
@@ -825,7 +691,6 @@ class DealViewSet(viewsets.ModelViewSet):
             )
         deal = self.get_object()
         from .deals_service import _attach_contract
-        # Удаляем старый файл, чтобы не захламлять media/.
         if deal.contract_file:
             deal.contract_file.delete(save=False)
             deal.contract_file = None
@@ -850,12 +715,7 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
 
 
 class TaskViewSet(viewsets.ModelViewSet):
-    """
-    Задачи сотрудников агентства.
-
-    Сотрудник видит свои задачи и задачи, где он исполнитель.
-    Администратор/менеджер — все. Клиенты доступа не имеют.
-    """
+    """Задачи сотрудников агентства."""
     queryset = models.Task.objects.select_related(
         'status', 'assignee', 'created_by', 'client', 'property',
         'request', 'deal',
@@ -874,16 +734,12 @@ class TaskViewSet(viewsets.ModelViewSet):
             qs = qs.filter(Q(assignee=user) | Q(created_by=user))
         if params.get('status'):
             qs = qs.filter(status_id=params['status'])
-        # Фильтр по коду статуса — фронтенду удобнее, чем pk из справочника.
-        # Принимает одиночный код или список через запятую:
-        # ?status_code=done или ?status_code=done,cancelled.
         if params.get('status_code'):
             codes = [c.strip() for c in params['status_code'].split(',')
                      if c.strip()]
             qs = qs.filter(status__code__in=codes)
         if params.get('assignee'):
             value = params['assignee']
-            # Алиас «me» — удобен для страницы «Моя история».
             if value == 'me':
                 qs = qs.filter(assignee=user)
             else:
@@ -892,7 +748,6 @@ class TaskViewSet(viewsets.ModelViewSet):
             qs = qs.filter(task_type=params['task_type'])
         if params.get('request'):
             qs = qs.filter(request_id=params['request'])
-        # Интервал по дате завершения — для вкладки «История».
         if params.get('completed_after'):
             qs = qs.filter(completed_at__gte=params['completed_after'])
         if params.get('completed_before'):
@@ -900,10 +755,6 @@ class TaskViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        # При создании задачи проверяем лимит активных задач у исполнителя.
-        # Менеджер может «перегрузить» сотрудника только через отдельную
-        # проверку is_admin_or_manager ниже — обычные сотрудники себя
-        # лимитируют.
         assignee = serializer.validated_data.get('assignee')
         if assignee and not self.request.user.is_admin_or_manager:
             try:
@@ -925,8 +776,6 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not new_status:
             return Response({'detail': 'Неизвестный статус.'},
                             status=status.HTTP_400_BAD_REQUEST)
-        # При переводе в ``in_progress`` — гарантируем,
-        # что у исполнителя нет другой задачи в работе.
         if (new_status.code == 'in_progress'
                 and task.assignee_id
                 and not request.user.is_admin_or_manager):
@@ -938,7 +787,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
         task.status = new_status
-        # Если статус «выполнено» — проставим время завершения
         if new_status.code == 'done':
             task.completed_at = timezone.now()
         task.save()
@@ -946,11 +794,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def start(self, request, pk=None):
-        """
-        Перевести задачу в «В работе». Сотрудник может держать только
-        одну активную задачу одновременно — соответствующий лимит
-        проверяется бизнес-слоем.
-        """
+        """Перевести задачу в работу."""
         task = self.get_object()
         if task.assignee_id != request.user.id \
                 and not request.user.is_admin_or_manager:
@@ -979,7 +823,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):
-        """Поставить текущую задачу на паузу — перевод в «Ожидание»."""
+        """Перевести задачу в ожидание."""
         task = self.get_object()
         if task.assignee_id != request.user.id \
                 and not request.user.is_admin_or_manager:
@@ -1001,18 +845,8 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
-        """
-        Отметка задачи как выполненной.
-
-        Опционально принимает ``result`` — строку (текстовое резюме)
-        или объект ``{summary, ...}`` (фронтенд TaskWorkflow шлёт dict
-        с саммари и произвольной мета-информацией). Логика завершения
-        вынесена в :mod:`key.task_actions` и идемпотентна — повторный
-        клик не ломает статистику.
-        """
+        """Завершить задачу."""
         task = self.get_object()
-        # Проверяем права: завершать может только сам исполнитель
-        # или администрация агентства.
         if (task.assignee_id != request.user.id
                 and not request.user.is_admin_or_manager):
             return Response(
@@ -1026,23 +860,12 @@ class TaskViewSet(viewsets.ModelViewSet):
             result=request.data.get('result'),
         )
         if not changed:
-            # Задача уже была в терминальном статусе — возвращаем
-            # актуальный срез, но HTTP 200 (идемпотентность).
             return Response(serializers.TaskSerializer(task).data)
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'], url_path='record_step')
     def record_step(self, request, pk=None):
-        """
-        Зафиксировать этап выполнения задачи (контакт, заявка, подбор).
-
-        Вызывается из ``TaskWorkflow.vue`` после каждого нажатия
-        «Позвонил» / «Написал» / «Не дозвонился» / «Подобрал объект»,
-        а также при завершении этапа «Заявка» (создана или открыта).
-
-        Тело запроса: ``{step: str, outcome?: str, note?: str}``.
-        Список step'ов — см. docstring :func:`key.task_actions.record_step`.
-        """
+        """Зафиксировать шаг TaskWorkflow."""
         task = self.get_object()
         if (task.assignee_id != request.user.id
                 and not request.user.is_admin_or_manager):
@@ -1068,12 +891,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def current(self, request):
-        """
-        Текущая активная задача сотрудника (статус ``in_progress``).
-
-        Возвращает либо одну задачу, либо ``null`` — чтобы виджет в TopBar
-        мог отрендерить «у вас нет задачи в работе».
-        """
+        """Текущая задача в работе."""
         if not request.user.is_employee:
             return Response(None)
         task = models.Task.objects.select_related(
@@ -1087,15 +905,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response(serializers.TaskSerializer(task).data)
 
 
-# ====== Исходящие письма ==================================================
-
 class OutgoingEmailViewSet(viewsets.ModelViewSet):
-    """
-    Очередь исходящих писем.
-
-    Только для сотрудник��в и администраторов. Позволяет просматривать
-    очередь, повторно отправлять неудавшиеся письма.
-    """
+    """Очередь исходящих писем."""
     queryset = models.OutgoingEmail.objects.select_related(
         'recipient', 'sender', 'task', 'request', 'property',
     ).all()
@@ -1126,8 +937,6 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
         email.refresh_from_db()
         return Response(serializers.OutgoingEmailSerializer(email).data)
 
-
-# ====== Сводка для главного экрана ========================================
 
 class DashboardStatsView(APIView):
     """Агрегированные показатели учётной системы."""

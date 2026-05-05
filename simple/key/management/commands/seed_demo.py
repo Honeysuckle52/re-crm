@@ -1,26 +1,4 @@
-"""
-Management-команда ``seed_demo`` — наполняет БД демо-данными.
-
-Создаёт:
-  * роли и справочники (через зависимую команду ``seed_dictionaries``);
-  * пользователей (1 администратор, 1 менеджер, 2 агента, 3 клиента) c
-    профилями;
-  * адресную иерархию (City → Street → House → Address);
-  * 5 объектов недвижимости с характеристиками и фотографиями;
-  * 5 фотографий-заглушек ``media/2026/04/1.jpg``..``5.jpg``
-    (рендерятся через Pillow — по одному файлу на объект);
-  * 5 заявок (open / processing / closed) с привязкой к объектам;
-  * 5 задач сотрудникам разного типа и приоритета.
-
-Использование::
-
-    python manage.py seed_demo
-    python manage.py seed_demo --flush        # снести демо-данные
-    python manage.py seed_demo --force-images # перерисовать картинки
-
-Команда идемпотентна: повторные запуски не создают дубликатов —
-используется ``update_or_create``/``get_or_create`` по уникальным полям.
-"""
+"""Наполняет БД демо-данными."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -56,8 +34,6 @@ from ...models import (
 )
 
 
-# Цвета для фонов демо-картинок — по одному на каждое фото 1..5.
-# Ровно то, что нужно для прототипов: контрастный блок + номер объекта.
 _IMAGE_COLORS = [
     (205, 227, 211),  # мятно-салатовый
     (233, 214, 185),  # светло-бежевый
@@ -80,43 +56,33 @@ class Command(BaseCommand):
             help='Перезаписать изображения media/2026/04/1..5.jpg.',
         )
 
-    # ------------------------------------------------------------------ main
-
     @transaction.atomic
     def handle(self, *args, **options):
-        # 1. Справочники обязаны существовать.
         self.stdout.write('-> Проверяем справочники (seed_dictionaries)...')
         call_command('seed_dictionaries')
 
         if options['flush']:
             self._flush_demo()
 
-        # 2. Картинки на диске — до создания PropertyPhoto, т.к. поле image
-        # хранит путь относительно MEDIA_ROOT.
         self._ensure_demo_images(force=options['force_images'])
 
-        # 3. Пользователи.
         users = self._seed_users()
         self.stdout.write(self.style.SUCCESS(
             f'   Пользователи: {len(users)} (admin/manager/agents/clients).'
         ))
 
-        # 4. Адресная иерархия.
         addresses = self._seed_addresses()
 
-        # 5. Объекты недвижимости + фото + характеристики.
         properties = self._seed_properties(addresses, users)
         self.stdout.write(self.style.SUCCESS(
             f'   Объекты недвижимости: {len(properties)}.'
         ))
 
-        # 6. Заявки клиентов.
         requests = self._seed_requests(users, properties)
         self.stdout.write(self.style.SUCCESS(
             f'   Заявки: {len(requests)}.'
         ))
 
-        # 7. Задачи сотрудников.
         tasks = self._seed_tasks(users, properties, requests)
         self.stdout.write(self.style.SUCCESS(
             f'   Задачи: {len(tasks)}.'
@@ -133,8 +99,6 @@ class Command(BaseCommand):
                 f'пароль: demo12345'
             )
 
-    # ------------------------------------------------------------------ flush
-
     def _flush_demo(self):
         """Удаляет демо-данные, оставляя справочники и реальных пользователей."""
         self.stdout.write(self.style.WARNING('-> Удаляем демо-данные...'))
@@ -142,8 +106,6 @@ class Command(BaseCommand):
             'demo_admin', 'demo_manager', 'demo_agent1', 'demo_agent2',
             'demo_client1', 'demo_client2', 'demo_client3',
         ]
-        # Удаляем задачи/заявки/сделки/объекты, связанные с демо-юзерами
-        # и демо-городом, чтобы не трогать «боевые» данные.
         demo_users = User.objects.filter(username__in=demo_usernames)
         Task.objects.filter(created_by__in=demo_users).delete()
         Request.objects.filter(client__in=demo_users).delete()
@@ -159,21 +121,8 @@ class Command(BaseCommand):
         demo_users.delete()
         City.objects.filter(name='Демо-город').delete()
 
-    # ------------------------------------------------------------------ images
-
     def _ensure_demo_images(self, force: bool):
-        """
-        Рендерит 5 JPEG-заглушек в ``MEDIA_ROOT/2026/04/{i}.jpg``.
-
-        Использует Pillow (есть в requirements). Ничего не тянет из сети.
-
-        Дополнительно чистит устаревший каталог
-        ``MEDIA_ROOT/properties/2026/04`` — в нём лежали старые тестовые
-        картинки (``1.jpg..5.jpg`` + артефакты вроде
-        ``Первый_курс_Юра.jpg``). Код перешёл на ``MEDIA_ROOT/2026/04``,
-        поэтому старые файлы больше не нужны и могут вводить в
-        заблуждение.
-        """
+        """Рендерит демо-картинки в ``MEDIA_ROOT/2026/04``."""
         from PIL import Image, ImageDraw, ImageFont
 
         media_root = Path(settings.MEDIA_ROOT)
@@ -187,7 +136,6 @@ class Command(BaseCommand):
                     if item.is_file():
                         item.unlink()
                 except OSError:
-                    # Не валим всю команду, если один файл занят.
                     self.stdout.write(self.style.WARNING(
                         f'  !! Не удалось удалить {item}'
                     ))
@@ -210,7 +158,6 @@ class Command(BaseCommand):
             img = Image.new('RGB', (1280, 800), color=color)
             draw = ImageDraw.Draw(img)
             text = str(idx)
-            # Центрируем цифру
             try:
                 bbox = draw.textbbox((0, 0), text, font=font)
                 tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -227,8 +174,6 @@ class Command(BaseCommand):
             img.save(path, format='JPEG', quality=82)
             self.stdout.write(f'   сохранено {path.relative_to(media_root)}')
 
-    # ------------------------------------------------------------------ users
-
     def _seed_users(self) -> dict[str, User]:
         """Создаёт демо-пользователей с профилями."""
         role_admin = UserRole.objects.get(code='admin')
@@ -236,7 +181,6 @@ class Command(BaseCommand):
         role_agent = UserRole.objects.get(code='agent')
 
         PEOPLE = [
-            # username, email, phone, user_type, role, first_name, last_name, extra
             ('demo_admin',   'admin@demo.re',   '+70000000001', 'employee', role_admin,
              'Арсений',  'Администратов', {'position': 'Главный администратор'}),
             ('demo_manager', 'manager@demo.re', '+70000000002', 'employee', role_manager,
@@ -296,8 +240,6 @@ class Command(BaseCommand):
             users[username] = user
         return users
 
-    # ------------------------------------------------------------------ addresses
-
     def _seed_addresses(self) -> list[Address]:
         """Создаёт 5 адресов в «Демо-городе»."""
         city, _ = City.objects.get_or_create(
@@ -324,8 +266,6 @@ class Command(BaseCommand):
             addresses.append(addr)
         return addresses
 
-    # ------------------------------------------------------------------ properties
-
     def _seed_properties(
         self,
         addresses: list[Address],
@@ -339,7 +279,6 @@ class Command(BaseCommand):
         features = list(PropertyFeature.objects.all()[:8])
 
         specs = [
-            # title, op_type, status, price, rooms, area_total, floor, total_floors
             ('[DEMO] Светлая студия у парка',
              sale, status_active, 5_400_000, 1, 32.5, 4, 9),
             ('[DEMO] 2-комн. квартира с ремонтом',
@@ -376,17 +315,12 @@ class Command(BaseCommand):
                 },
             )
 
-            # Характеристики — случайный набор из 3 штук, детерминированно.
             PropertyFeatureValue.objects.filter(property=prop).delete()
             for feat in features[idx - 1: idx - 1 + 3]:
                 PropertyFeatureValue.objects.create(
                     property=prop, feature=feat, value='да',
                 )
 
-            # Фотография — ссылается на media/2026/04/{idx}.jpg.
-            # Актуальный путь совпадает с новым ``upload_to='%Y/%m/'``
-            # у поля PropertyPhoto.image. Старые демо-фото из
-            # ``properties/2026/04/`` больше НЕ используются.
             PropertyPhoto.objects.filter(property=prop).delete()
             PropertyPhoto.objects.create(
                 property=prop,
@@ -397,8 +331,6 @@ class Command(BaseCommand):
             )
             created.append(prop)
         return created
-
-    # ------------------------------------------------------------------ requests
 
     def _seed_requests(
         self,
@@ -418,7 +350,6 @@ class Command(BaseCommand):
         agent2 = users['demo_agent2']
 
         SPECS = [
-            # client, agent, status, op_type, property, rooms, price range, descr
             (client1, None, st_open, sale, properties[0], 1,
              (4_000_000, 6_000_000),
              'Ищу однокомнатную квартиру или студию в пешей доступности от метро.'),
@@ -450,7 +381,6 @@ class Command(BaseCommand):
                     'max_price': price_range[1],
                 },
             )
-            # Даже при идемпотентном перезапуске подравниваем связанные поля.
             req.agent = agent
             req.property = prop
             req.status = status
@@ -463,33 +393,17 @@ class Command(BaseCommand):
             requests.append(req)
         return requests
 
-    # ------------------------------------------------------------------ tasks
-
     def _seed_tasks(
         self,
         users: dict[str, User],
         properties: list[Property],
         requests: list[Request],
     ) -> list[Task]:
-        """
-        Создаёт 5 корректных демо-задач.
-
-        В отличие от прежней реализации, использует ``get_or_create`` по
-        паре ``(title, assignee)`` — это гарантирует, что задачи с
-        одинаковыми заголовками, но назначенные разным сотрудникам, не
-        будут схлопываться в одну. Перед созданием проверяется наличие
-        всех связанных объектов: пользователей, объектов недвижимости и
-        заявок. Если хоть один обязательный объект отсутствует —
-        соответствующая задача пропускается с предупреждением, а не
-        создаётся «битой».
-        """
+        """Создаёт демо-задачи."""
         st_new = TaskStatus.objects.get(code='new')
         st_in_progress = TaskStatus.objects.get(code='in_progress')
         st_done = TaskStatus.objects.get(code='done')
 
-        # Безопасно достаём пользователей: если демо-набор сидировался
-        # частично, отсутствие любого из них означает, что задачи не
-        # имеет смысла создавать.
         try:
             manager = users['demo_manager']
             agent1 = users['demo_agent1']
@@ -503,7 +417,6 @@ class Command(BaseCommand):
             ))
             return []
 
-        # Проверяем, что хватает объектов и заявок (ровно 5 каждого).
         if len(properties) < 5:
             self.stdout.write(self.style.WARNING(
                 f'   !! Ожидалось 5 объектов, получено {len(properties)}; '
@@ -521,7 +434,6 @@ class Command(BaseCommand):
             return seq[idx] if 0 <= idx < len(seq) else None
 
         SPECS = [
-            # 1. Звонок клиенту Петру.
             dict(
                 title='[DEMO] Позвонить клиенту Пётр Клиентов',
                 description='Уточнить требования по студии, предложить варианты.',
@@ -532,7 +444,6 @@ class Command(BaseCommand):
                 request=_safe(requests, 0),
                 due_date=now + timedelta(hours=8),
             ),
-            # 2. Показ 2-комн. квартиры.
             dict(
                 title='[DEMO] Организовать показ 2-комн. квартиры',
                 description='Согласовать время показа с клиенткой Ольгой.',
@@ -543,7 +454,6 @@ class Command(BaseCommand):
                 request=_safe(requests, 1),
                 due_date=now + timedelta(days=1),
             ),
-            # 3. Подборка 3-комн. квартир.
             dict(
                 title='[DEMO] Подготовить подборку 3-комн. квартир',
                 description='Собрать 3–5 вариантов для клиента Ивана Петрова.',
@@ -554,7 +464,6 @@ class Command(BaseCommand):
                 request=_safe(requests, 2),
                 due_date=now + timedelta(days=2),
             ),
-            # 4. Оформление договора (выполнено).
             dict(
                 title='[DEMO] Оформить договор аренды студии',
                 description='Проверить пакет документов и отправить на подпись.',
@@ -565,7 +474,6 @@ class Command(BaseCommand):
                 request=_safe(requests, 3),
                 due_date=now - timedelta(days=1),
             ),
-            # 5. Обновление описания объекта (без клиента и заявки).
             dict(
                 title='[DEMO] Обновить описание объекта на сайте',
                 description='Добавить фото, уточнить метраж, пересчитать цену за м².',
@@ -580,8 +488,6 @@ class Command(BaseCommand):
 
         tasks: list[Task] = []
         for spec in SPECS:
-            # Обязательная связь — assignee + статус + автор. Если
-            # ассайни нет, задачу не имеет смысла создавать.
             if not spec.get('assignee') or not spec.get('created_by'):
                 self.stdout.write(self.style.WARNING(
                     f'   !! Пропуск задачи "{spec["title"]}": '
@@ -589,8 +495,6 @@ class Command(BaseCommand):
                 ))
                 continue
 
-            # get_or_create по паре (title, assignee), чтобы одинаковые
-            # заголовки у разных сотрудников считались разными задачами.
             defaults = {k: v for k, v in spec.items()
                         if k not in ('title', 'assignee')}
             task, created = Task.objects.get_or_create(
@@ -599,14 +503,10 @@ class Command(BaseCommand):
                 defaults=defaults,
             )
             if not created:
-                # Идемпотентно подравниваем все поля — на случай если
-                # справочные коды/связи были подправлены.
                 for field, value in defaults.items():
                     setattr(task, field, value)
                 task.save()
 
-            # У завершённой задачи проставляем completed_at, иначе UI
-            # «Workflow» не сможет корректно показать историю.
             if spec['status'].code == 'done' and task.completed_at is None:
                 task.completed_at = now - timedelta(hours=6)
                 task.save(update_fields=['completed_at'])

@@ -1,18 +1,4 @@
-"""
-Универсальный сервис действий над задачами.
-
-Вызывается и REST-эндпоинтом ``TaskViewSet.complete`` / ``record_step``,
-и движком доменных событий при автозакрытии. Гарантирует:
-
-* идемпотентность — уже завершённую задачу повторно не трогаем и
-  не создаём дублирующие шаги;
-* атомарность — все изменения внутри одной транзакции;
-* единый источник правды для поля ``result`` (текстовое саммари) и
-  ``steps_log`` (структурированный журнал этапов).
-
-Подсистема KPI вызывается в best-effort режиме: если модель KPI ещё не
-добавлена в БД, модуль ``key.kpi`` тихо пропускает запись без падения.
-"""
+"""Действия над задачами."""
 from __future__ import annotations
 
 from typing import Any
@@ -29,14 +15,7 @@ def _get_status_by_code(code: str) -> models.TaskStatus | None:
 
 
 def _normalize_result(result: Any) -> tuple[str | None, dict[str, Any]]:
-    """
-    Привести пользовательский ``result`` к паре ``(summary_text, meta_dict)``.
-
-    Фронтенд присылает либо строку («текстовый результат»), либо объект
-    ``{summary, steps, ...}`` — и то, и другое должно работать.
-    Возвращаемая пара кладётся соответственно в ``Task.result``
-    (TextField) и в ``Task.steps_log`` при необходимости.
-    """
+    """Нормализует ``result`` к виду ``(summary, meta)``."""
     if result is None:
         return None, {}
     if isinstance(result, str):
@@ -46,11 +25,9 @@ def _normalize_result(result: Any) -> tuple[str | None, dict[str, Any]]:
         summary = result.get('summary') or result.get('text')
         if summary is not None:
             summary = str(summary).strip() or None
-        # Всё, что не summary, сохраняем как мета (не перетирая summary).
         meta = {k: v for k, v in result.items()
                 if k not in ('summary', 'text')}
         return summary, meta
-    # Неожиданный тип — приводим к строке для сохранности данных.
     return str(result), {}
 
 
@@ -63,16 +40,7 @@ def complete_task(
     reason: str | None = None,
     result: Any = None,
 ) -> tuple[models.Task, bool]:
-    """
-    Перевести задачу в статус «Выполнено» и зафиксировать мета-данные.
-
-    Возвращает ``(task, was_completed_now)``. Если задача уже была в
-    терминальном статусе — ``was_completed_now=False``, повторные
-    побочные эффекты НЕ выполняются. Это защищает от двойного клика
-    и от случая, когда сигнал пришёл после ручного завершения.
-    """
-    # Перечитываем с блокировкой, чтобы параллельный вызов (например,
-    # двойной клик в UI) увидел актуальный статус и не создал дубль.
+    """Завершает задачу и пишет итог в журнал."""
     task = (models.Task.objects
             .select_for_update()
             .select_related('status', 'assignee')
@@ -90,16 +58,11 @@ def complete_task(
     now = timezone.now()
     task.completed_at = now
 
-    # --- result (TextField): человеческое описание итога ------------------
-    # Если agent передал свой текст — перезаписываем. Если не передал,
-    # но задача закрыта автоматически — ставим служебную формулировку,
-    # чтобы в истории был виден источник.
     if summary_text:
         task.result = summary_text
     elif auto_closed and not task.result:
         task.result = reason or 'Автозакрыто системой.'
 
-    # --- steps_log: финальный шаг «completed» -----------------------------
     steps: list = list(task.steps_log or [])
     final_step = {
         'step': 'completed',
@@ -135,19 +98,7 @@ def record_step(
     note: str | None = None,
     actor=None,
 ) -> models.Task:
-    """
-    Зафиксировать промежуточный этап выполнения задачи.
-
-    Этапы бизнес-процесса (согласованы с фронтендом ``TaskWorkflow.vue``):
-    ``contact`` — связался с клиентом,
-    ``request`` — создал/открыл заявку,
-    ``matching`` — подобрал объект / выполнил действие по заявке,
-    ``completed`` — финальный шаг (пишется внутри :func:`complete_task`).
-
-    Идемпотентности по шагу нет специально: сотрудник может
-    повторить «позвонил» несколько раз (первый раз — «не дозвонился»,
-    второй — «дозвонился»), и это корректная история.
-    """
+    """Добавляет шаг в ``steps_log``."""
     task = (models.Task.objects
             .select_for_update()
             .get(pk=task.pk))

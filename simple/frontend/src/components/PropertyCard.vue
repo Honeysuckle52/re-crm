@@ -29,8 +29,6 @@
 </template>
 
 <script setup>
-// Общий форматтер денег вынесен в utils/formatters; fallback '0' сохраняет
-// прежнее поведение «нет суммы → 0».
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 defineProps({ property: { type: Object, required: true } })

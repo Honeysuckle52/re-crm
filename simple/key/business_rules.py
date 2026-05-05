@@ -1,27 +1,4 @@
-"""
-Бизнес-правила рабочей нагрузки сотрудника.
-
-Единственный источник правды для ограничений CRM:
-
-* :data:`MAX_IN_PROGRESS_TASKS` — сколько задач сотрудник может
-  одновременно держать в статусе «в работе». По ТЗ — ровно одна:
-  «один сотрудник может взять только одну задачу одновременно».
-
-* :data:`MAX_ACTIVE_TASKS` — сколько всего задач у сотрудника может
-  находиться в любых «живых» статусах (``new`` / ``in_progress`` /
-  ``waiting``). По ТЗ — не более двух.
-
-* :data:`MAX_ACTIVE_REQUESTS` — сколько заявок клиентов сотрудник
-  может одновременно вести (заявка в статусе ``processing``).
-  По ТЗ — не более двух, чтобы один агент не «забрал всех клиентов».
-
-* :data:`ACTIVE_TASK_STATUS_CODES` / :data:`ACTIVE_REQUEST_STATUS_CODES`
-  — коды статусов, считающиеся «активной загрузкой».
-
-Правила применяются и на уровне API (при ``take`` / ``start`` /
-создании задачи), и на уровне бизнес-слоя (функции ниже),
-а фронтенд получает ту же информацию через ``/users/me/workload/``.
-"""
+"""Лимиты нагрузки сотрудников."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -31,8 +8,6 @@ from django.db.models import Q
 
 from . import models
 
-
-# --------------------------------------------------------------------- limits
 
 MAX_IN_PROGRESS_TASKS = 1
 MAX_ACTIVE_TASKS = 2
@@ -51,8 +26,6 @@ class WorkloadLimitExceeded(Exception):
         self.detail = detail
         self.code = code
 
-
-# ------------------------------------------------------------------ querysets
 
 def active_tasks_qs(user, *, exclude_pk: int | None = None):
     """Активные (не завершённые и не отменённые) задачи сотрудника."""
@@ -86,8 +59,6 @@ def active_requests_qs(user, *, exclude_pk: int | None = None):
         qs = qs.exclude(pk=exclude_pk)
     return qs
 
-
-# ------------------------------------------------------------------ snapshots
 
 @dataclass
 class WorkloadSnapshot:
@@ -134,8 +105,6 @@ def snapshot_for(user) -> WorkloadSnapshot:
     )
 
 
-# -------------------------------------------------------------------- asserts
-
 def assert_can_take_request(user, *, exclude_pk: int | None = None) -> None:
     """Гарантирует, что сотрудник не превысит лимит активных заявок."""
     count = active_requests_qs(user, exclude_pk=exclude_pk).count()
@@ -172,8 +141,6 @@ def assert_can_start_task(user, task) -> None:
             code='max_in_progress_tasks',
         )
 
-
-# --------------------------------------------------------------------- helper
 
 def status_by_code(model, code: str):
     """Удобная выборка статуса по коду."""

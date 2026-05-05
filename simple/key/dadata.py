@@ -1,16 +1,4 @@
-"""
-Клиент сервиса подсказок адресов DaData.
-
-Используется открытый REST-API:
-    POST https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address
-
-Авторизация заголовком ``Authorization: Token <api-key>`` согласно
-официальной документации https://dadata.ru/api/suggest/address/
-
-Ключ хранится на сервере (settings.DADATA_API_KEY) и в клиентский
-JavaScript не попадает — фронтенд ходит в прокси-эндпоинт
-/api/dadata/suggest-address/.
-"""
+"""Клиент подсказок DaData."""
 from __future__ import annotations
 
 import logging
@@ -22,30 +10,19 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# Канонический путь до метода подсказок. Если в настройках указан
-# только базовый URL — мы сами допишем эндпоинт.
 SUGGEST_ADDRESS_PATH = '/suggestions/api/4_1/rs/suggest/address'
 SUGGEST_ADDRESS_BASE = 'https://suggestions.dadata.ru'
 
 
 def _resolve_api_url(raw: str) -> str:
-    """
-    Привести значение DADATA_API_URL к полному корректному URL.
-
-    Допускаются варианты:
-      * полный URL до ``/suggest/address`` — используется как есть;
-      * URL вида ``…/rs`` или ``…/4_1`` — дополняем хвостом;
-      * пустая строка или ``suggestions.dadata.ru`` — берём значение по умолчанию.
-    """
+    """Собирает корректный URL до метода подсказок."""
     value = (raw or '').strip().rstrip('/')
     if not value:
         return SUGGEST_ADDRESS_BASE + SUGGEST_ADDRESS_PATH
 
-    # Если уже полный URL на suggest/address — возвращаем как есть.
     if value.endswith('/suggest/address'):
         return value
 
-    # Если передан только хост — склеиваем с каноническим путём.
     if '://' not in value:
         value = 'https://' + value
     if value.rstrip('/') in (
@@ -57,12 +34,10 @@ def _resolve_api_url(raw: str) -> str:
     ):
         return SUGGEST_ADDRESS_BASE + SUGGEST_ADDRESS_PATH
 
-    # Запасной вариант — дописываем недостающий хвост к тому, что дал пользователь.
     for suffix in ('/suggestions/api/4_1/rs', '/api/4_1/rs', '/4_1/rs', '/rs'):
         if value.endswith(suffix):
             return value + '/suggest/address'
 
-    # Если значение совсем необычное — доверяем пользователю.
     return value
 
 
@@ -76,18 +51,9 @@ class DadataClient:
         self.timeout = timeout
         self.retries = max(1, retries)
 
-    # ------------------------------------------------------------------
-
     def suggest_address(self, query: str, count: int = 10,
                         locations: list[dict] | None = None) -> list[dict]:
-        """
-        Получить подсказки адресов по строке поиска.
-
-        :param query: пользовательский ввод (не менее 1 символа).
-        :param count: сколько подсказок вернуть (1–20, по умолчанию 10).
-        :param locations: фильтры по региону/городу (см. документацию DaData).
-        :return: нормализованный список подсказок.
-        """
+        """Возвращает нормализованный список подсказок."""
         query = (query or '').strip()
         if not query:
             return []
@@ -121,7 +87,6 @@ class DadataClient:
                     attempt, self.retries, self.api_url, exc,
                 )
             except requests.HTTPError as exc:
-                # 4xx — нет смысла повторять, сразу выбрасываем.
                 body = getattr(exc.response, 'text', '') or ''
                 logger.error(
                     'DaData HTTP-ошибка %s URL=%s тело=%s',
@@ -136,24 +101,15 @@ class DadataClient:
                     attempt, self.retries, self.api_url, exc,
                 )
 
-            # Небольшая пауза перед повтором.
             if attempt < self.retries:
                 time.sleep(0.3 * attempt)
 
-        # Все попытки исчерпаны.
         assert last_exc is not None
         raise last_exc
 
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _normalize(item: dict) -> dict:
-        """
-        Приводим подсказку DaData к удобному для фронтенда/бэкенда виду.
-
-        Возвращаемые ключи намеренно нейтральные — хранятся как
-        ``external_id`` в нашей адресной иерархии.
-        """
+        """Приводит ответ DaData к форме, удобной фронту."""
         data = item.get('data') or {}
         lat = data.get('geo_lat')
         lon = data.get('geo_lon')
@@ -171,8 +127,6 @@ class DadataClient:
             'postal_code': data.get('postal_code') or '',
             'geo_lat': float(lat) if lat else None,
             'geo_lon': float(lon) if lon else None,
-            # внутренние идентификаторы DaData — сохраняем под нейтральными
-            # именами, чтобы в коде не фигурировал ФИАС.
             'city_external_id': data.get('city_fias_id') or data.get('settlement_fias_id'),
             'street_external_id': data.get('street_fias_id'),
             'house_external_id': data.get('house_fias_id'),

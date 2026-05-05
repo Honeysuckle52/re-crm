@@ -26,7 +26,6 @@
       </div>
     </div>
 
-    <!-- Уведомления (тосты) -->
     <Transition name="toast">
       <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
         {{ toast.message }}
@@ -34,7 +33,6 @@
     </Transition>
 
     <div class="grid grid--2">
-      <!-- Параметры заявки -->
       <div class="panel panel--light">
         <h2 class="h3">Параметры заявки</h2>
         <div class="stack" style="margin-top: 12px">
@@ -49,7 +47,6 @@
         </div>
       </div>
 
-      <!-- Основной объект + пожелания -->
       <div class="panel panel--light">
         <h2 class="h3">Желаемый объект</h2>
         <div v-if="request.property" class="stack" style="margin-top: 12px">
@@ -69,7 +66,6 @@
       </div>
     </div>
 
-    <!-- Подборка вариантов -->
     <div class="panel panel--light">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <h2 class="h3">Подборка вариантов ({{ request.matches?.length || 0 }})</h2>
@@ -109,7 +105,7 @@
             <button class="btn btn--sm btn--accent"
                     :disabled="confirmingId === m.id"
                     @click="confirmProperty(m)"
-                    title="Подтвердить выбор клиента (закроет задачи подбора и отправит письмо)">
+                    title="Подтвердить выбор клиента">
               Подтвердить
             </button>
             <button class="btn btn--sm btn--danger"
@@ -122,7 +118,6 @@
       </div>
     </div>
 
-    <!-- Задачи по заявке -->
     <div class="panel panel--light">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <h2 class="h3">Задачи по заявке ({{ requestTasks.length }})</h2>
@@ -168,7 +163,6 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
-// Общие форматтеры вынесены в utils/formatters.
 import { formatMoney, formatDate } from '@/utils/formatters'
 import {
   takeRequest as takeRequestAction,
@@ -186,7 +180,6 @@ const attachPropertyId = ref(null)
 const attachNote = ref('')
 const confirmingId = ref(null)
 
-// Тост-уведомления
 const toast = reactive({ show: false, message: '', type: 'success' })
 function showToast(message, type = 'success') {
   toast.message = message
@@ -311,7 +304,6 @@ onMounted(load)
 }
 .select--sm, .input { font-size: 13px; }
 
-/* Подтверждённый бейдж */
 .confirmed-badge {
   display: inline-block;
   font-size: 11px; font-weight: 700;
@@ -321,7 +313,6 @@ onMounted(load)
   margin-top: 4px;
 }
 
-/* Автозакрытие */
 .auto-badge {
   font-size: 10px; font-weight: 700;
   text-transform: uppercase;
@@ -329,19 +320,16 @@ onMounted(load)
   padding: 2px 6px; border-radius: 4px;
 }
 
-/* Тип задачи */
 .tag--type {
   background: #e8f4f3; color: #1a5a52; font-size: 10px;
   margin-right: 6px;
 }
 
-/* Результат задачи */
 .result-text {
   font-size: 12px; color: #546e7a;
   margin-top: 4px; font-style: italic;
 }
 
-/* Тосты */
 .toast {
   position: fixed;
   top: 20px; right: 20px;

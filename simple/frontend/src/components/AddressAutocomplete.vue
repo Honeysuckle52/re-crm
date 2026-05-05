@@ -81,7 +81,6 @@ function pick(r) {
 }
 
 function handleBlur() {
-  // закрываем с задержкой, чтобы успел сработать mousedown на пункте
   setTimeout(() => { open.value = false }, 150)
 }
 </script>

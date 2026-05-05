@@ -8,7 +8,6 @@
       </div>
     </div>
 
-    <!-- Фильтр по статусам -->
     <div class="panel panel--light">
       <div class="row" style="gap: 8px; flex-wrap: wrap">
         <button class="btn btn--sm"
@@ -98,8 +97,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import api from '../api'
-// Общий форматтер денег вынесен в utils/formatters; fallback '0' сохраняет
-// прежнее поведение «нет суммы → 0».
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const deals = ref([])
@@ -131,8 +128,6 @@ async function changeStatus(deal, statusId) {
 }
 
 async function downloadContract(deal) {
-  // Скачиваем бинарник через axios с JWT-заголовком (api.js уже
-  // проставляет Authorization), потом отдаём в <a download>.
   try {
     const res = await api.get(`/deals/${deal.id}/contract/`, { responseType: 'blob' })
     const blob = new Blob([res.data], { type: 'application/pdf' })

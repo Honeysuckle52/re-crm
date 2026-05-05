@@ -1,24 +1,9 @@
-<!--
-  Двухшаговая регистрация клиента.
-
-  Цель:
-    1) Максимально упростить первый экран: логин, пароль, ФИО —
-       и уже этого достаточно, чтобы войти в личный кабинет.
-    2) Параллельно собрать договорные данные (паспорт, адреса,
-       дату рождения), чтобы PDF-договор (key/documents.py) мог
-       автоматически заполняться без повторного ввода.
-
-  Все поля шага 2 — опциональные: их можно пропустить и дозаполнить
-  позже в /account. На бэке обрабатывается в :class:`RegisterSerializer`,
-  который в одной транзакции создаёт User и ClientProfile.
--->
 <template>
   <section class="auth">
     <div class="panel auth__card">
       <div class="hero__eyebrow">РЕГИСТРАЦИЯ</div>
       <h1 class="auth__title">Создание учётной записи</h1>
 
-      <!-- Прогресс шагов -->
       <ol class="rstep">
         <li class="rstep__item"
             :class="{ 'rstep__item--active': step === 1, 'rstep__item--done': step > 1 }">
@@ -33,7 +18,6 @@
         </li>
       </ol>
 
-      <!-- ШАГ 1 — вход в систему + ФИО -->
       <form v-if="step === 1" class="stack" @submit.prevent="goToStep2">
         <div class="field">
           <label>Логин</label>
@@ -85,7 +69,6 @@
         </router-link>
       </form>
 
-      <!-- ШАГ 2 — данные для договора -->
       <form v-else class="stack" @submit.prevent="submit">
         <p class="muted" style="color: rgba(255,255,255,.7)">
           Эти данные нужны для автоматического заполнения договора.
@@ -171,19 +154,14 @@ const step = ref(1)
 const loading = ref(false)
 const error = ref('')
 
-// Все поля — в одном объекте. На шаге 1 используются обязательные,
-// на шаге 2 — опциональные. В бэкенд уходит вся структура одним POST.
 const form = reactive({
-  // Аккаунт
   username: '',
   email: '',
   phone: '',
   password: '',
-  // ФИО (обязательно на шаге 1)
   last_name: '',
   first_name: '',
   middle_name: '',
-  // Договорные данные (шаг 2, все опциональны)
   birth_date: '',
   passport_series: '',
   passport_number: '',
@@ -194,11 +172,6 @@ const form = reactive({
   actual_address: '',
 })
 
-/**
- * Валидация шага 1 не вызывает бэк — просто HTML5 required + длина пароля.
- * Если бэкенд отвергнет уникальность логина/почты, покажем ошибку
- * после общего submit.
- */
 function goToStep2 () {
   error.value = ''
   if (form.password.length < 8) {
@@ -208,10 +181,6 @@ function goToStep2 () {
   step.value = 2
 }
 
-/**
- * Попытка регистрации. `extended` = true — шлём все поля, иначе
- * только базовые (шаг 2 пропущен).
- */
 async function doRegister (extended) {
   loading.value = true
   error.value = ''
@@ -223,8 +192,6 @@ async function doRegister (extended) {
       password: form.password,
       first_name: form.first_name,
       last_name: form.last_name,
-      // middle_name — допустим пустым, но лучше отправить,
-      // если пользователь ввёл его на шаге 1.
       ...(form.middle_name ? { middle_name: form.middle_name } : {}),
     }
     await auth.register(payload)
@@ -233,8 +200,6 @@ async function doRegister (extended) {
     const data = e.response?.data || {}
     error.value = Object.values(data).flat().join(' ')
       || 'Не удалось создать учётную запись'
-    // Если ошибка в первой половине полей — отправляем обратно на шаг 1,
-    // чтобы пользователь увидел, что пошло не так.
     if (data.username || data.email || data.password || data.phone) {
       step.value = 1
     }
@@ -261,7 +226,6 @@ function stripEmpty (obj) {
 .auth__card { width: min(560px, 100%); }
 .auth__title { font-size: 28px; margin: 16px 0 12px; color: #fff; }
 
-/* Прогресс регистрации — двухпунктная дорожка. */
 .rstep {
   display: flex;
   align-items: center;

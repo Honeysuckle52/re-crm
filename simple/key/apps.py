@@ -7,5 +7,4 @@ class KeyConfig(AppConfig):
     verbose_name = 'Недвижимость (CRM/ERP)'
 
     def ready(self):
-        # Регистрация обработчиков сигналов (авто-создание задач и т. п.).
         from . import signals  # noqa: F401

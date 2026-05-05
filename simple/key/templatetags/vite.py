@@ -1,4 +1,3 @@
-# key/templatetags/vite.py
 import json
 from pathlib import Path
 from django import template
@@ -7,6 +6,7 @@ from django.utils.safestring import mark_safe
 
 register = template.Library()
 _manifest_cache = None
+
 
 def _load_manifest():
     global _manifest_cache
@@ -18,6 +18,7 @@ def _load_manifest():
     with manifest_path.open("r", encoding="utf-8") as f:
         _manifest_cache = json.load(f)
     return _manifest_cache
+
 
 @register.simple_tag
 def vite_asset(entry):

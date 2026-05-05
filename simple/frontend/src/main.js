@@ -9,7 +9,6 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 
-// Восстановление сессии из localStorage токенов
 const auth = useAuthStore()
 auth.hydrate()
 

@@ -28,10 +28,6 @@ const routes = [
   { path: '/tasks', name: 'tasks',
     component: () => import('./views/Tasks.vue'),
     meta: { staff: true } },
-  // Пошаговый экран выполнения задачи: сотрудник проходит контакт →
-  // заявка → подбор/выполнение → завершение. Права выверяются также
-  // на бэкенде (TaskViewSet.record_step/complete), здесь — чтобы
-  // не вводить пользователя в заблуждение UI-ом.
   { path: '/tasks/:id/work', name: 'task-workflow',
     component: () => import('./views/TaskWorkflow.vue'),
     meta: { staff: true } },
@@ -58,7 +54,6 @@ router.beforeEach((to) => {
   if (!to.meta.guest && !auth.isAuthenticated) return { name: 'login' }
   if (to.meta.guest && auth.isAuthenticated) return { name: 'home' }
   if (to.meta.staff && !auth.isStaff) return { name: 'home' }
-  // Роуты с meta.manager = true доступны только администраторам/менеджерам.
   if (to.meta.manager && !auth.isManager) return { name: 'home' }
 })
 

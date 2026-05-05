@@ -1,15 +1,4 @@
-"""
-Генерация PDF-договоров по сделкам.
-
-Используется движок ReportLab + шрифты DejaVu Sans (обычный и жирный)
-из каталога ``key/fonts/`` — DejaVu поддерживает полный диапазон
-кириллицы, поэтому в документе корректно отображаются ФИО клиента,
-адрес дома и подписи сторон.
-
-Точка входа — :func:`render_contract_pdf`: принимает объект сделки
-и возвращает ``ContentFile`` с PDF, готовым к сохранению в
-``Deal.contract_file``.
-"""
+"""Сборка PDF-договоров."""
 from __future__ import annotations
 
 import io
@@ -29,8 +18,6 @@ from reportlab.platypus import (
     Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
-
-# --- шрифты ----------------------------------------------------------------
 
 FONTS_DIR = Path(__file__).resolve().parent / 'fonts'
 FONT_REGULAR_PATH = FONTS_DIR / 'DejaVuSans.ttf'
@@ -57,8 +44,6 @@ def _ensure_fonts_registered() -> None:
     _FONTS_REGISTERED = True
 
 
-# --- форматирование --------------------------------------------------------
-
 def _money(value) -> str:
     """Формат цены с разделителями тысяч: 12 345 678 ₽."""
     if value is None:
@@ -68,10 +53,6 @@ def _money(value) -> str:
     except Exception:
         return str(value)
     whole, _, frac = f'{num:.2f}'.partition('.')
-    with_spaces = ' '.join(
-        whole[max(i - 3, 0):i] for i in range(len(whole), 0, -3)
-    )
-    # restore order
     groups = []
     s = whole
     while len(s) > 3:
@@ -128,16 +109,8 @@ def _passport_line(client) -> str:
     return ', '.join(pieces) or '—'
 
 
-# --- сборка PDF ------------------------------------------------------------
-
 def render_contract_pdf(deal) -> ContentFile:
-    """
-    Собирает PDF-договор по сделке ``deal`` и возвращает
-    :class:`django.core.files.base.ContentFile`.
-
-    Файл НЕ сохраняется в БД — это задача вызывающего кода
-    (``deal.contract_file.save(...)``).
-    """
+    """Возвращает PDF-договор в ``ContentFile``."""
     _ensure_fonts_registered()
 
     buffer = io.BytesIO()
@@ -172,7 +145,6 @@ def render_contract_pdf(deal) -> ContentFile:
 
     story = []
 
-    # --- шапка ---
     story.append(Paragraph('ДОГОВОР', style_h1))
     story.append(Paragraph(
         f'№ {deal.deal_number} от {deal.deal_date:%d.%m.%Y}',
@@ -184,7 +156,6 @@ def render_contract_pdf(deal) -> ContentFile:
     ))
     story.append(Spacer(1, 8))
 
-    # --- стороны ---
     story.append(Paragraph('1. Стороны договора', style_h2))
     parties = [
         ['Агентство (исполнитель):',
@@ -209,7 +180,6 @@ def render_contract_pdf(deal) -> ContentFile:
     ]))
     story.append(table_parties)
 
-    # --- объект ---
     story.append(Paragraph('2. Объект недвижимости', style_h2))
     prop = deal.property
     rows_prop = [
@@ -238,7 +208,6 @@ def render_contract_pdf(deal) -> ContentFile:
     ]))
     story.append(table_prop)
 
-    # --- финансы ---
     story.append(Paragraph('3. Финансовые условия', style_h2))
     rows_money = [
         ['Стоимость объекта:', _money(deal.price_final)],
@@ -258,7 +227,6 @@ def render_contract_pdf(deal) -> ContentFile:
     ]))
     story.append(table_money)
 
-    # --- условия ---
     story.append(Paragraph('4. Предмет и условия', style_h2))
     story.append(Paragraph(
         'Исполнитель (агентство) обязуется оказать Заказчику (клиенту) '
@@ -276,7 +244,6 @@ def render_contract_pdf(deal) -> ContentFile:
         story.append(Paragraph('Дополнительные условия:', style_h2))
         story.append(Paragraph(deal.notes, style_body))
 
-    # --- подписи ---
     story.append(Spacer(1, 18))
     signatures = [
         [
@@ -298,7 +265,6 @@ def render_contract_pdf(deal) -> ContentFile:
     ]))
     story.append(table_sig)
 
-    # --- футер ---
     story.append(Spacer(1, 14))
     story.append(Paragraph(
         f'Документ сформирован автоматически CRM агентства '

@@ -27,7 +27,6 @@
       </div>
     </div>
 
-    <!-- Модальное окно подачи заявки клиентом -->
     <div v-if="showRequestForm" class="modal" role="dialog"
          @click.self="showRequestForm = false">
       <form class="panel panel--light stack modal__card"
@@ -57,7 +56,6 @@
       </form>
     </div>
 
-    <!-- Галерея фотографий -->
     <div class="panel panel--light">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <h2 class="h3">Фотографии</h2>
@@ -75,8 +73,6 @@
             <span v-if="ph.is_cover" class="gallery__badge is-cover">Обложка</span>
             <span v-if="ph.is_hidden" class="gallery__badge is-hidden">Скрыто</span>
           </div>
-          <!-- Ручное управление альбомом: обложка, скрыть/показать, удалить.
-               Доступно только сотрудникам. -->
           <div v-if="auth.isStaff" class="gallery__toolbar">
             <button class="gallery__btn"
                     :disabled="ph.is_cover"
@@ -165,8 +161,6 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
-// Общий форматтер денег вынесен в utils/formatters; для совместимости
-// с прежним поведением (отсутствующая цена → «0», а не «—») передаём fallback.
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 
 const route = useRoute(); const router = useRouter()
@@ -175,7 +169,6 @@ const property = ref(null)
 const statuses = ref([])
 const history = ref([])
 
-// --- подача заявки клиентом -------------------------------------------
 const showRequestForm = ref(false)
 const requestError = ref('')
 const requestForm = reactive({ description: '' })
@@ -235,7 +228,6 @@ async function removePhoto(photo) {
   await load()
 }
 
-// --- ручное управление альбомом ------------------------------------------
 async function setCover (photo) {
   await api.post(`/property-photos/${photo.id}/set_cover/`)
   await load()

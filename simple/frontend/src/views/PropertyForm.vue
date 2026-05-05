@@ -8,7 +8,6 @@
     </div>
 
     <form class="panel panel--light stack" @submit.prevent="submit">
-      <!-- Основные параметры -->
       <h2 class="h3">Основные параметры</h2>
       <div class="grid grid--2">
         <div class="field">
@@ -60,7 +59,6 @@
         </div>
       </div>
 
-      <!-- Адрес через DaData -->
       <h2 class="h3" style="margin-top: 8px">Адрес</h2>
       <p class="muted">
         Начните вводить адрес — подсказки подгружаются из сервиса DaData.
@@ -85,7 +83,6 @@
         Текущий адрес: {{ existingAddress }}
       </div>
 
-      <!-- Характеристики -->
       <h2 class="h3" style="margin-top: 8px">Характеристики</h2>
       <div class="row" style="flex-wrap: wrap; gap: 8px">
         <label v-for="f in dict.features" :key="f.id" class="chip-check">
@@ -98,7 +95,6 @@
         </span>
       </div>
 
-      <!-- Фотографии -->
       <h2 class="h3" style="margin-top: 8px">Фотографии</h2>
       <p class="muted">
         Сервис подсказок адресов не предоставляет изображения, поэтому
@@ -137,7 +133,6 @@
         </div>
       </div>
 
-      <!-- Описание -->
       <h2 class="h3" style="margin-top: 8px">Описание</h2>
       <div class="field">
         <label>Описание объекта</label>
@@ -182,7 +177,7 @@ const addressQuery = ref('')
 const addressPicked = ref(null)
 const existingAddress = ref('')
 const photos = ref([])
-const pendingFiles = ref([])  // новые файлы, ожидающие загрузки после создания
+const pendingFiles = ref([])
 const removedPhotoIds = ref([])
 const newPhotoUrl = ref('')
 const loading = ref(false)
@@ -220,7 +215,6 @@ function removePhoto(p, index) {
 }
 
 async function uploadPhotos(propertyId) {
-  // 1) загружаем файлы
   for (const p of pendingFiles.value) {
     const fd = new FormData()
     fd.append('property', propertyId)
@@ -231,7 +225,6 @@ async function uploadPhotos(propertyId) {
   }
   pendingFiles.value = []
 
-  // 2) прикрепляем ссылки, добавленные через URL
   for (const p of photos.value.filter(x => x._new && x._fromUrl)) {
     await api.post('/property-photos/', {
       property: propertyId,
@@ -240,7 +233,6 @@ async function uploadPhotos(propertyId) {
     })
   }
 
-  // 3) удаляем отмеченные на удаление
   for (const id of removedPhotoIds.value) {
     await api.delete(`/property-photos/${id}/`)
   }

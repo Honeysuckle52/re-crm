@@ -55,7 +55,6 @@
       <div v-if="!filtered.length" class="empty">Пользователи не найдены.</div>
     </div>
 
-    <!-- Модальное окно назначения роли -->
     <div v-if="assignOpen" class="modal" @click.self="assignOpen = false">
       <div class="panel panel--light modal__card">
         <h2 class="h3">Назначение должности</h2>

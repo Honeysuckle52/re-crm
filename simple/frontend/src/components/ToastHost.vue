@@ -1,6 +1,4 @@
 <template>
-  <!-- Стек тостов в правом верхнем углу. z-index выше, чем у виджета,
-       чтобы уведомления не перекрывались. -->
   <div class="toast-host" role="status" aria-live="polite">
     <transition-group name="toast">
       <div v-for="t in toasts.items" :key="t.id"

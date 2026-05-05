@@ -1,9 +1,4 @@
-"""
-Сервис исходящих писем клиентам.
-
-Модуль синхронизирован с актуальной моделью ``OutgoingEmail``:
-запись в таблицу-журнал + асинхронная SMTP-отправка в фоне.
-"""
+"""Очередь и отправка писем."""
 from __future__ import annotations
 
 import logging
@@ -30,8 +25,6 @@ TEMPLATE_TASK_ASSIGNED_SHOWING = 'task_assigned_showing'
 TEMPLATE_TASK_ASSIGNED_DOCUMENTS = 'task_assigned_documents'
 
 
-# ---------------------------------------------------------------- низкий API
-
 def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
     """Возвращает (subject, text, html) из шаблонов emails/<template>/*."""
     base = f'emails/{template}'
@@ -45,11 +38,7 @@ def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _task_template_by_type(task_type: str) -> str:
-    """
-    Подбор шаблона уведомления по типу задачи.
-
-    Если специализированного шаблона нет, используем универсальный.
-    """
+    """Шаблон письма по типу задачи."""
     mapping = {
         'call': TEMPLATE_TASK_ASSIGNED_CALL,
         'showing': TEMPLATE_TASK_ASSIGNED_SHOWING,
@@ -77,16 +66,7 @@ def _audit_context(
 
 
 def _send_via_smtp(email: models.OutgoingEmail) -> None:
-    """
-    Синхронная отправка. Вызывается из фонового потока.
-
-    Создаём соединение явно через ``get_connection`` с собственным
-    таймаутом — так можно перенастроить SMTP-сервер (порт/SSL/TLS) без
-    перезапуска Django, а главное — гарантировать таймаут на каждой
-    SMTP-операции, а не только на ``connect()``. Это важно для
-    mail.ru/bk.ru/list.ru: сервер бывает «молчит» в момент EHLO, и без
-    явного таймаута поток подвисает на минуты.
-    """
+    """Отправляет письмо через SMTP."""
     timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 30) or 30)
     connection = get_connection(
         backend=settings.EMAIL_BACKEND,
@@ -109,9 +89,6 @@ def _send_via_smtp(email: models.OutgoingEmail) -> None:
         connection=connection,
     )
 
-    # Глобальный socket-таймаут — страховка для случаев, когда
-    # Python/SSL игнорирует параметр ``timeout`` на отдельных
-    # операциях (наблюдалось на Python 3.14 + mail.ru).
     old_default = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)
     try:
@@ -130,7 +107,7 @@ def _dispatch(email_id: int) -> None:
         return
     try:
         _send_via_smtp(email)
-    except Exception as exc:  # noqa: BLE001 — логируем любую ошибку SMTP
+    except Exception as exc:  # noqa: BLE001
         log.exception('SMTP send failed for email=%s', email_id)
         models.OutgoingEmail.objects.filter(pk=email_id).update(
             status='failed',
@@ -153,8 +130,6 @@ def _spawn_thread(email_id: int) -> None:
     ).start()
 
 
-# ---------------------------------------------------------------- высокий API
-
 def enqueue_property_matched(
     *,
     request: models.Request,
@@ -162,12 +137,7 @@ def enqueue_property_matched(
     agent: models.User,
     trigger_task: models.Task | None = None,
 ) -> models.OutgoingEmail | None:
-    """
-    Поставить в очередь письмо «для вас подобран подходящий объект».
-
-    Письмо НЕ отправляется, если у клиента не указан e-mail —
-    в журнал пишем сразу статус ``cancelled`` с пояснением.
-    """
+    """Письмо клиенту о подтверждённом варианте."""
     client = request.client
 
     ctx = {
@@ -214,7 +184,7 @@ def _enqueue_by_template(
     request: models.Request | None = None,
     property_obj: models.Property | None = None,
 ) -> models.OutgoingEmail | None:
-    """Унифицированная постановка шаблонного письма в очередь."""
+    """Ставит шаблонное письмо в очередь."""
     to_email = (getattr(recipient, 'email', '') or '').strip()
     if not recipient or not to_email:
         return None
