@@ -391,6 +391,12 @@ onMounted(async () => {
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
+.admin-panel > .tag {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+}
+
 .admin-panel:hover {
   transform: translateY(-5px);
   box-shadow: var(--shadow-glow);

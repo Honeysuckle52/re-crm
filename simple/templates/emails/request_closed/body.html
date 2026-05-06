@@ -1,0 +1,32 @@
+{% extends "emails/_base.html" %}
+
+{% block preheader %}Заявка №{{ request.pk }} закрыта{% endblock %}
+{% block eyebrow %}Заявка закрыта{% endblock %}
+{% block title %}Заявка переведена в финальный статус{% endblock %}
+{% block subtitle %}По заявке №{{ request.pk }} завершён текущий этап обработки.{% endblock %}
+
+{% block content %}
+  <p>Здравствуйте, <strong>{{ client_name }}</strong>!</p>
+  <p>Сообщаем, что заявка <strong>№{{ request.pk }}</strong> переведена в статус <strong>{{ request.status.name }}</strong>.</p>
+
+  <div class="surface">
+    <div class="surface-title">Итог по заявке</div>
+    <ul class="list">
+      <li><span class="label">Номер заявки:</span> <strong>№{{ request.pk }}</strong></li>
+      <li><span class="label">Текущий статус:</span> <strong>{{ request.status.name }}</strong></li>
+      {% if request.closed_at %}<li><span class="label">Дата закрытия:</span> <strong>{{ request.closed_at|date:"d.m.Y H:i" }}</strong></li>{% endif %}
+      {% if has_deal and deal %}<li><span class="label">Сделка:</span> <strong>{{ deal.deal_number }}</strong></li>{% endif %}
+    </ul>
+  </div>
+
+  {% if has_deal and deal %}
+    <div class="section surface">
+      <div class="surface-title">Сделка сформирована</div>
+      <p class="meta">По этой заявке сформирована сделка <strong>{{ deal.deal_number }}</strong>. Детали доступны в вашем рабочем контуре после входа в систему.</p>
+    </div>
+  {% endif %}
+
+  <div class="cta-wrap">
+    <a href="{{ request_url }}" class="cta">Открыть заявку</a>
+  </div>
+{% endblock %}

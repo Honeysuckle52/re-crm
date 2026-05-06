@@ -1,0 +1,23 @@
+{% extends "emails/_base.html" %}
+
+{% block preheader %}Назначена задача звонка{% endblock %}
+{% block eyebrow %}Задача звонка{% endblock %}
+{% block title %}Вам назначен звонок клиенту{% endblock %}
+{% block subtitle %}Задача поставлена в работу и доступна в общем списке задач сотрудника.{% endblock %}
+
+{% block content %}
+  <p>Здравствуйте, <strong>{{ assignee_name }}</strong>!</p>
+
+  <div class="surface">
+    <div class="surface-title">{{ task.title }}</div>
+    <ul class="list">
+      <li><span class="label">Тип:</span> <strong>{{ task.get_task_type_display }}</strong></li>
+      {% if request %}<li><span class="label">Заявка:</span> <strong>№{{ request.pk }}</strong></li>{% endif %}
+      {% if task.due_date %}<li><span class="label">Срок:</span> <strong>{{ task.due_date|date:"d.m.Y H:i" }}</strong></li>{% endif %}
+    </ul>
+  </div>
+
+  <div class="cta-wrap">
+    <a href="{{ task_url }}" class="cta">Перейти к задаче</a>
+  </div>
+{% endblock %}

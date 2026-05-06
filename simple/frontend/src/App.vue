@@ -32,6 +32,6 @@ const auth = useAuthStore()
   flex-direction: column;
   overflow-x: clip;
 }
-.app-shell > .layout { flex: 1 0 auto; min-width: 0; }
+.app-shell > .layout { flex: 1 1 auto; min-width: 0; }
 .app-shell > .footer { flex-shrink: 0; }
 </style>

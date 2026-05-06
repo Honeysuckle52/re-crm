@@ -1,5 +1,5 @@
 <template>
-  <footer class="footer">
+  <footer class="footer" :class="{ 'footer--flush': route.path === '/' }">
     <div class="footer__meta">
       <span class="footer__icon" aria-hidden="true">
         <svg
@@ -28,10 +28,12 @@
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import CurrentTaskWidget from './CurrentTaskWidget.vue'
 
 const auth = useAuthStore()
+const route = useRoute()
 </script>
 
 <style scoped>
@@ -54,6 +56,11 @@ const auth = useAuthStore()
   color: var(--c-text);
   font-size: 13px;
   letter-spacing: 0.02em;
+}
+
+.footer--flush {
+  margin-top: auto;
+  margin-bottom: 0;
 }
 
 .footer__meta {

@@ -1,0 +1,23 @@
+{% extends "emails/_base.html" %}
+
+{% block preheader %}Назначена задача по документам{% endblock %}
+{% block eyebrow %}Документы{% endblock %}
+{% block title %}Вам назначена задача по документам{% endblock %}
+{% block subtitle %}Документный этап добавлен в рабочий контур сотрудника и доступен в общем списке задач.{% endblock %}
+
+{% block content %}
+  <p>Здравствуйте, <strong>{{ assignee_name }}</strong>!</p>
+
+  <div class="surface">
+    <div class="surface-title">{{ task.title }}</div>
+    <ul class="list">
+      <li><span class="label">Тип:</span> <strong>{{ task.get_task_type_display }}</strong></li>
+      {% if request %}<li><span class="label">Заявка:</span> <strong>№{{ request.pk }}</strong></li>{% endif %}
+      {% if task.due_date %}<li><span class="label">Срок:</span> <strong>{{ task.due_date|date:"d.m.Y H:i" }}</strong></li>{% endif %}
+    </ul>
+  </div>
+
+  <div class="cta-wrap">
+    <a href="{{ task_url }}" class="cta">Открыть задачи</a>
+  </div>
+{% endblock %}

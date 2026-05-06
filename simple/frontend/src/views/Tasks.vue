@@ -192,7 +192,7 @@
                 </div>
               </td>
               <td>
-                <span class="tag tag--type">
+                <span class="tag tag--type task-badge">
                   {{ task.task_type_display || taskTypeLabel(task.task_type) }}
                 </span>
               </td>
@@ -209,7 +209,7 @@
                 <span v-else class="muted">—</span>
               </td>
               <td>
-                <span class="tag" :class="priorityClass(task.priority)">
+                <span class="tag task-badge" :class="priorityClass(task.priority)">
                   {{ priorityLabel(task.priority) }}
                 </span>
               </td>
@@ -218,7 +218,7 @@
                 <span v-if="task.is_overdue" class="tag overdue">просрочено</span>
               </td>
               <td>
-                <span class="tag tag--accent">{{ task.status_name }}</span>
+                <span class="tag tag--accent task-badge">{{ task.status_name }}</span>
                 <div
                   v-if="task.is_auto_closed"
                   class="auto-closed-badge"
@@ -319,7 +319,7 @@
                 </div>
               </td>
               <td>
-                <span class="tag tag--type">
+                <span class="tag tag--type task-badge">
                   {{ task.task_type_display || taskTypeLabel(task.task_type) }}
                 </span>
               </td>
@@ -337,10 +337,10 @@
                 {{ humanDuration(task) }}
               </td>
               <td class="history-result">
-                <div v-if="task.status_code === 'done'" class="tag tag--accent">выполнена</div>
+                <div v-if="task.status_code === 'done'" class="tag tag--accent task-badge">выполнена</div>
                 <div
                   v-else-if="task.status_code === 'cancelled'"
-                  class="tag tag--cancelled"
+                  class="tag tag--cancelled task-badge"
                 >
                   отменена
                 </div>
@@ -868,6 +868,19 @@ onMounted(async () => {
   border-color: rgba(255, 111, 134, 0.22);
 }
 
+.task-badge,
+.task-badge.tag--type,
+.task-badge.tag--accent,
+.task-badge.tag--panel,
+.task-badge.tag--cancelled {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(16, 55, 52, 0.08);
+}
+
 .select--sm {
   padding: 10px 42px 10px 14px;
   font-size: 13px;
@@ -876,8 +889,20 @@ onMounted(async () => {
 .task-actions {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+
+.task-actions > .btn,
+.task-actions > .select {
+  flex: 0 0 auto;
+}
+
+.task-actions > .select {
+  width: auto;
+  min-width: 132px;
 }
 
 .task-section-head {
@@ -969,14 +994,42 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .filter-group {
   display: flex;
   gap: 8px;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.filter-group > .row {
+  min-height: 40px;
   align-items: center;
-  flex-wrap: wrap;
+}
+
+.filter-group > .select,
+.filter-group > select.select {
+  color-scheme: light;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, var(--c-accent) 50%),
+    linear-gradient(135deg, var(--c-accent) 50%, transparent 50%);
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 20px rgba(16, 55, 52, 0.08);
+  min-width: 200px;
+}
+
+.filter-group > .select option,
+.filter-group > select.select option {
+  background: #f4f8fa;
+  color: var(--c-page-text);
 }
 
 .filter-label {

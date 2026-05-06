@@ -1,0 +1,35 @@
+{% extends "emails/_base.html" %}
+
+{% block preheader %}Заявка №{{ request.pk }} принята в работу{% endblock %}
+{% block eyebrow %}Заявка в работе{% endblock %}
+{% block title %}Ваша заявка принята в работу{% endblock %}
+{% block subtitle %}Сотрудник агентства уже подключился к заявке №{{ request.pk }} и ведёт её дальше по процессу.{% endblock %}
+
+{% block content %}
+  <p>Здравствуйте, <strong>{{ client_name }}</strong>!</p>
+  <p>Подтверждаем, что заявка <strong>№{{ request.pk }}</strong> принята в работу.</p>
+
+  <div class="surface">
+    <div class="surface-title">Что уже произошло</div>
+    <ul class="list">
+      <li><span class="label">Статус:</span> <strong>В работе</strong></li>
+      {% if request.property %}<li><span class="label">Объект:</span> <strong>{{ request.property.title|default:"Объект недвижимости" }}</strong></li>{% endif %}
+      {% if agent_name %}<li><span class="label">Ответственный агент:</span> <strong>{{ agent_name }}</strong></li>{% endif %}
+    </ul>
+  </div>
+
+  {% if agent_name or agent_email or agent_phone %}
+    <div class="section surface">
+      <div class="surface-title">Контакты сотрудника</div>
+      <ul class="list">
+        {% if agent_name %}<li><span class="label">Сотрудник:</span> <strong>{{ agent_name }}</strong></li>{% endif %}
+        {% if agent_email %}<li><span class="label">Email:</span> <a href="mailto:{{ agent_email }}" class="accent">{{ agent_email }}</a></li>{% endif %}
+        {% if agent_phone %}<li><span class="label">Телефон:</span> <strong>{{ agent_phone }}</strong></li>{% endif %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <div class="cta-wrap">
+    <a href="{{ request_url }}" class="cta">Открыть заявку</a>
+  </div>
+{% endblock %}

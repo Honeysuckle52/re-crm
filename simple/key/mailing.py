@@ -23,6 +23,7 @@ TEMPLATE_TASK_ASSIGNED = 'task_assigned'
 TEMPLATE_TASK_ASSIGNED_CALL = 'task_assigned_call'
 TEMPLATE_TASK_ASSIGNED_SHOWING = 'task_assigned_showing'
 TEMPLATE_TASK_ASSIGNED_DOCUMENTS = 'task_assigned_documents'
+LEGACY_HTML_MARKER = '\n\n---- HTML ----\n'
 
 
 def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
@@ -45,6 +46,18 @@ def _task_template_by_type(task_type: str) -> str:
         'documents': TEMPLATE_TASK_ASSIGNED_DOCUMENTS,
     }
     return mapping.get(task_type, TEMPLATE_TASK_ASSIGNED)
+
+
+def _extract_bodies(email: models.OutgoingEmail) -> tuple[str, str]:
+    """Возвращает plain-text и html с поддержкой старого формата хранения."""
+    text = email.body or ''
+    html = (getattr(email, 'html_body', '') or '').strip()
+    if html:
+        return text, html
+    if LEGACY_HTML_MARKER in text:
+        plain, legacy_html = text.split(LEGACY_HTML_MARKER, 1)
+        return plain, legacy_html.strip()
+    return text, ''
 
 
 def _audit_context(
@@ -80,14 +93,18 @@ def _send_via_smtp(email: models.OutgoingEmail) -> None:
         fail_silently=False,
     )
 
+    text_body, html_body = _extract_bodies(email)
+
     msg = EmailMultiAlternatives(
         email.subject,
-        email.body,
+        text_body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email.recipient.email],
         reply_to=[settings.AGENCY_REPLY_TO] if getattr(settings, 'AGENCY_REPLY_TO', '') else None,
         connection=connection,
     )
+    if html_body:
+        msg.attach_alternative(html_body, 'text/html')
 
     old_default = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)
@@ -193,7 +210,8 @@ def _enqueue_by_template(
         recipient=recipient,
         sender=sender if sender and getattr(sender, 'is_employee', False) else None,
         subject=subject,
-        body=text if not html else f'{text}\n\n---- HTML ----\n{html}',
+        body=text,
+        html_body=html,
         template_code=template,
         trigger_code=trigger_code,
         context=_audit_context(

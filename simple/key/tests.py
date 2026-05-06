@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from . import deals_service, models
+from . import deals_service, mailing, models
 
 
 class AuthLogoutTests(TestCase):
@@ -42,6 +42,70 @@ class AuthLogoutTests(TestCase):
         )
 
         self.assertIn(refresh_response.status_code, {400, 401})
+
+
+class OutgoingEmailHtmlDeliveryTests(TestCase):
+    def setUp(self):
+        self.user = models.User.objects.create_user(
+            username='email-user',
+            email='email-user@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+
+    @patch('key.mailing.socket.setdefaulttimeout')
+    @patch('key.mailing.socket.getdefaulttimeout', return_value=None)
+    @patch('key.mailing.EmailMultiAlternatives')
+    @patch('key.mailing.get_connection')
+    def test_send_via_smtp_attaches_html_alternative(
+        self,
+        connection_mock,
+        email_class_mock,
+        _getdefaulttimeout_mock,
+        _setdefaulttimeout_mock,
+    ):
+        email_message = email_class_mock.return_value
+        queued = models.OutgoingEmail.objects.create(
+            recipient=self.user,
+            subject='HTML message',
+            body='Plain body',
+            html_body='<strong>HTML body</strong>',
+        )
+
+        mailing._send_via_smtp(queued)
+
+        self.assertEqual(email_class_mock.call_args.args[1], 'Plain body')
+        self.assertEqual(email_class_mock.call_args.kwargs['to'], [self.user.email])
+        self.assertEqual(email_class_mock.call_args.kwargs['connection'], connection_mock.return_value)
+        email_message.attach_alternative.assert_called_once_with(
+            '<strong>HTML body</strong>', 'text/html',
+        )
+        email_message.send.assert_called_once_with(fail_silently=False)
+
+    @patch('key.mailing.socket.setdefaulttimeout')
+    @patch('key.mailing.socket.getdefaulttimeout', return_value=None)
+    @patch('key.mailing.EmailMultiAlternatives')
+    @patch('key.mailing.get_connection')
+    def test_send_via_smtp_supports_legacy_embedded_html(
+        self,
+        _connection_mock,
+        email_class_mock,
+        _getdefaulttimeout_mock,
+        _setdefaulttimeout_mock,
+    ):
+        email_message = email_class_mock.return_value
+        queued = models.OutgoingEmail.objects.create(
+            recipient=self.user,
+            subject='Legacy HTML message',
+            body='Plain body\n\n---- HTML ----\n<strong>Legacy HTML body</strong>',
+        )
+
+        mailing._send_via_smtp(queued)
+
+        self.assertEqual(email_class_mock.call_args.args[1], 'Plain body')
+        email_message.attach_alternative.assert_called_once_with(
+            '<strong>Legacy HTML body</strong>', 'text/html',
+        )
 
 
 class RequestMatchConfirmationTests(TestCase):

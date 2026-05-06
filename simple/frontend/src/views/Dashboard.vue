@@ -151,13 +151,29 @@ const canEdit = computed(() => auth.user?.user_type === 'employee')
   padding: 24px 28px;
 }
 
+.hero--compact .hero__eyebrow {
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
 .hero--compact .hero__title--compact {
   font-size: clamp(42px, 5vw, 64px);
   margin: 12px 0 0;
 }
 
 .hero--compact .hero__subtitle {
-  margin-top: 8px;
+  display: block;
+  min-height: 0;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(234, 245, 243, 0.84);
 }
 
 .hero--compact .hero__actions {
@@ -261,8 +277,9 @@ const canEdit = computed(() => auth.user?.user_type === 'employee')
 }
 
 .dashboard__tip span {
-  color: var(--c-ink-soft);
-  font-size: 13px;
+  color: rgba(234, 245, 243, 0.84);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 @media (max-width: 1024px) {

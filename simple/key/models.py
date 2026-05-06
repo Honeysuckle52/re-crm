@@ -720,6 +720,7 @@ class OutgoingEmail(models.Model):
                                limit_choices_to={'user_type': 'employee'})
     subject = models.CharField(max_length=255)
     body = models.TextField()
+    html_body = models.TextField(blank=True, default='')
     template_code = models.CharField(max_length=64, blank=True, null=True)
     trigger_code = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     context = models.JSONField(default=dict, blank=True)

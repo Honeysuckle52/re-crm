@@ -1,0 +1,25 @@
+{% extends "emails/_base.html" %}
+
+{% block preheader %}Вам назначена новая задача{% endblock %}
+{% block eyebrow %}Новая задача{% endblock %}
+{% block title %}Вам назначена задача{% endblock %}
+{% block subtitle %}Задача уже добавлена в рабочий список сотрудника и доступна в разделе задач.{% endblock %}
+
+{% block content %}
+  <p>Здравствуйте, <strong>{{ assignee_name }}</strong>!</p>
+  <p>Вам назначена новая задача в системе агентства.</p>
+
+  <div class="surface">
+    <div class="surface-title">{{ task.title }}</div>
+    <ul class="list">
+      <li><span class="label">Тип:</span> <strong>{{ task.get_task_type_display }}</strong></li>
+      {% if task.due_date %}<li><span class="label">Срок:</span> <strong>{{ task.due_date|date:"d.m.Y H:i" }}</strong></li>{% endif %}
+      {% if request %}<li><span class="label">Заявка:</span> <strong>№{{ request.pk }}</strong></li>{% endif %}
+      {% if property %}<li><span class="label">Объект:</span> <strong>{{ property.title|default:"Объект" }}</strong></li>{% endif %}
+    </ul>
+  </div>
+
+  <div class="cta-wrap">
+    <a href="{{ task_url }}" class="cta">Открыть задачи</a>
+  </div>
+{% endblock %}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <title>{{ agency_name }}</title>
+  <style>
+    body { margin: 0; padding: 0; background: #f4f8fa; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; color: #153839; }
+    table { border-collapse: collapse; }
+    .wrapper { width: 100%; background: #f4f8fa; }
+    .shell { width: 100%; max-width: 640px; margin: 0 auto; }
+    .card { width: 100%; background: #ffffff; border: 1px solid #d7e5e4; border-radius: 28px; overflow: hidden; box-shadow: 0 14px 30px rgba(16, 55, 52, 0.08); }
+    .hero { background: linear-gradient(180deg, #124346 0%, #073434 100%); padding: 28px 32px; color: #f4fbfa; }
+    .eyebrow { display: inline-block; padding: 8px 14px; border-radius: 999px; border: 1px solid rgba(120, 216, 206, 0.28); background: rgba(255, 255, 255, 0.08); color: #efffff; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .hero-title { margin: 14px 0 0; font-size: 28px; line-height: 1.2; font-weight: 700; color: #ffffff; }
+    .hero-subtitle { margin: 10px 0 0; font-size: 14px; line-height: 1.55; color: rgba(234, 245, 243, 0.84); }
+    .content { padding: 28px 32px; font-size: 15px; line-height: 1.65; color: #153839; }
+    .content p { margin: 0 0 14px; }
+    .section { margin-top: 20px; }
+    .surface { background: linear-gradient(180deg, #ffffff 0%, #edf4f3 100%); border: 1px solid #d7e5e4; border-radius: 24px; padding: 18px 20px; }
+    .surface-title { margin: 0 0 6px; font-size: 16px; line-height: 1.35; font-weight: 700; color: #153839; }
+    .meta { margin: 0; font-size: 14px; line-height: 1.6; color: rgba(21, 56, 57, 0.82); }
+    .muted { color: rgba(21, 56, 57, 0.72); }
+    .accent { color: #1c6e69; }
+    .cta-wrap { padding-top: 8px; }
+    .cta { display: inline-block; padding: 12px 20px; border-radius: 999px; background: linear-gradient(180deg, #124346 0%, #073434 100%); border: 1px solid rgba(7, 52, 52, 0.24); color: #ffffff !important; text-decoration: none; font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
+    .list { margin: 0; padding: 0; list-style: none; }
+    .list li { padding: 6px 0; border-bottom: 1px solid rgba(21, 56, 57, 0.08); }
+    .list li:last-child { border-bottom: 0; }
+    .label { color: rgba(21, 56, 57, 0.68); }
+    .footer { padding: 18px 32px 24px; font-size: 12px; line-height: 1.6; color: rgba(21, 56, 57, 0.64); text-align: center; }
+    .footer a { color: #1c6e69; text-decoration: none; }
+    @media only screen and (max-width: 640px) {
+      .hero, .content, .footer { padding-left: 20px !important; padding-right: 20px !important; }
+      .hero-title { font-size: 24px !important; }
+      .card { border-radius: 22px !important; }
+      .surface { border-radius: 18px !important; padding: 16px !important; }
+      .cta { display: block !important; text-align: center !important; }
+    }
+  </style>
+</head>
+<body>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">
+    {% block preheader %}{{ agency_name }}{% endblock %}
+  </div>
+  <table role="presentation" class="wrapper" width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="padding: 28px 12px;">
+        <table role="presentation" class="shell" width="100%" cellpadding="0" cellspacing="0" align="center">
+          <tr>
+            <td>
+              <table role="presentation" class="card" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td class="hero">
+                    <div class="eyebrow">{% block eyebrow %}{{ agency_name }}{% endblock %}</div>
+                    <div class="hero-title">{% block title %}{% endblock %}</div>
+                    {% block subtitle_wrap %}
+                    <div class="hero-subtitle">{% block subtitle %}{% endblock %}</div>
+                    {% endblock %}
+                  </td>
+                </tr>
+                <tr>
+                  <td class="content">
+                    {% block content %}{% endblock %}
+                  </td>
+                </tr>
+                <tr>
+                  <td class="footer">
+                    {{ agency_name }}<br>
+                    <a href="{{ public_url }}">{{ public_url }}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
