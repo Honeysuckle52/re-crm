@@ -88,10 +88,6 @@
             <div class="hero__eyebrow properties-main__eyebrow">Каталог</div>
             <h2 class="h2">Найдено {{ propertyCount }} объектов</h2>
           </div>
-          <div class="muted properties-main__caption">
-            Просторная сетка, фильтр всегда под рукой и без лишнего сжатия по центру.
-            Сейчас показано {{ items.length }} карточек на странице {{ propertyPage }}.
-          </div>
         </div>
 
         <div class="panel panel--light properties-results">
@@ -241,6 +237,59 @@ onMounted(async () => {
   gap: 14px;
 }
 
+.properties-filter__grid > .field > .input,
+.properties-filter__grid > .field > .select {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.16);
+  color-scheme: light;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 10px 22px rgba(16, 55, 52, 0.08);
+}
+
+.properties-filter__grid > .field > .input::placeholder {
+  color: rgba(21, 56, 57, 0.56);
+}
+
+.properties-filter__grid > .field > .select {
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, rgba(21, 56, 57, 0.62) 50%),
+    linear-gradient(135deg, rgba(21, 56, 57, 0.62) 50%, transparent 50%);
+  background-position:
+    0 0,
+    calc(100% - 24px) calc(50% - 3px),
+    calc(100% - 18px) calc(50% - 3px);
+  background-size:
+    100% 100%,
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+}
+
+.properties-filter__grid > .field > .input:hover,
+.properties-filter__grid > .field > .select:hover {
+  border-color: rgba(21, 56, 57, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 24px rgba(16, 55, 52, 0.1);
+}
+
+.properties-filter__grid > .field > .input:focus,
+.properties-filter__grid > .field > .select:focus {
+  border-color: rgba(21, 56, 57, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(21, 56, 57, 0.16),
+    0 0 0 5px rgba(230, 238, 242, 0.92),
+    0 12px 24px rgba(16, 55, 52, 0.12);
+}
+
+.properties-filter__grid > .field > .select option {
+  background: #f4f8fa;
+  color: var(--c-page-text);
+}
+
 .properties-filter__actions {
   justify-content: flex-start;
   flex-wrap: wrap;
@@ -273,11 +322,6 @@ onMounted(async () => {
   padding: 0 12px;
   font-size: 10px;
   letter-spacing: 0.08em;
-}
-
-.properties-main__caption {
-  max-width: 420px;
-  text-align: right;
 }
 
 .properties-results {
@@ -321,11 +365,6 @@ onMounted(async () => {
   .properties-main__head {
     flex-direction: column;
     align-items: flex-start;
-  }
-
-  .properties-main__caption {
-    max-width: none;
-    text-align: left;
   }
 
   .properties-results {

@@ -5,9 +5,6 @@
         <div>
           <div class="hero__eyebrow">Задачи</div>
           <h1 class="h2" style="color: #fff; margin-top: 8px">Рабочие задачи</h1>
-          <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
-            Поручения сотрудникам: звонки, показы, документы и сопровождение заявок.
-          </div>
           <div
             v-if="!auth.isManager"
             class="workload-banner"

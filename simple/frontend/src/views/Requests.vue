@@ -131,9 +131,6 @@
             Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
           </div>
         </div>
-        <div class="surface-head__caption">
-          Быстрые действия по взятию и закрытию заявок доступны прямо из таблицы.
-        </div>
       </div>
 
       <div class="table-wrap">

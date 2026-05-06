@@ -3,18 +3,6 @@
     <div class="hero" style="padding: 24px 28px">
       <div class="hero__eyebrow">Сделки</div>
       <h1 class="h2" style="color: #fff; margin-top: 8px">Журнал сделок</h1>
-      <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
-        Воронка продаж: от подтверждённого варианта до договора и смены статуса сделки.
-      </div>
-    </div>
-
-    <div class="kpi-strip">
-      <article v-for="item in dealStats" :key="item.label"
-               class="kpi-card" :class="{ 'kpi-card--accent': item.accent }">
-        <div class="kpi-card__label">{{ item.label }}</div>
-        <div class="kpi-card__value">{{ item.value }}</div>
-        <div class="kpi-card__meta">{{ item.meta }}</div>
-      </article>
     </div>
 
     <div class="panel panel--light">
@@ -44,9 +32,6 @@
         <div class="surface-head__meta">
           <h2 class="h3">Сделки в работе</h2>
           <div class="muted">Показано {{ filtered.length }} из {{ filteredTotalCount }} записей по текущему фильтру.</div>
-        </div>
-        <div class="surface-head__caption">
-          Смена статуса и работа с договором доступны без перехода на отдельный экран.
         </div>
       </div>
 
@@ -165,47 +150,9 @@ const filtered = computed(() => {
   return deals.value
 })
 
-const contractsReady = computed(() =>
-  deals.value.filter(deal => !!deal.contract_url).length,
-)
-
-const totalAmount = computed(() =>
-  deals.value.reduce((sum, deal) => sum + Number(deal.price_final || 0), 0),
-)
-
-const totalCommission = computed(() =>
-  deals.value.reduce((sum, deal) => sum + Number(deal.commission_amount || 0), 0),
-)
-
 const filteredTotalCount = computed(() => (
   statusFilter.value ? (statusCounts.value[statusFilter.value] || 0) : dealCount.value
 ))
-
-const dealStats = computed(() => [
-  {
-    label: 'Всего сделок',
-    value: dealCount.value,
-    meta: 'Полный журнал доступных сделок.',
-  },
-  {
-    label: 'В выборке',
-    value: filteredTotalCount.value,
-    meta: statusFilter.value
-      ? 'Количество сделок по выбранному статусу.'
-      : 'Текущая выборка без дополнительного фильтра.',
-    accent: true,
-  },
-  {
-    label: 'Сумма на странице',
-    value: formatMoney(totalAmount.value) + ' ₽',
-    meta: 'Суммарная стоимость записей на текущей странице.',
-  },
-  {
-    label: 'PDF на странице',
-    value: `${contractsReady.value} из ${deals.value.length || 0}`,
-    meta: `Комиссия на странице: ${formatMoney(totalCommission.value)} ₽`,
-  },
-])
 
 function countByStatus (id) {
   return statusCounts.value[id] || 0

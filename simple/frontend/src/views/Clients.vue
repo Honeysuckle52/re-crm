@@ -3,10 +3,6 @@
     <div class="hero" style="padding: 24px 28px">
       <div class="hero__eyebrow">ПОЛЬЗОВАТЕЛИ</div>
       <h1 class="h2" style="color: #fff; margin-top: 8px">База пользователей</h1>
-      <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
-        Клиенты и сотрудники агентства. Назначение должностей доступно
-        администратору или менеджеру.
-      </div>
     </div>
 
     <div class="panel panel--light">

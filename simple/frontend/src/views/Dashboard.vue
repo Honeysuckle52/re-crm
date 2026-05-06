@@ -29,15 +29,6 @@
       </div>
     </div>
 
-    <div class="surface-head dashboard__surface-head">
-      <div class="surface-head__meta">
-        <h2 class="h3">Карточный макет</h2>
-        <div class="muted">
-          Несколько изумрудных карточек для основных рабочих сценариев CRM.
-        </div>
-      </div>
-    </div>
-
     <div class="grid grid--4 dashboard__showcase">
       <article
         v-for="card in showcaseCards"
@@ -60,7 +51,6 @@
             <div class="surface-head__meta">Быстрые действия</div>
             <h2 class="h2 dashboard__title">Работа с входящим потоком</h2>
           </div>
-          <div class="surface-head__caption">Основные CRM-сценарии</div>
         </div>
         <p class="dashboard__text">
           Создавайте новые объекты, открывайте заявки клиентов и быстро
@@ -82,7 +72,6 @@
             <div class="surface-head__meta">Система и данные</div>
             <h2 class="h2 dashboard__title">Подсказки по работе</h2>
           </div>
-          <div class="surface-head__caption">Навигация по процессу</div>
         </div>
         <div class="dashboard__tips">
           <div class="dashboard__tip">
@@ -156,14 +145,6 @@ const canEdit = computed(() => auth.user?.user_type === 'employee')
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-
-.dashboard__surface-head .h3 {
-  color: #113739;
-}
-
-.dashboard__surface-head .muted {
-  color: rgba(17, 55, 57, 0.76);
 }
 
 .hero--compact {
