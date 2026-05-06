@@ -1,11 +1,12 @@
-"""Создание сделки по заявке."""
+"""Создание сделок и фоновая генерация договоров."""
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from . import models
@@ -14,6 +15,8 @@ from .documents import render_contract_pdf
 logger = logging.getLogger(__name__)
 
 DEFAULT_COMMISSION_PERCENT = 3.0
+CONTRACT_CLAIM_TIMEOUT = timedelta(minutes=15)
+
 
 def _next_deal_number() -> str:
     """Следующий номер сделки вида ``D-YYYY-NNNN``."""
@@ -47,8 +50,143 @@ def _resolve_agent(request_obj: models.Request, fallback_user) -> Optional[model
         return fallback_user
     return (
         models.User.objects.filter(user_type='employee', is_active=True)
-        .order_by('id').first()
+        .order_by('id')
+        .first()
     )
+
+
+def _deal_claim_queryset():
+    queryset = models.Deal.objects.order_by('contract_requested_at', 'id')
+    if connection.features.has_select_for_update:
+        if connection.features.has_select_for_update_skip_locked:
+            return queryset.select_for_update(skip_locked=True)
+        return queryset.select_for_update()
+    return queryset
+
+
+@transaction.atomic
+def queue_contract_generation(
+    deal: models.Deal,
+    *,
+    force: bool = False,
+) -> models.Deal:
+    """Ставит договор сделки в очередь на генерацию."""
+    locked = models.Deal.objects.select_for_update().get(pk=deal.pk)
+    now = timezone.now()
+    update_fields = ['contract_status', 'contract_error_message',
+                     'contract_requested_at', 'contract_processing_started_at']
+
+    if force and locked.contract_file:
+        locked.contract_file.delete(save=False)
+        locked.contract_file = None
+        update_fields.append('contract_file')
+    if force and locked.contract_generated_at is not None:
+        locked.contract_generated_at = None
+        update_fields.append('contract_generated_at')
+
+    if locked.contract_file and not force:
+        if locked.contract_status != 'ready':
+            locked.contract_status = 'ready'
+            locked.contract_error_message = None
+            locked.contract_processing_started_at = None
+            update_fields = ['contract_status', 'contract_error_message',
+                             'contract_processing_started_at']
+            locked.save(update_fields=update_fields)
+        return locked
+
+    if not force and locked.contract_status in {'pending', 'processing'}:
+        return locked
+
+    locked.contract_status = 'pending'
+    locked.contract_error_message = None
+    locked.contract_requested_at = now
+    locked.contract_processing_started_at = None
+    locked.save(update_fields=list(dict.fromkeys(update_fields)))
+    return locked
+
+
+def _claim_next_contract(
+    *,
+    stale_after: timedelta = CONTRACT_CLAIM_TIMEOUT,
+) -> models.Deal | None:
+    claim_time = timezone.now()
+    cutoff = claim_time - stale_after
+    eligible = (
+        Q(contract_status='pending')
+        | Q(contract_status='processing', contract_processing_started_at__lt=cutoff)
+    )
+
+    with transaction.atomic():
+        deal = _deal_claim_queryset().filter(eligible).first()
+        if deal is None:
+            return None
+        updated = models.Deal.objects.filter(pk=deal.pk).filter(eligible).update(
+            contract_status='processing',
+            contract_error_message=None,
+            contract_processing_started_at=claim_time,
+        )
+        if not updated:
+            return None
+
+    return models.Deal.objects.select_related(
+        'request', 'property', 'agent', 'client', 'operation_type', 'status',
+    ).get(pk=deal.pk)
+
+
+def _generate_contract_file(deal: models.Deal):
+    """Генерирует PDF-файл договора для сделки."""
+    return render_contract_pdf(deal)
+
+
+def process_contract_queue(
+    *,
+    limit: int = 10,
+    stale_after: timedelta = CONTRACT_CLAIM_TIMEOUT,
+) -> dict[str, int]:
+    """Обрабатывает очередь генерации договоров."""
+    summary = {
+        'processed': 0,
+        'generated': 0,
+        'failed': 0,
+    }
+
+    for _ in range(max(limit, 0)):
+        deal = _claim_next_contract(stale_after=stale_after)
+        if deal is None:
+            break
+
+        summary['processed'] += 1
+        try:
+            pdf = _generate_contract_file(deal)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                'Не удалось сгенерировать договор для сделки %s',
+                deal.deal_number,
+            )
+            models.Deal.objects.filter(pk=deal.pk).update(
+                contract_status='failed',
+                contract_error_message=str(exc)[:2000],
+                contract_processing_started_at=None,
+            )
+            summary['failed'] += 1
+            continue
+
+        deal.contract_file.save(pdf.name, pdf, save=False)
+        deal.contract_generated_at = timezone.now()
+        deal.contract_status = 'ready'
+        deal.contract_error_message = None
+        deal.contract_processing_started_at = None
+        deal.save(update_fields=[
+            'contract_file',
+            'contract_generated_at',
+            'contract_status',
+            'contract_error_message',
+            'contract_processing_started_at',
+        ])
+        summary['generated'] += 1
+
+    return summary
+
 
 @transaction.atomic
 def create_deal_from_request(
@@ -57,11 +195,11 @@ def create_deal_from_request(
     actor=None,
     generate_contract: bool = True,
 ) -> Optional[models.Deal]:
-    """Создаёт сделку и при необходимости договор."""
+    """Создаёт сделку и при необходимости ставит договор в очередь."""
     existing = models.Deal.objects.filter(request=request_obj).first()
     if existing:
         if generate_contract and not existing.contract_file:
-            _attach_contract(existing)
+            return queue_contract_generation(existing)
         return existing
 
     prop = _resolve_property_for_request(request_obj)
@@ -103,27 +241,14 @@ def create_deal_from_request(
             f'Сделка создана автоматически при закрытии заявки '
             f'#{request_obj.pk}.'
         ),
+        contract_status='not_requested',
     )
 
     if generate_contract:
-        _attach_contract(deal)
+        deal = queue_contract_generation(deal)
 
     logger.info(
         'Создана сделка %s по заявке #%s (объект #%s, клиент #%s).',
         deal.deal_number, request_obj.pk, prop.pk, request_obj.client_id,
     )
     return deal
-
-
-def _attach_contract(deal: models.Deal) -> None:
-    """Генерирует PDF и сохраняет его в ``deal.contract_file``."""
-    try:
-        pdf = render_contract_pdf(deal)
-    except Exception:  # pragma: no cover
-        logger.exception(
-            'Не удалось сгенерировать договор для сделки %s', deal.deal_number,
-        )
-        return
-    deal.contract_file.save(pdf.name, pdf, save=False)
-    deal.contract_generated_at = timezone.now()
-    deal.save(update_fields=['contract_file', 'contract_generated_at'])

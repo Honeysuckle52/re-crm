@@ -55,7 +55,7 @@
         <div class="kpi-card__value">{{ relatedDeal ? relatedDeal.deal_number : '—' }}</div>
         <div class="kpi-card__meta">
           {{ relatedDeal
-            ? `${relatedDeal.status_name || 'Статус не указан'} · ${relatedDeal.contract_url ? 'договор готов' : 'без PDF'}`
+            ? `${relatedDeal.status_name || 'Статус не указан'} · ${dealContractStatusLabel(relatedDeal)}`
             : 'Появится после закрытия заявки' }}
         </div>
       </article>
@@ -101,7 +101,7 @@
               {{ formatMoney(relatedDeal.price_final) }} ₽
             </div>
             <div class="muted" style="font-size: 12px">
-              {{ relatedDeal.contract_url ? 'Договор уже сформирован.' : 'PDF-договор ещё не сформирован.' }}
+              {{ dealContractStatusHint(relatedDeal) }}
             </div>
           </div>
           <div class="row deal-summary__actions" style="gap: 8px; flex-wrap: wrap">
@@ -287,6 +287,32 @@ const activeTasksCount = computed(() =>
 const autoClosedTasksCount = computed(() =>
   requestTasks.value.filter((task) => task.is_auto_closed).length,
 )
+
+function dealContractStatusLabel (deal) {
+  if (!deal) return ''
+  if (deal.contract_status === 'ready' || deal.contract_url) return 'договор готов'
+  if (deal.contract_status === 'pending') return 'в очереди на генерацию'
+  if (deal.contract_status === 'processing') return 'договор формируется'
+  if (deal.contract_status === 'failed') return 'ошибка генерации PDF'
+  return 'PDF ещё не запрошен'
+}
+
+function dealContractStatusHint (deal) {
+  if (!deal) return ''
+  if (deal.contract_status === 'ready' || deal.contract_url) {
+    return 'Договор уже сформирован и доступен для скачивания.'
+  }
+  if (deal.contract_status === 'pending') {
+    return 'PDF-договор поставлен в очередь и будет сформирован фоновым процессом.'
+  }
+  if (deal.contract_status === 'processing') {
+    return 'PDF-договор сейчас формируется в фоновом процессе.'
+  }
+  if (deal.contract_status === 'failed') {
+    return deal.contract_error_message || 'Предыдущая генерация договора завершилась ошибкой.'
+  }
+  return 'Договор появится после постановки сделки в очередь на генерацию.'
+}
 
 function matchBadgeLabel (match) {
   if (match.state === 'confirmed') return 'Подтверждён'

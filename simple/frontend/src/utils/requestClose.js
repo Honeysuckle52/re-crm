@@ -22,12 +22,12 @@ export const requestCloseOutcomes = [
 ]
 
 export const activeRequestStatusCodes = ['open', 'processing']
-export const terminalRequestStatusCodes = ['completed', 'cancelled', 'rejected', 'lost', 'closed']
+export const terminalRequestStatusCodes = ['completed', 'cancelled', 'rejected', 'lost']
 
 export function getRequestCloseSuccessMessage ({ outcome, data, requestId = null }) {
   const requestLabel = requestId ? ` #${requestId}` : ''
   if (outcome === 'completed' && data?.deal?.deal_number) {
-    return `Заявка${requestLabel} завершена. Создана сделка ${data.deal.deal_number}, договор готов к скачиванию.`
+    return `Заявка${requestLabel} завершена. Создана сделка ${data.deal.deal_number}, договор поставлен в очередь на генерацию.`
   }
 
   const messages = {

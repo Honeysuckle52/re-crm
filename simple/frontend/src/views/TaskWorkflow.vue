@@ -296,41 +296,65 @@ const newRequest = reactive({
   description: '',
 })
 
-const MATCH_TASK_TYPES = ['property_search', 'showing']
+function fallbackWorkflowSteps(taskPayload) {
+  const isMatchRelevant = ['property_search', 'showing'].includes(taskPayload?.task_type)
+  return [
+    {
+      id: 'contact',
+      label: 'Контакт с клиентом',
+      done: false,
+      current: true,
+    },
+    {
+      id: 'request',
+      label: 'Заявка',
+      done: false,
+      current: false,
+    },
+    ...(isMatchRelevant
+      ? [{
+          id: 'match',
+          label: 'Подбор/выполнение',
+          done: false,
+          current: false,
+        }]
+      : []),
+    {
+      id: 'complete',
+      label: 'Завершение',
+      done: false,
+      current: false,
+    },
+  ]
+}
 
 const steps = computed(() => {
-  const isMatchRelevant = MATCH_TASK_TYPES.includes(task.value?.task_type)
-  return [
-    { id: 'contact',  label: 'Контакт с клиентом', skipped: false },
-    { id: 'request',  label: 'Заявка',             skipped: false },
-    { id: 'match',    label: 'Подбор/выполнение',  skipped: !isMatchRelevant },
-    { id: 'complete', label: 'Завершение',         skipped: false },
-  ]
-})
-
-const doneStepIds = computed(() => {
-  const ids = new Set()
-  for (const entry of task.value?.steps_log || []) {
-    if (entry?.step) ids.add(entry.step)
+  const backendSteps = task.value?.workflow_steps
+  if (Array.isArray(backendSteps) && backendSteps.length) {
+    return backendSteps
   }
-  return ids
+  return fallbackWorkflowSteps(task.value)
 })
 
 const currentStepIdx = computed(() => {
   const list = steps.value
+  const backendCurrentIdx = list.findIndex((step) => step.current)
+  if (backendCurrentIdx >= 0) return backendCurrentIdx
   for (let i = 0; i < list.length; i += 1) {
     const s = list[i]
-    if (s.skipped) continue
-    if (!doneStepIds.value.has(s.id)) return i
+    if (!s.done) return i
   }
-  return list.length - 1
+  return Math.max(list.length - 1, 0)
 })
-const currentStep = computed(() => steps.value[currentStepIdx.value])
+const currentStep = computed(() => (
+  steps.value[currentStepIdx.value]
+  || { id: task.value?.workflow_current_step || 'contact' }
+))
 const visibleStepCount = computed(() => (
-  steps.value.filter((step) => !step.skipped).length
+  steps.value.length
 ))
 const completedStepCount = computed(() => (
-  steps.value.filter((step) => !step.skipped && doneStepIds.value.has(step.id)).length
+  steps.value.filter((step) => step.done).length
 ))
 
 const activeRequestId = computed(() => (

@@ -3,7 +3,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from . import models
+from . import business_rules, models
+from . import task_workflow
 
 User = get_user_model()
 
@@ -41,7 +42,11 @@ class TaskStatusSerializer(serializers.ModelSerializer):
 class UserRoleSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.UserRole
-        fields = ['id', 'code', 'name', 'description']
+        fields = [
+            'id', 'code', 'name', 'description',
+            'max_active_tasks', 'max_in_progress_tasks',
+            'max_active_requests',
+        ]
 
 
 class CitySerializer(serializers.ModelSerializer):
@@ -298,6 +303,8 @@ class PropertySerializer(serializers.ModelSerializer):
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
+    status_code = serializers.CharField(source='status.code', read_only=True)
+    allowed_status_ids = serializers.SerializerMethodField()
     full_address = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
     feature_values = PropertyFeatureValueSerializer(many=True, read_only=True)
@@ -314,7 +321,7 @@ class PropertySerializer(serializers.ModelSerializer):
         model = models.Property
         fields = [
             'id', 'title', 'operation_type', 'operation_type_name',
-            'status', 'status_name',
+            'status', 'status_name', 'status_code', 'allowed_status_ids',
             'address', 'address_data', 'full_address',
             'coordinates_lat', 'coordinates_lon',
             'price', 'price_per_sqm',
@@ -327,6 +334,20 @@ class PropertySerializer(serializers.ModelSerializer):
 
     def get_full_address(self, obj) -> str:
         return str(obj.address)
+
+    def get_allowed_status_ids(self, obj) -> list[int]:
+        statuses_by_code = self.context.setdefault(
+            '_property_status_ids_by_code',
+            {
+                status.code: status.pk
+                for status in models.PropertyStatus.objects.all()
+            },
+        )
+        return [
+            status_id
+            for code in business_rules.property_allowed_transition_codes(obj)
+            if (status_id := statuses_by_code.get(code)) is not None
+        ]
 
     def get_photos(self, obj):
         """Клиенту отдаём только видимые фото."""
@@ -482,8 +503,10 @@ class RequestSerializer(serializers.ModelSerializer):
                                            read_only=True)
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
-    status_name = serializers.CharField(source='status.name', read_only=True)
-    status_code = serializers.CharField(source='status.code', read_only=True)
+    status_name = serializers.CharField(
+        source='status_display_name', read_only=True,
+    )
+    status_code = serializers.CharField(read_only=True)
     matches = RequestPropertyMatchSerializer(many=True, read_only=True)
     can_close = serializers.SerializerMethodField()
 
@@ -528,6 +551,10 @@ class DealSerializer(serializers.ModelSerializer):
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
     contract_url = serializers.SerializerMethodField()
+    contract_status_display = serializers.CharField(
+        source='get_contract_status_display', read_only=True,
+    )
+    allowed_status_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Deal
@@ -537,14 +564,38 @@ class DealSerializer(serializers.ModelSerializer):
                   'status', 'status_name', 'status_code',
                   'price_final', 'commission_percent', 'commission_amount',
                   'deal_date', 'notes',
-                  'request', 'contract_url', 'contract_generated_at']
-        read_only_fields = ['request', 'contract_generated_at']
+                  'request', 'contract_url',
+                  'allowed_status_ids',
+                  'contract_status', 'contract_status_display',
+                  'contract_error_message', 'contract_requested_at',
+                  'contract_generated_at']
+        read_only_fields = [
+            'request', 'contract_url',
+            'allowed_status_ids',
+            'contract_status', 'contract_status_display',
+            'contract_error_message', 'contract_requested_at',
+            'contract_generated_at',
+        ]
 
     def get_contract_url(self, obj) -> str | None:
         """URL скачивания договора."""
-        if not obj.contract_file:
+        if not obj.contract_file or obj.contract_status != 'ready':
             return None
         return f'/api/deals/{obj.pk}/contract/'
+
+    def get_allowed_status_ids(self, obj) -> list[int]:
+        statuses_by_code = self.context.setdefault(
+            '_deal_status_ids_by_code',
+            {
+                status.code: status.pk
+                for status in models.DealStatus.objects.all()
+            },
+        )
+        return [
+            status_id
+            for code in business_rules.deal_allowed_transition_codes(obj)
+            if (status_id := statuses_by_code.get(code)) is not None
+        ]
 
 
 class PropertyStatusHistorySerializer(serializers.ModelSerializer):
@@ -584,6 +635,8 @@ class TaskSerializer(serializers.ModelSerializer):
                                              read_only=True)
     task_type_display = serializers.CharField(read_only=True)
     is_overdue = serializers.SerializerMethodField()
+    workflow_steps = serializers.SerializerMethodField()
+    workflow_current_step = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Task
@@ -597,6 +650,7 @@ class TaskSerializer(serializers.ModelSerializer):
                   'request', 'request_client_username', 'deal',
                   'due_date', 'completed_at', 'result',
                   'steps_log', 'is_auto_closed',
+                  'workflow_steps', 'workflow_current_step',
                   'is_overdue', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at', 'created_by',
                             'is_auto_closed', 'steps_log']
@@ -608,6 +662,12 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.status and obj.status.code in {'done', 'cancelled'}:
             return False
         return obj.due_date < timezone.now()
+
+    def get_workflow_steps(self, obj) -> list[dict]:
+        return task_workflow.workflow_payload(obj)
+
+    def get_workflow_current_step(self, obj) -> str:
+        return task_workflow.current_step_id(obj)
 
 
 class OutgoingEmailSerializer(serializers.ModelSerializer):
@@ -628,5 +688,6 @@ class OutgoingEmailSerializer(serializers.ModelSerializer):
                   'html_body',
                   'template_code', 'trigger_code', 'context',
                   'status', 'status_display', 'task', 'request', 'property',
-                  'error_message', 'sent_at', 'created_at']
-        read_only_fields = ['created_at', 'sent_at']
+                  'error_message', 'processing_started_at',
+                  'sent_at', 'created_at']
+        read_only_fields = ['created_at', 'processing_started_at', 'sent_at']

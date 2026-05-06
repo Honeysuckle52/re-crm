@@ -117,22 +117,53 @@ class WorkloadSnapshot:
         }
 
 
+def resolve_workload_limits(user) -> dict[str, int]:
+    """Возвращает действующие лимиты сотрудника с учётом его роли."""
+    role = getattr(user, 'role', None)
+
+    def _limit(attr_name: str, default: int) -> int:
+        if role is None:
+            return default
+        value = getattr(role, attr_name, None)
+        if value is None:
+            return default
+        return int(value)
+
+    return {
+        'max_active_tasks': _limit('max_active_tasks', MAX_ACTIVE_TASKS),
+        'max_in_progress_tasks': _limit(
+            'max_in_progress_tasks',
+            MAX_IN_PROGRESS_TASKS,
+        ),
+        'max_active_requests': _limit(
+            'max_active_requests',
+            MAX_ACTIVE_REQUESTS,
+        ),
+    }
+
+
 def snapshot_for(user) -> WorkloadSnapshot:
     """Построить срез нагрузки для сотрудника."""
+    limits = resolve_workload_limits(user)
     return WorkloadSnapshot(
         active_tasks=active_tasks_qs(user).count(),
         in_progress_tasks=in_progress_tasks_qs(user).count(),
         active_requests=active_requests_qs(user).count(),
+        max_active_tasks=limits['max_active_tasks'],
+        max_in_progress_tasks=limits['max_in_progress_tasks'],
+        max_active_requests=limits['max_active_requests'],
     )
 
 
 def assert_can_take_request(user, *, exclude_pk: int | None = None) -> None:
     """Гарантирует, что сотрудник не превысит лимит активных заявок."""
+    limits = resolve_workload_limits(user)
+    max_active_requests = limits['max_active_requests']
     count = active_requests_qs(user, exclude_pk=exclude_pk).count()
-    if count >= MAX_ACTIVE_REQUESTS:
+    if count >= max_active_requests:
         raise WorkloadLimitExceeded(
             f'Нельзя взять заявку: уже {count} активных '
-            f'(максимум {MAX_ACTIVE_REQUESTS}). Закройте одну из '
+            f'(максимум {max_active_requests}). Закройте одну из '
             'текущих, чтобы принять новую.',
             code='max_active_requests',
         )
@@ -140,11 +171,13 @@ def assert_can_take_request(user, *, exclude_pk: int | None = None) -> None:
 
 def assert_can_assign_task(user, *, exclude_pk: int | None = None) -> None:
     """Гарантирует, что сотруднику можно добавить ещё одну активную задачу."""
+    limits = resolve_workload_limits(user)
+    max_active_tasks = limits['max_active_tasks']
     count = active_tasks_qs(user, exclude_pk=exclude_pk).count()
-    if count >= MAX_ACTIVE_TASKS:
+    if count >= max_active_tasks:
         raise WorkloadLimitExceeded(
             f'Нельзя назначить задачу: у сотрудника уже {count} '
-            f'активных задач (максимум {MAX_ACTIVE_TASKS}).',
+            f'активных задач (максимум {max_active_tasks}).',
             code='max_active_tasks',
         )
 
@@ -154,11 +187,14 @@ def assert_can_start_task(user, task) -> None:
     Перед переводом задачи в ``in_progress`` проверяет,
     что у сотрудника нет другой «в работе».
     """
+    limits = resolve_workload_limits(user)
+    max_in_progress_tasks = limits['max_in_progress_tasks']
     count = in_progress_tasks_qs(user, exclude_pk=task.pk).count()
-    if count >= MAX_IN_PROGRESS_TASKS:
+    if count >= max_in_progress_tasks:
         raise WorkloadLimitExceeded(
-            'У сотрудника уже есть задача в работе. Сначала '
-            'завершите или поставьте её на паузу (статус «Ожидание»).',
+            f'Нельзя перевести задачу в работу: уже {count} '
+            f'задач в работе (максимум {max_in_progress_tasks}). '
+            'Сначала завершите одну из них или поставьте на паузу.',
             code='max_in_progress_tasks',
         )
 
@@ -205,6 +241,30 @@ def property_status_transition_error(property_obj, next_status) -> str | None:
     )
 
 
+def property_allowed_transition_codes(property_obj) -> tuple[str, ...]:
+    """Коды статусов объекта, допустимые для UI, включая текущий."""
+    current_code = getattr(property_obj.status, 'code', None)
+    if not current_code:
+        return ()
+
+    allowed_codes = PROPERTY_STATUS_TRANSITIONS.get(current_code)
+    if allowed_codes is None:
+        return (current_code,)
+
+    allowed = set(allowed_codes)
+    if current_code in {'active', 'reserved'}:
+        operation_code = getattr(property_obj.operation_type, 'code', None)
+        terminal_code = PROPERTY_FINAL_STATUS_BY_OPERATION.get(operation_code)
+        if terminal_code:
+            allowed.add(terminal_code)
+        else:
+            allowed.update({'sold', 'rented'})
+
+    ordered = [current_code]
+    ordered.extend(code for code in allowed if code != current_code)
+    return tuple(ordered)
+
+
 def deal_status_transition_error(deal, next_status) -> str | None:
     """Вернуть текст ошибки, если переход статуса сделки недопустим."""
     current_code = getattr(deal.status, 'code', None)
@@ -220,3 +280,18 @@ def deal_status_transition_error(deal, next_status) -> str | None:
         f'Нельзя перевести сделку из статуса «{deal.status.name}» '
         f'в «{next_status.name}».'
     )
+
+
+def deal_allowed_transition_codes(deal) -> tuple[str, ...]:
+    """Коды статусов сделки, допустимые для UI, включая текущий."""
+    current_code = getattr(deal.status, 'code', None)
+    if not current_code:
+        return ()
+
+    allowed = DEAL_STATUS_TRANSITIONS.get(current_code)
+    if allowed is None:
+        return (current_code,)
+
+    ordered = [current_code]
+    ordered.extend(code for code in allowed if code != current_code)
+    return tuple(ordered)

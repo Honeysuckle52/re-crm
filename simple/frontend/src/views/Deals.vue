@@ -86,24 +86,38 @@
               <td class="deals-table__contract">
                 <button v-if="deal.contract_url"
                         class="btn btn--sm deals-table__contract-btn"
+                        :title="contractStatusHint(deal)"
                         @click="downloadContract(deal)">
                   Скачать PDF
                 </button>
-                <button v-else
-                        class="btn btn--sm btn--ghost deals-table__contract-btn"
-                        @click="regenerate(deal)"
-                        title="Сгенерировать PDF-договор">
-                  Сформировать
+                <button v-else-if="contractQueueActive(deal)"
+                        class="btn btn--sm deals-table__contract-btn"
+                        disabled
+                        :title="contractStatusHint(deal)">
+                  {{ contractStatusLabel(deal) }}
                 </button>
+                <button v-else-if="auth.isStaff"
+                        class="btn btn--sm btn--ghost deals-table__contract-btn"
+                        :title="contractStatusHint(deal)"
+                        @click="regenerate(deal)">
+                  {{ deal.contract_status === 'failed' ? 'Повторить генерацию' : 'Поставить в очередь' }}
+                </button>
+                <span v-else
+                      class="tag deals-table__contract-state"
+                      :title="contractStatusHint(deal)">
+                  {{ contractStatusLabel(deal) }}
+                </span>
               </td>
               <td class="deals-table__status">
-                <select class="select select--sm" :value="deal.status"
+                <select v-if="auth.isStaff"
+                        class="select select--sm" :value="deal.status"
                         @change="changeStatus(deal, $event.target.value)">
                   <option disabled value="">Изменить статус</option>
-                  <option v-for="s in statuses" :key="s.id" :value="s.id">
+                  <option v-for="s in dealStatusOptions(deal)" :key="s.id" :value="s.id">
                     {{ s.name }}
                   </option>
                 </select>
+                <span v-else class="muted">только просмотр</span>
               </td>
             </tr>
           </tbody>
@@ -130,10 +144,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import api from '../api'
 import ListPagination from '../components/ListPagination.vue'
+import { useAuthStore } from '../store/auth'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
+const auth = useAuthStore()
 const deals = ref([])
 const statuses = ref([])
 const statusFilter = ref('')
@@ -156,6 +172,39 @@ const filteredTotalCount = computed(() => (
 
 function countByStatus (id) {
   return statusCounts.value[id] || 0
+}
+
+function dealStatusOptions (deal) {
+  const allowedIds = new Set(deal.allowed_status_ids || [])
+  return statuses.value.filter((status) => allowedIds.has(status.id))
+}
+
+function contractQueueActive (deal) {
+  return ['pending', 'processing'].includes(deal.contract_status)
+}
+
+function contractStatusLabel (deal) {
+  if (deal.contract_status === 'pending') return 'В очереди'
+  if (deal.contract_status === 'processing') return 'Формируется'
+  if (deal.contract_status === 'failed') return 'Ошибка PDF'
+  if (deal.contract_url) return 'Готов'
+  return 'Без PDF'
+}
+
+function contractStatusHint (deal) {
+  if (deal.contract_status === 'pending') {
+    return 'Договор уже поставлен в очередь на генерацию'
+  }
+  if (deal.contract_status === 'processing') {
+    return 'Договор формируется в фоновом процессе'
+  }
+  if (deal.contract_status === 'failed') {
+    return deal.contract_error_message || 'Предыдущая генерация завершилась ошибкой'
+  }
+  if (deal.contract_url) {
+    return 'PDF-договор уже готов к скачиванию'
+  }
+  return 'Поставить PDF-договор в очередь на генерацию'
 }
 
 function statusClass (name) {
@@ -205,9 +254,9 @@ async function regenerate (deal) {
   try {
     await api.post(`/deals/${deal.id}/regenerate_contract/`)
     await load()
-    toasts.success(`Договор для сделки ${deal.deal_number} сформирован`)
+    toasts.success(`Договор для сделки ${deal.deal_number} поставлен в очередь`)
   } catch (err) {
-    toasts.error(extractError(err, 'Не удалось сформировать договор'))
+    toasts.error(extractError(err, 'Не удалось поставить договор в очередь'))
   }
 }
 
@@ -343,6 +392,12 @@ onMounted(async () => {
   background: var(--grad-control-light);
   color: var(--c-page-text);
   box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
+}
+
+.deals-table__contract-state {
+  min-height: 38px;
+  min-width: 154px;
+  justify-content: center;
 }
 
 .deal-status--cancelled {

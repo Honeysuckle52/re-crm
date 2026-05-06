@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from django.core.files.base import ContentFile
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -106,6 +107,190 @@ class OutgoingEmailHtmlDeliveryTests(TestCase):
         email_message.attach_alternative.assert_called_once_with(
             '<strong>Legacy HTML body</strong>', 'text/html',
         )
+
+
+class OutgoingEmailQueueWorkerTests(TestCase):
+    def setUp(self):
+        self.user = models.User.objects.create_user(
+            username='queue-user',
+            email='queue-user@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+
+    def test_process_email_queue_marks_email_as_sent(self):
+        queued = models.OutgoingEmail.objects.create(
+            recipient=self.user,
+            subject='Queued email',
+            body='Plain body',
+            status='pending',
+        )
+
+        with patch('key.mailing._send_via_smtp') as send_mock:
+            summary = mailing.process_email_queue(limit=5)
+
+        queued.refresh_from_db()
+        self.assertEqual(summary, {'processed': 1, 'sent': 1, 'failed': 0})
+        self.assertEqual(queued.status, 'sent')
+        self.assertIsNotNone(queued.sent_at)
+        self.assertIsNone(queued.processing_started_at)
+        send_mock.assert_called_once()
+
+    def test_process_email_queue_marks_failure(self):
+        queued = models.OutgoingEmail.objects.create(
+            recipient=self.user,
+            subject='Queued email',
+            body='Plain body',
+            status='pending',
+        )
+
+        with patch('key.mailing._send_via_smtp', side_effect=RuntimeError('SMTP down')):
+            summary = mailing.process_email_queue(limit=5)
+
+        queued.refresh_from_db()
+        self.assertEqual(summary, {'processed': 1, 'sent': 0, 'failed': 1})
+        self.assertEqual(queued.status, 'failed')
+        self.assertIn('SMTP down', queued.error_message)
+        self.assertIsNone(queued.processing_started_at)
+
+    def test_resend_requeues_failed_email(self):
+        queued = models.OutgoingEmail.objects.create(
+            recipient=self.user,
+            subject='Failed email',
+            body='Plain body',
+            status='failed',
+            error_message='SMTP down',
+            processing_started_at=timezone.now(),
+        )
+
+        mailing.resend(queued)
+
+        queued.refresh_from_db()
+        self.assertEqual(queued.status, 'pending')
+        self.assertIsNone(queued.error_message)
+        self.assertIsNone(queued.processing_started_at)
+
+
+class DealContractQueueTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.property_status = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.deal_status = models.DealStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.employee = models.User.objects.create_user(
+            username='contract-agent',
+            email='contract-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='contract-client',
+            email='contract-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='22')
+        address = models.Address.objects.create(house=house, apartment_number='6')
+        self.property = models.Property.objects.create(
+            title='Contract property',
+            operation_type=self.operation_type,
+            status=self.property_status,
+            address=address,
+            price=7_300_000,
+        )
+        self.deal = models.Deal.objects.create(
+            deal_number='D-2026-0200',
+            property=self.property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.deal_status,
+            price_final=self.property.price,
+            deal_date=timezone.now().date(),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+    def test_queue_contract_generation_marks_deal_pending(self):
+        queued = deals_service.queue_contract_generation(self.deal)
+
+        queued.refresh_from_db()
+        self.assertEqual(queued.contract_status, 'pending')
+        self.assertIsNotNone(queued.contract_requested_at)
+        self.assertFalse(bool(queued.contract_file))
+
+    def test_process_contract_queue_marks_deal_ready(self):
+        deals_service.queue_contract_generation(self.deal)
+
+        with patch(
+            'key.deals_service.render_contract_pdf',
+            return_value=ContentFile(b'%PDF-1.4 test', name='contract.pdf'),
+        ):
+            summary = deals_service.process_contract_queue(limit=5)
+
+        self.deal.refresh_from_db()
+        self.assertEqual(summary, {'processed': 1, 'generated': 1, 'failed': 0})
+        self.assertEqual(self.deal.contract_status, 'ready')
+        self.assertIsNotNone(self.deal.contract_generated_at)
+        self.assertTrue(bool(self.deal.contract_file))
+        self.assertIsNone(self.deal.contract_processing_started_at)
+
+    def test_process_contract_queue_marks_failure(self):
+        deals_service.queue_contract_generation(self.deal)
+
+        with patch(
+            'key.deals_service.render_contract_pdf',
+            side_effect=RuntimeError('PDF down'),
+        ):
+            summary = deals_service.process_contract_queue(limit=5)
+
+        self.deal.refresh_from_db()
+        self.assertEqual(summary, {'processed': 1, 'generated': 0, 'failed': 1})
+        self.assertEqual(self.deal.contract_status, 'failed')
+        self.assertIn('PDF down', self.deal.contract_error_message)
+        self.assertIsNone(self.deal.contract_processing_started_at)
+
+    def test_contract_endpoint_reports_pending_generation(self):
+        deals_service.queue_contract_generation(self.deal)
+
+        response = self.api.get(f'/api/deals/{self.deal.pk}/contract/')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data['contract_status'], 'pending')
+
+    def test_regenerate_contract_requeues_and_clears_existing_file(self):
+        self.deal.contract_file.save(
+            'contract-old.pdf',
+            ContentFile(b'old pdf', name='contract-old.pdf'),
+            save=False,
+        )
+        self.deal.contract_status = 'ready'
+        self.deal.contract_generated_at = timezone.now()
+        self.deal.save(update_fields=[
+            'contract_file', 'contract_status', 'contract_generated_at',
+        ])
+
+        response = self.api.post(
+            f'/api/deals/{self.deal.pk}/regenerate_contract/',
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.deal.refresh_from_db()
+        self.assertEqual(self.deal.contract_status, 'pending')
+        self.assertFalse(bool(self.deal.contract_file))
+        self.assertIsNone(self.deal.contract_generated_at)
 
 
 class RequestMatchConfirmationTests(TestCase):
@@ -235,6 +420,10 @@ class RequestFilteringTests(TestCase):
             code='open',
             name='Open',
         )
+        self.status_closed = models.RequestStatus.objects.create(
+            code='closed',
+            name='Closed',
+        )
         self.status_completed = models.RequestStatus.objects.create(
             code='completed',
             name='Completed',
@@ -259,6 +448,13 @@ class RequestFilteringTests(TestCase):
             password='Secret123!',
             user_type='client',
         )
+        self.client_three = models.User.objects.create_user(
+            username='client-three',
+            email='client-three@example.com',
+            phone='+70000000003',
+            password='Secret123!',
+            user_type='client',
+        )
         self.request_one = models.Request.objects.create(
             client=self.client_one,
             agent=self.employee,
@@ -270,6 +466,13 @@ class RequestFilteringTests(TestCase):
             agent=self.employee,
             operation_type=self.operation_type,
             status=self.status_completed,
+        )
+        self.request_three = models.Request.objects.create(
+            client=self.client_three,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.status_closed,
+            closed_at=timezone.now(),
         )
 
     def test_request_list_supports_client_filter_and_contact_fields(self):
@@ -291,9 +494,25 @@ class RequestFilteringTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.data['results']
-        self.assertEqual(len(payload), 2)
+        self.assertEqual(len(payload), 3)
         self.assertEqual(
             {item['status_code'] for item in payload},
+            {'open', 'completed'},
+        )
+        self.assertEqual(
+            {item['id'] for item in payload},
+            {self.request_one.pk, self.request_two.pk, self.request_three.pk},
+        )
+
+    def test_request_status_list_hides_legacy_closed_code(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/request-statuses/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.data['results']
+        self.assertEqual(
+            {item['code'] for item in payload},
             {'open', 'completed'},
         )
 
@@ -479,7 +698,7 @@ class UserListFilteringTests(TestCase):
         self.assertEqual(response.data['results'][0]['username'], 'list-superuser')
 
 
-class RequestDealCreationTests(TestCase):
+class DashboardStatsTests(TestCase):
     def setUp(self):
         self.api = APIClient()
         self.operation_type = models.OperationType.objects.create(
@@ -490,9 +709,275 @@ class RequestDealCreationTests(TestCase):
             code='open',
             name='Open',
         )
-        self.request_status_closed = models.RequestStatus.objects.create(
-            code='closed',
-            name='Closed',
+        self.request_status_processing = models.RequestStatus.objects.create(
+            code='processing',
+            name='Processing',
+        )
+        self.request_status_completed = models.RequestStatus.objects.create(
+            code='completed',
+            name='Completed',
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.task_status_waiting = models.TaskStatus.objects.create(
+            code='waiting',
+            name='Waiting',
+            order=20,
+        )
+        self.task_status_in_progress = models.TaskStatus.objects.create(
+            code='in_progress',
+            name='In progress',
+            order=30,
+        )
+        self.task_status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=40,
+        )
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
+        self.employee = models.User.objects.create_user(
+            username='dashboard-employee',
+            email='dashboard-employee@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.other_employee = models.User.objects.create_user(
+            username='dashboard-other',
+            email='dashboard-other@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.manager = models.User.objects.create_user(
+            username='dashboard-manager',
+            email='dashboard-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.manager_role,
+        )
+        self.client_user = models.User.objects.create_user(
+            username='dashboard-client',
+            email='dashboard-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+
+    def test_employee_dashboard_counts_active_requests_and_own_tasks(self):
+        models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        models.Request.objects.create(
+            client=self.client_user,
+            agent=self.other_employee,
+            operation_type=self.operation_type,
+            status=self.request_status_processing,
+        )
+        models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status_completed,
+        )
+        models.Task.objects.create(
+            title='Employee active task',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+        models.Task.objects.create(
+            title='Other employee active task',
+            status=self.task_status_waiting,
+            assignee=self.other_employee,
+            created_by=self.manager,
+        )
+        models.Task.objects.create(
+            title='Completed-but-active task',
+            status=self.task_status_in_progress,
+            assignee=self.employee,
+            created_by=self.manager,
+            completed_at=timezone.now(),
+        )
+        models.Task.objects.create(
+            title='Done task',
+            status=self.task_status_done,
+            assignee=self.employee,
+            created_by=self.manager,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/dashboard/stats/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['requests_open'], 2)
+        self.assertEqual(response.data['tasks_open'], 1)
+
+    def test_manager_dashboard_counts_active_tasks_for_all_employees(self):
+        models.Task.objects.create(
+            title='Employee task',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.manager,
+        )
+        models.Task.objects.create(
+            title='Other task',
+            status=self.task_status_waiting,
+            assignee=self.other_employee,
+            created_by=self.manager,
+        )
+        models.Task.objects.create(
+            title='Finished active status task',
+            status=self.task_status_in_progress,
+            assignee=self.other_employee,
+            created_by=self.manager,
+            completed_at=timezone.now(),
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/dashboard/stats/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['tasks_open'], 2)
+
+
+class RoleBasedWorkloadLimitTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.role_agent = models.UserRole.objects.create(
+            code='agent',
+            name='Agent',
+            max_active_tasks=3,
+            max_in_progress_tasks=2,
+            max_active_requests=1,
+        )
+        self.employee = models.User.objects.create_user(
+            username='role-limit-agent',
+            email='role-limit-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.role_agent,
+        )
+        self.other_employee = models.User.objects.create_user(
+            username='role-limit-other',
+            email='role-limit-other@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='role-limit-client',
+            email='role-limit-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.task_status_waiting = models.TaskStatus.objects.create(
+            code='waiting',
+            name='Waiting',
+            order=10,
+        )
+        self.task_status_in_progress = models.TaskStatus.objects.create(
+            code='in_progress',
+            name='In progress',
+            order=20,
+        )
+
+    def test_workload_endpoint_uses_limits_from_role(self):
+        models.Task.objects.create(
+            title='Waiting task',
+            status=self.task_status_waiting,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+        models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/users/me/workload/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['max_active_tasks'], 3)
+        self.assertEqual(response.data['max_in_progress_tasks'], 2)
+        self.assertEqual(response.data['max_active_requests'], 1)
+        self.assertEqual(response.data['active_tasks'], 1)
+        self.assertEqual(response.data['active_requests'], 1)
+
+    def test_role_limit_allows_second_task_in_progress(self):
+        current_task = models.Task.objects.create(
+            title='Current task',
+            status=self.task_status_in_progress,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+        waiting_task = models.Task.objects.create(
+            title='Waiting task',
+            status=self.task_status_waiting,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(f'/api/tasks/{waiting_task.pk}/start/')
+
+        self.assertEqual(response.status_code, 200)
+        current_task.refresh_from_db()
+        waiting_task.refresh_from_db()
+        self.assertEqual(current_task.status_id, self.task_status_in_progress.pk)
+        self.assertEqual(waiting_task.status_id, self.task_status_in_progress.pk)
+
+    def test_role_limit_blocks_second_active_request_when_cap_is_one(self):
+        models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        new_request = models.Request.objects.create(
+            client=models.User.objects.create_user(
+                username='role-limit-client-2',
+                email='role-limit-client-2@example.com',
+                password='Secret123!',
+                user_type='client',
+            ),
+            agent=None,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(f'/api/requests/{new_request.pk}/take/')
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data['code'], 'max_active_requests')
+
+
+class RequestDealCreationTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
         )
         self.request_status_completed = models.RequestStatus.objects.create(
             code='completed',
@@ -561,7 +1046,7 @@ class RequestDealCreationTests(TestCase):
         )
 
 
-class RequestWorkflowSignalTests(TestCase):
+class RequestWorkflowLifecycleTests(TestCase):
     def setUp(self):
         self.api = APIClient()
         self.operation_type = models.OperationType.objects.create(
@@ -575,10 +1060,6 @@ class RequestWorkflowSignalTests(TestCase):
         self.request_status_processing = models.RequestStatus.objects.create(
             code='processing',
             name='Processing',
-        )
-        self.request_status_closed = models.RequestStatus.objects.create(
-            code='closed',
-            name='Closed',
         )
         self.request_status_completed = models.RequestStatus.objects.create(
             code='completed',
@@ -603,6 +1084,10 @@ class RequestWorkflowSignalTests(TestCase):
             name='New',
             order=10,
         )
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
         self.employee = models.User.objects.create_user(
             username='workflow-agent',
             email='workflow-agent@example.com',
@@ -614,6 +1099,13 @@ class RequestWorkflowSignalTests(TestCase):
             email='workflow-client@example.com',
             password='Secret123!',
             user_type='client',
+        )
+        self.manager = models.User.objects.create_user(
+            username='workflow-manager',
+            email='workflow-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.manager_role,
         )
 
         city = models.City.objects.create(name='Irkutsk', region='Region')
@@ -639,11 +1131,10 @@ class RequestWorkflowSignalTests(TestCase):
         )
         self.api.force_authenticate(user=self.employee)
 
-        with patch('key.mailing._spawn_thread'):
-            response = self.api.post(
-                f'/api/requests/{request_obj.pk}/take/',
-                format='json',
-            )
+        response = self.api.post(
+            f'/api/requests/{request_obj.pk}/take/',
+            format='json',
+        )
 
         self.assertEqual(response.status_code, 200)
         request_obj.refresh_from_db()
@@ -665,6 +1156,103 @@ class RequestWorkflowSignalTests(TestCase):
             trigger_code='request_taken',
             request=request_obj,
             recipient=self.client_user,
+            status='pending',
+        ).exists())
+
+    def test_repeated_take_does_not_duplicate_contact_task_and_email(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        first_response = self.api.post(
+            f'/api/requests/{request_obj.pk}/take/',
+            format='json',
+        )
+        second_response = self.api.post(
+            f'/api/requests/{request_obj.pk}/take/',
+            format='json',
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(
+            models.Task.objects.filter(
+                request=request_obj,
+                task_type='contact_client',
+                assignee=self.employee,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            models.OutgoingEmail.objects.filter(
+                trigger_code='request_taken',
+                request=request_obj,
+                recipient=self.client_user,
+                status='pending',
+            ).count(),
+            1,
+        )
+
+    def test_create_request_with_assigned_agent_creates_contact_task_and_email(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            '/api/requests/',
+            {
+                'client': self.client_user.pk,
+                'agent': self.employee.pk,
+                'operation_type': self.operation_type.pk,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        request_obj = models.Request.objects.get(pk=response.data['id'])
+        self.assertEqual(request_obj.agent_id, self.employee.pk)
+        self.assertEqual(request_obj.status_id, self.request_status_processing.pk)
+        self.assertTrue(models.Task.objects.filter(
+            request=request_obj,
+            task_type='contact_client',
+            assignee=self.employee,
+        ).exists())
+        self.assertTrue(models.OutgoingEmail.objects.filter(
+            trigger_code='request_taken',
+            request=request_obj,
+            recipient=self.client_user,
+            status='pending',
+        ).exists())
+
+    def test_assigning_agent_via_update_creates_contact_task_and_email(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.patch(
+            f'/api/requests/{request_obj.pk}/',
+            {'agent': self.employee.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.agent_id, self.employee.pk)
+        self.assertEqual(request_obj.status_id, self.request_status_processing.pk)
+        self.assertTrue(models.Task.objects.filter(
+            request=request_obj,
+            task_type='contact_client',
+            assignee=self.employee,
+        ).exists())
+        self.assertTrue(models.OutgoingEmail.objects.filter(
+            trigger_code='request_taken',
+            request=request_obj,
+            recipient=self.client_user,
+            status='pending',
         ).exists())
 
     def test_confirm_property_auto_closes_search_task_and_queues_email(self):
@@ -691,13 +1279,12 @@ class RequestWorkflowSignalTests(TestCase):
         )
         self.api.force_authenticate(user=self.employee)
 
-        with patch('key.mailing._spawn_thread'):
-            with self.captureOnCommitCallbacks(execute=True):
-                response = self.api.post(
-                    f'/api/requests/{request_obj.pk}/confirm_property/',
-                    {'match_id': match.pk},
-                    format='json',
-                )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.api.post(
+                f'/api/requests/{request_obj.pk}/confirm_property/',
+                {'match_id': match.pk},
+                format='json',
+            )
 
         self.assertEqual(response.status_code, 200)
         search_task.refresh_from_db()
@@ -711,6 +1298,7 @@ class RequestWorkflowSignalTests(TestCase):
             request=request_obj,
             property=self.property,
             recipient=self.client_user,
+            status='pending',
         ).exists())
 
     def test_close_request_with_confirmed_match_creates_deal(self):
@@ -731,12 +1319,11 @@ class RequestWorkflowSignalTests(TestCase):
         )
         self.api.force_authenticate(user=self.employee)
 
-        with patch('key.deals_service._attach_contract'), patch('key.mailing._spawn_thread'):
-            response = self.api.post(
-                f'/api/requests/{request_obj.pk}/close/',
-                {'outcome': 'completed'},
-                format='json',
-            )
+        response = self.api.post(
+            f'/api/requests/{request_obj.pk}/close/',
+            {'outcome': 'completed'},
+            format='json',
+        )
 
         self.assertEqual(response.status_code, 200)
         request_obj.refresh_from_db()
@@ -746,13 +1333,17 @@ class RequestWorkflowSignalTests(TestCase):
         self.assertEqual(deal.property_id, self.property.pk)
         self.assertEqual(deal.agent_id, self.employee.pk)
         self.assertEqual(deal.client_id, self.client_user.pk)
+        self.assertEqual(deal.contract_status, 'pending')
+        self.assertFalse(bool(deal.contract_file))
         self.assertEqual(response.data['deal']['id'], deal.pk)
         self.assertEqual(response.data['deal']['property'], self.property.pk)
+        self.assertEqual(response.data['deal']['contract_status'], 'pending')
 
         self.assertTrue(models.OutgoingEmail.objects.filter(
             trigger_code='request_closed',
             request=request_obj,
             recipient=self.client_user,
+            status='pending',
         ).exists())
 
     def test_close_request_with_cancelled_outcome_does_not_create_deal(self):
@@ -768,12 +1359,11 @@ class RequestWorkflowSignalTests(TestCase):
         )
         self.api.force_authenticate(user=self.employee)
 
-        with patch('key.mailing._spawn_thread'):
-            response = self.api.post(
-                f'/api/requests/{request_obj.pk}/close/',
-                {'outcome': 'cancelled'},
-                format='json',
-            )
+        response = self.api.post(
+            f'/api/requests/{request_obj.pk}/close/',
+            {'outcome': 'cancelled'},
+            format='json',
+        )
 
         self.assertEqual(response.status_code, 200)
         request_obj.refresh_from_db()
@@ -781,6 +1371,151 @@ class RequestWorkflowSignalTests(TestCase):
         self.assertEqual(response.data['status_code'], 'cancelled')
         self.assertFalse(
             models.Deal.objects.filter(request=request_obj).exists(),
+        )
+
+
+class CoreCrmFlowTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.request_status_processing = models.RequestStatus.objects.create(
+            code='processing',
+            name='Processing',
+        )
+        self.request_status_completed = models.RequestStatus.objects.create(
+            code='completed',
+            name='Completed',
+        )
+        self.property_status_active = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.deal_status_new = models.DealStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.task_status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=20,
+        )
+        self.employee = models.User.objects.create_user(
+            username='core-flow-agent',
+            email='core-flow-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='core-flow-client',
+            email='core-flow-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='21')
+        address = models.Address.objects.create(
+            house=house,
+            apartment_number='6',
+        )
+        self.property = models.Property.objects.create(
+            title='Core flow property',
+            operation_type=self.operation_type,
+            status=self.property_status_active,
+            address=address,
+            price=9_700_000,
+        )
+        self.request_obj = models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+    def test_request_to_deal_flow_stays_consistent(self):
+        take_response = self.api.post(
+            f'/api/requests/{self.request_obj.pk}/take/',
+            format='json',
+        )
+        self.assertEqual(take_response.status_code, 200)
+
+        search_task = models.Task.objects.create(
+            title='Property search',
+            task_type='property_search',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client=self.client_user,
+            request=self.request_obj,
+        )
+
+        attach_response = self.api.post(
+            f'/api/requests/{self.request_obj.pk}/attach_property/',
+            {
+                'property_id': self.property.pk,
+                'agent_note': 'Подходящий вариант для клиента',
+            },
+            format='json',
+        )
+        self.assertEqual(attach_response.status_code, 201)
+        match_id = attach_response.data['id']
+
+        confirm_response = self.api.post(
+            f'/api/requests/{self.request_obj.pk}/confirm_property/',
+            {'match_id': match_id},
+            format='json',
+        )
+        self.assertEqual(confirm_response.status_code, 200)
+
+        search_task.refresh_from_db()
+        self.assertEqual(search_task.status_id, self.task_status_done.pk)
+        self.assertTrue(search_task.is_auto_closed)
+        self.assertIsNotNone(search_task.completed_at)
+
+        close_response = self.api.post(
+            f'/api/requests/{self.request_obj.pk}/close/',
+            {'outcome': 'completed'},
+            format='json',
+        )
+        self.assertEqual(close_response.status_code, 200)
+
+        self.request_obj.refresh_from_db()
+        self.assertEqual(
+            self.request_obj.status_id,
+            self.request_status_completed.pk,
+        )
+        self.assertIsNotNone(self.request_obj.closed_at)
+
+        deal = models.Deal.objects.get(request=self.request_obj)
+        self.assertEqual(deal.property_id, self.property.pk)
+        self.assertEqual(deal.agent_id, self.employee.pk)
+        self.assertEqual(deal.client_id, self.client_user.pk)
+        self.assertEqual(deal.contract_status, 'pending')
+
+        contract_response = self.api.get(f'/api/deals/{deal.pk}/contract/')
+        self.assertEqual(contract_response.status_code, 409)
+        self.assertEqual(contract_response.data['contract_status'], 'pending')
+
+        self.assertEqual(
+            models.OutgoingEmail.objects.filter(
+                request=self.request_obj,
+                recipient=self.client_user,
+                status='pending',
+            ).count(),
+            3,
         )
 
 
@@ -936,6 +1671,204 @@ class TaskStatusChangeTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status_id, self.status_cancelled.pk)
         self.assertIsNotNone(task.completed_at)
+
+
+class TaskWorkflowValidationTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.employee = models.User.objects.create_user(
+            username='task-workflow-user',
+            email='task-workflow-user@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='task-workflow-client',
+            email='task-workflow-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.request_status = models.RequestStatus.objects.create(
+            code='processing',
+            name='Processing',
+        )
+        self.property_status = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='21')
+        address = models.Address.objects.create(
+            house=house,
+            apartment_number='8',
+        )
+        self.property = models.Property.objects.create(
+            title='Workflow validation property',
+            operation_type=self.operation_type,
+            status=self.property_status,
+            address=address,
+            price=8_500_000,
+        )
+
+        self.api.force_authenticate(user=self.employee)
+
+    def test_task_detail_includes_backend_workflow_steps(self):
+        task = models.Task.objects.create(
+            title='Search property',
+            task_type='property_search',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+
+        response = self.api.get(f'/api/tasks/{task.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        step_ids = [step['id'] for step in response.data['workflow_steps']]
+        self.assertEqual(step_ids, ['contact', 'request', 'match', 'complete'])
+        self.assertEqual(response.data['workflow_current_step'], 'contact')
+
+    def test_record_step_rejects_out_of_order_transition(self):
+        task = models.Task.objects.create(
+            title='Contact client',
+            task_type='contact_client',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+
+        response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'request', 'outcome': 'linked'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Сначала зафиксируйте этап', str(response.data['detail']))
+
+    def test_request_step_requires_linked_request(self):
+        task = models.Task.objects.create(
+            title='Contact client',
+            task_type='contact_client',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client=self.client_user,
+        )
+
+        first_response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'contact', 'outcome': 'called'},
+            format='json',
+        )
+        second_response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'request', 'outcome': 'linked'},
+            format='json',
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 400)
+        self.assertEqual(
+            str(second_response.data['detail']),
+            'Сначала привяжите или создайте заявку для задачи.',
+        )
+
+    def test_match_confirmed_requires_confirmed_request_match(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status,
+        )
+        task = models.Task.objects.create(
+            title='Search property',
+            task_type='property_search',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client=self.client_user,
+            request=request_obj,
+        )
+
+        self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'contact', 'outcome': 'called'},
+            format='json',
+        )
+        self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'request', 'outcome': 'exists'},
+            format='json',
+        )
+        response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'match', 'outcome': 'confirmed'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('нет подтверждённого варианта', str(response.data['detail']))
+
+    def test_match_workflow_accepts_valid_sequence(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status,
+        )
+        models.RequestPropertyMatch.objects.create(
+            request=request_obj,
+            property=self.property,
+            agent=self.employee,
+            is_offered=True,
+            is_confirmed=True,
+            confirmed_at=timezone.now(),
+            confirmed_by=self.employee,
+        )
+        task = models.Task.objects.create(
+            title='Search property',
+            task_type='property_search',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client=self.client_user,
+            request=request_obj,
+        )
+
+        contact_response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'contact', 'outcome': 'called'},
+            format='json',
+        )
+        request_response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'request', 'outcome': 'exists'},
+            format='json',
+        )
+        match_response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'match', 'outcome': 'confirmed'},
+            format='json',
+        )
+
+        self.assertEqual(contact_response.status_code, 200)
+        self.assertEqual(request_response.status_code, 200)
+        self.assertEqual(match_response.status_code, 200)
+        self.assertEqual(match_response.data['workflow_current_step'], 'complete')
+        self.assertEqual(match_response.data['steps_log'][-1]['step'], 'match')
+        self.assertEqual(match_response.data['steps_log'][-1]['outcome'], 'confirmed')
 
 
 class TaskWorkloadEndpointTests(TestCase):
@@ -1268,6 +2201,20 @@ class PropertyStatusTransitionTests(TestCase):
             1,
         )
 
+    def test_property_detail_exposes_only_allowed_status_ids(self):
+        response = self.api.get(f'/api/properties/{self.sale_property.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.data['allowed_status_ids']),
+            {
+                self.status_active.pk,
+                self.status_reserved.pk,
+                self.status_archived.pk,
+                self.status_sold.pk,
+            },
+        )
+
 
 class DealStatusTransitionTests(TestCase):
     def setUp(self):
@@ -1361,6 +2308,20 @@ class DealStatusTransitionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.deal.refresh_from_db()
         self.assertEqual(self.deal.status_id, self.status_negotiation.pk)
+
+    def test_deal_list_exposes_only_allowed_status_ids(self):
+        response = self.api.get('/api/deals/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.data['results'][0]
+        self.assertEqual(
+            set(payload['allowed_status_ids']),
+            {
+                self.status_new.pk,
+                self.status_negotiation.pk,
+                self.status_cancelled.pk,
+            },
+        )
 
 
 class PropertyPhotoCoverTests(TestCase):

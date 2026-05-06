@@ -159,13 +159,47 @@
         <div class="table-wrap admin-roles-wrap">
           <table class="table">
             <thead>
-              <tr><th>Код</th><th>Название</th><th></th></tr>
+              <tr>
+                <th>Код</th>
+                <th>Название</th>
+                <th>Активные задачи</th>
+                <th>В работе</th>
+                <th>Активные заявки</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
               <tr v-for="r in roles" :key="r.id">
                 <td><code>{{ r.code }}</code></td>
-                <td>{{ r.name }}</td>
+                <td>
+                  <input class="input input--sm"
+                         v-model.trim="r.name"
+                         placeholder="Название роли" />
+                </td>
+                <td>
+                  <input class="input input--sm admin-limit-input"
+                         v-model.number="r.max_active_tasks"
+                         type="number"
+                         min="0" />
+                </td>
+                <td>
+                  <input class="input input--sm admin-limit-input"
+                         v-model.number="r.max_in_progress_tasks"
+                         type="number"
+                         min="0" />
+                </td>
+                <td>
+                  <input class="input input--sm admin-limit-input"
+                         v-model.number="r.max_active_requests"
+                         type="number"
+                         min="0" />
+                </td>
                 <td style="text-align: right">
+                  <button class="btn btn--sm"
+                          :disabled="savingRoleId === r.id"
+                          @click="saveRole(r)">
+                    {{ savingRoleId === r.id ? 'Сохранение…' : 'Сохранить' }}
+                  </button>
                   <button class="btn btn--sm btn--danger"
                           @click="removeRole(r)">
                     Удалить
@@ -180,6 +214,24 @@
                  style="flex: 0 0 140px" required />
           <input class="input" v-model="newRole.name" placeholder="название (Агент)"
                  style="flex: 1" required />
+          <input class="input admin-limit-input"
+                 v-model.number="newRole.max_active_tasks"
+                 type="number"
+                 min="0"
+                 title="Максимум активных задач"
+                 placeholder="акт. задачи" />
+          <input class="input admin-limit-input"
+                 v-model.number="newRole.max_in_progress_tasks"
+                 type="number"
+                 min="0"
+                 title="Максимум задач в работе"
+                 placeholder="в работе" />
+          <input class="input admin-limit-input"
+                 v-model.number="newRole.max_active_requests"
+                 type="number"
+                 min="0"
+                 title="Максимум активных заявок"
+                 placeholder="заявки" />
           <button class="btn btn--accent btn--sm" type="submit">Добавить</button>
         </form>
         <div v-if="rolesError" class="error">{{ rolesError }}</div>
@@ -262,20 +314,55 @@ async function saveAssign () {
 
 const rolesOpen = ref(false)
 const rolesError = ref('')
-const newRole = reactive({ code: '', name: '' })
+const savingRoleId = ref(null)
+const newRole = reactive({
+  code: '',
+  name: '',
+  max_active_tasks: 2,
+  max_in_progress_tasks: 1,
+  max_active_requests: 2,
+})
 
 async function createRole () {
   rolesError.value = ''
   try {
     await api.post('/user-roles/', {
-      code: newRole.code, name: newRole.name,
+      code: newRole.code,
+      name: newRole.name,
+      max_active_tasks: newRole.max_active_tasks,
+      max_in_progress_tasks: newRole.max_in_progress_tasks,
+      max_active_requests: newRole.max_active_requests,
     })
-    newRole.code = ''; newRole.name = ''
+    newRole.code = ''
+    newRole.name = ''
+    newRole.max_active_tasks = 2
+    newRole.max_in_progress_tasks = 1
+    newRole.max_active_requests = 2
     await loadRoles()
   } catch (e) {
     rolesError.value = e.response?.data
       ? Object.values(e.response.data).flat().join(' ')
       : 'Не удалось создать роль.'
+  }
+}
+
+async function saveRole (role) {
+  savingRoleId.value = role.id
+  rolesError.value = ''
+  try {
+    await api.patch(`/user-roles/${role.id}/`, {
+      name: role.name,
+      max_active_tasks: role.max_active_tasks,
+      max_in_progress_tasks: role.max_in_progress_tasks,
+      max_active_requests: role.max_active_requests,
+    })
+    await loadRoles()
+  } catch (e) {
+    rolesError.value = e.response?.data
+      ? Object.values(e.response.data).flat().join(' ')
+      : 'Не удалось сохранить лимиты роли.'
+  } finally {
+    savingRoleId.value = null
   }
 }
 
@@ -422,11 +509,17 @@ onMounted(async () => {
 }
 
 .admin-roles-wrap .table {
-  min-width: 460px;
+  min-width: 920px;
 }
 
 .admin-role-form {
   flex-wrap: wrap;
+}
+
+.admin-limit-input {
+  width: 108px;
+  min-width: 108px;
+  text-align: center;
 }
 
 code {

@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from . import models
-from . import kpi
+from . import task_workflow
 
 
 def _get_status_by_code(code: str) -> models.TaskStatus | None:
@@ -84,8 +84,6 @@ def complete_task(
         'status', 'completed_at', 'result', 'steps_log',
         'is_auto_closed', 'updated_at',
     ])
-
-    kpi.record_completion(task, auto_closed=auto_closed)
     return task, True
 
 
@@ -103,9 +101,17 @@ def record_step(
             .select_for_update()
             .get(pk=task.pk))
 
+    normalized_step = (step or '').strip()
+    normalized_outcome = (outcome or '').strip()
+    task_workflow.validate_record_step(
+        task,
+        step=normalized_step,
+        outcome=normalized_outcome,
+    )
+
     entry: dict[str, Any] = {
-        'step': step,
-        'outcome': outcome or '',
+        'step': normalized_step,
+        'outcome': normalized_outcome,
         'note': (note or '').strip(),
         'at': timezone.now().isoformat(),
         'by': getattr(actor, 'pk', None),

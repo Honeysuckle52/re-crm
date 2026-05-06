@@ -169,9 +169,10 @@
         <h2 class="h3">Смена статуса объекта</h2>
       </div>
       <div class="row property-status-actions" style="gap: 10px; flex-wrap: wrap; margin-top: 12px">
-        <button v-for="s in statuses" :key="s.id"
+        <button v-for="s in allowedStatuses" :key="s.id"
                 class="btn btn--sm"
                 :class="{ 'btn--primary': s.id === property.status }"
+                :disabled="s.id === property.status"
                 @click="changeStatus(s.id)">
           {{ s.name }}
         </button>
@@ -231,6 +232,10 @@ const historyCount = computed(() => history.value.length)
 const priceLabel = computed(() => (
   property.value?.price ? `${formatMoney(property.value.price)} ₽` : '—'
 ))
+const allowedStatuses = computed(() => {
+  const allowedIds = new Set(property.value?.allowed_status_ids || [])
+  return statuses.value.filter((status) => allowedIds.has(status.id))
+})
 
 async function submitRequest () {
   requestError.value = ''

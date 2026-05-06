@@ -14,13 +14,11 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from django.http import FileResponse, Http404
 
-from . import business_rules, models, serializers
+from . import business_rules, deals_service, models, serializers
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
-from .deals_service import create_deal_from_request
 from .mailing import (
     resend as resend_email,
-    enqueue_request_closed,
     enqueue_task_assigned,
 )
 from .permissions import (
@@ -30,25 +28,9 @@ from .permissions import (
     IsAdminOrManagerOrReadOnly,
     IsOwnClientProfileOrEmployee,
 )
+from . import request_lifecycle
 
 User = get_user_model()
-
-REQUEST_STATUS_DEFAULT_NAMES = {
-    'open': 'Открыта',
-    'processing': 'В обработке',
-    'closed': 'Закрыта',
-    'completed': 'Завершена',
-    'cancelled': 'Отменена',
-    'rejected': 'Отклонена',
-    'lost': 'Потеряна',
-}
-
-
-def _get_or_create_request_status(code: str) -> models.RequestStatus:
-    return models.RequestStatus.objects.get_or_create(
-        code=code,
-        defaults={'name': REQUEST_STATUS_DEFAULT_NAMES.get(code, code)},
-    )[0]
 
 
 def _employee_visible_requests_q(user, *, prefix: str = '') -> Q:
@@ -73,6 +55,15 @@ def _parse_bool_param(value: str | None) -> bool | None:
     if normalized in {'0', 'false', 'no', 'n'}:
         return False
     return None
+
+
+def _validation_error_payload(exc: ValidationError):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        return detail
+    if isinstance(detail, (list, tuple)):
+        return {'detail': detail[0] if detail else 'Ошибка валидации.'}
+    return {'detail': detail}
 
 
 class RegisterView(APIView):
@@ -113,7 +104,7 @@ class PropertyStatusViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class RequestStatusViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = models.RequestStatus.objects.all()
+    queryset = models.RequestStatus.objects.exclude(code='closed').order_by('id')
     serializer_class = serializers.RequestStatusSerializer
     permission_classes = [IsAuthenticated]
 
@@ -675,7 +666,11 @@ class RequestViewSet(viewsets.ModelViewSet):
         if params.get('status_code'):
             codes = [c.strip() for c in params['status_code'].split(',')
                      if c.strip()]
-            qs = qs.filter(status__code__in=codes)
+            qs = qs.filter(
+                status__code__in=models.Request.expand_status_filter_codes(
+                    codes,
+                ),
+            )
         scope = params.get('scope')
         if scope == 'unassigned' and user.is_employee:
             qs = qs.filter(agent__isnull=True)
@@ -685,61 +680,54 @@ class RequestViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Подставить клиента из сессии при самоподаче заявки."""
-        user = self.request.user
-        extra = {}
-        if user.is_authenticated and user.is_client:
-            extra['client'] = user
-            extra['agent'] = None
-        elif not serializer.validated_data.get('client'):
-            raise ValidationError(
-                {'client': 'Укажите клиента заявки.'}
-            )
-        assigned_agent = serializer.validated_data.get('agent')
-        request_status = serializer.validated_data.get('status')
-        if assigned_agent and (request_status is None or request_status.code == 'open'):
-            processing = models.RequestStatus.objects.filter(
-                code='processing',
-            ).first()
-            if processing:
-                extra['status'] = processing
-        serializer.save(**extra)
+        serializer.instance = request_lifecycle.create_request_from_serializer(
+            serializer,
+            actor=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        previous_agent_id = serializer.instance.agent_id
+        with transaction.atomic():
+            request_obj = serializer.save()
+            if request_obj.agent_id:
+                request_obj = request_lifecycle.sync_request_assignment(
+                    request_obj,
+                    previous_agent_id=previous_agent_id,
+                ).request
+        serializer.instance = request_obj
 
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
         """Закрыть заявку и при необходимости создать сделку."""
-        req = self.get_object()
-        if req.is_terminal:
-            return Response(
-                {'detail': 'Заявка уже закрыта.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         serializer = serializers.RequestCloseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         outcome = serializer.validated_data['outcome']
-        req.status = _get_or_create_request_status(outcome)
-        req.closed_at = timezone.now()
-        req.save(update_fields=['status', 'closed_at', 'updated_at'])
+        try:
+            result = request_lifecycle.close_request(
+                self.get_object(),
+                outcome=outcome,
+                actor=request.user,
+            )
+        except ValidationError as exc:
+            return Response(
+                _validation_error_payload(exc),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        deal = None
-        if outcome in models.Request.SUCCESS_STATUS_CODES:
-            deal = create_deal_from_request(req, actor=request.user)
-        enqueue_request_closed(request=req, actor=request.user, deal=deal)
-
-        payload = serializers.RequestSerializer(req).data
+        payload = serializers.RequestSerializer(result.request).data
         payload['outcome'] = outcome
         payload['detail'] = {
             'completed': (
                 'Заявка завершена.'
-                if deal is None else
+                if result.deal is None else
                 'Заявка завершена, сделка создана.'
             ),
             'cancelled': 'Заявка отменена.',
             'rejected': 'Заявка отклонена.',
             'lost': 'Заявка помечена как потерянная.',
         }[outcome]
-        if deal is not None:
-            payload['deal'] = serializers.DealSerializer(deal).data
+        if result.deal is not None:
+            payload['deal'] = serializers.DealSerializer(result.deal).data
         return Response(payload)
 
     @action(detail=True, methods=['post'])
@@ -750,34 +738,22 @@ class RequestViewSet(viewsets.ModelViewSet):
                 {'detail': 'Доступно только сотрудникам.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        req = self.get_object()
-        if req.is_terminal:
+        try:
+            result = request_lifecycle.take_request(
+                self.get_object(),
+                actor=request.user,
+            )
+        except WorkloadLimitExceeded as exc:
             return Response(
-                {'detail': 'Нельзя взять в работу уже закрытую заявку.'},
+                {'detail': exc.detail, 'code': exc.code},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except ValidationError as exc:
+            return Response(
+                _validation_error_payload(exc),
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if req.agent_id and req.agent_id != request.user.id:
-            return Response(
-                {'detail': 'Заявка уже взята другим сотрудником.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not request.user.is_admin_or_manager:
-            try:
-                business_rules.assert_can_take_request(
-                    request.user, exclude_pk=req.pk,
-                )
-            except WorkloadLimitExceeded as exc:
-                return Response(
-                    {'detail': exc.detail, 'code': exc.code},
-                    status=status.HTTP_409_CONFLICT,
-                )
-        req.agent = request.user
-        processing = models.RequestStatus.objects.filter(
-            code='processing').first()
-        if processing:
-            req.status = processing
-        req.save()
-        return Response(serializers.RequestSerializer(req).data)
+        return Response(serializers.RequestSerializer(result.request).data)
 
     @action(detail=True, methods=['post'], url_path='attach_property')
     def attach_property(self, request, pk=None):
@@ -852,64 +828,33 @@ class RequestViewSet(viewsets.ModelViewSet):
                 {'detail': 'Доступно только сотрудникам.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        req = self.get_object()
         match_id = request.data.get('match_id')
         if not match_id:
             return Response({'detail': 'Не указан match_id.'},
                             status=status.HTTP_400_BAD_REQUEST)
-
-        match = req.matches.filter(pk=match_id).first()
-        if not match:
-            return Response({'detail': 'Вариант не найден.'},
-                            status=status.HTTP_404_NOT_FOUND)
-
-        if req.is_terminal:
-            return Response(
-                {'detail': 'Нельзя подтверждать вариант по закрытой заявке.'},
-                status=status.HTTP_400_BAD_REQUEST,
+        try:
+            result = request_lifecycle.confirm_request_match(
+                self.get_object(),
+                match_id=match_id,
+                actor=request.user,
             )
-
-        from .signals import property_match_confirmed
-        with transaction.atomic():
-            req.matches.exclude(pk=match.pk).filter(
-                is_confirmed=True,
-            ).update(
-                is_confirmed=False,
-                confirmed_at=None,
-                confirmed_by=None,
+        except ValidationError as exc:
+            payload = _validation_error_payload(exc)
+            status_code = (
+                status.HTTP_404_NOT_FOUND
+                if str(payload.get('detail')) == 'Вариант не найден.'
+                else status.HTTP_400_BAD_REQUEST
             )
-
-            already_confirmed = (
-                match.is_confirmed
-                and match.is_offered
-                and not match.is_rejected
-            )
-            if not already_confirmed:
-                match.is_offered = True
-                match.is_rejected = False
-                match.is_confirmed = True
-                match.confirmed_at = timezone.now()
-                match.confirmed_by = request.user
-                match.save(update_fields=[
-                    'is_offered', 'is_rejected', 'is_confirmed',
-                    'confirmed_at', 'confirmed_by',
-                ])
-                transaction.on_commit(
-                    lambda: property_match_confirmed.send(
-                        sender=self.__class__,
-                        match=match,
-                        confirmed_by=request.user,
-                    ),
-                )
+            return Response(payload, status=status_code)
 
         return Response({
             'detail': (
                 'Вариант уже подтверждён.'
-                if already_confirmed else
+                if result.already_confirmed else
                 'Вариант подтверждён. Задачи подбора закрыты, '
                 'письмо клиенту поставлено в очередь.'
             ),
-            'match': serializers.RequestPropertyMatchSerializer(match).data,
+            'match': serializers.RequestPropertyMatchSerializer(result.match).data,
         })
 
     @action(detail=True, methods=['post'], url_path='accept_match')
@@ -1002,9 +947,23 @@ class DealViewSet(viewsets.ModelViewSet):
         """Скачать PDF-договор по сделке."""
         deal = self.get_object()
         if not deal.contract_file:
-            from .deals_service import _attach_contract
-            _attach_contract(deal)
-            deal.refresh_from_db()
+            if deal.contract_status in {'pending', 'processing'}:
+                return Response(
+                    {
+                        'detail': 'Договор формируется в фоновом процессе.',
+                        'contract_status': deal.contract_status,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if deal.contract_status == 'failed':
+                return Response(
+                    {
+                        'detail': 'Не удалось сформировать договор.',
+                        'contract_status': deal.contract_status,
+                        'contract_error_message': deal.contract_error_message,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
         if not deal.contract_file:
             raise Http404('Договор не удалось сформировать.')
         return FileResponse(
@@ -1023,12 +982,7 @@ class DealViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         deal = self.get_object()
-        from .deals_service import _attach_contract
-        if deal.contract_file:
-            deal.contract_file.delete(save=False)
-            deal.contract_file = None
-        _attach_contract(deal)
-        deal.refresh_from_db()
+        deal = deals_service.queue_contract_generation(deal, force=True)
         return Response(serializers.DealSerializer(deal).data)
 
 
@@ -1325,7 +1279,8 @@ class DashboardStatsView(APIView):
             'properties_active': models.Property.objects.filter(
                 status__code='active').count(),
             'requests_open': models.Request.objects.filter(
-                status__code='open').count(),
+                status__code__in=business_rules.ACTIVE_REQUEST_STATUS_CODES,
+            ).count(),
             'requests_total': models.Request.objects.count(),
             'deals_total': models.Deal.objects.count(),
             'deals_sum': models.Deal.objects.aggregate(
@@ -1339,8 +1294,9 @@ class DashboardStatsView(APIView):
             ),
         }
         if user.is_authenticated and user.is_employee:
-            open_tasks = models.Task.objects.exclude(
-                status__code__in=['done', 'cancelled']
+            open_tasks = models.Task.objects.filter(
+                status__code__in=business_rules.ACTIVE_TASK_STATUS_CODES,
+                completed_at__isnull=True,
             )
             if not user.is_admin_or_manager:
                 open_tasks = open_tasks.filter(assignee=user)

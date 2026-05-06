@@ -341,7 +341,7 @@ class Command(BaseCommand):
         rent = OperationType.objects.get(code='rent')
         st_open = RequestStatus.objects.get(code='open')
         st_processing = RequestStatus.objects.get(code='processing')
-        st_closed = RequestStatus.objects.get(code='closed')
+        st_completed = RequestStatus.objects.get(code='completed')
 
         client1 = users['demo_client1']
         client2 = users['demo_client2']
@@ -359,7 +359,7 @@ class Command(BaseCommand):
             (client3, agent1, st_processing, sale, properties[2], 3,
              (10_000_000, 14_000_000),
              'Ищем семейную квартиру с раздельными комнатами.'),
-            (client1, agent2, st_closed, rent, properties[3], 1,
+            (client1, agent2, st_completed, rent, properties[3], 1,
              (30_000, 40_000),
              'Студия в аренду на 6 месяцев.'),
             (client2, agent2, st_open, rent, None, 2,
@@ -387,7 +387,7 @@ class Command(BaseCommand):
             req.rooms_count = rooms
             req.min_price = price_range[0]
             req.max_price = price_range[1]
-            if status.code == 'closed':
+            if status.code in Request.TERMINAL_STATUS_CODES:
                 req.closed_at = timezone.now() - timedelta(days=2)
             req.save()
             requests.append(req)

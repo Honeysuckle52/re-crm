@@ -29,7 +29,6 @@ PROPERTY_STATUSES = [
 REQUEST_STATUSES = [
     {"code": "open",       "name": "Открыта"},
     {"code": "processing", "name": "В обработке"},
-    {"code": "closed",     "name": "Закрыта"},
     {"code": "completed",  "name": "Завершена"},
     {"code": "cancelled",  "name": "Отменена"},
     {"code": "rejected",   "name": "Отклонена"},
@@ -55,11 +54,14 @@ TASK_STATUSES = [
 
 USER_ROLES = [
     {"code": "admin",   "name": "Администратор",
-     "description": "Полный доступ ко всем функциям системы"},
+     "description": "Полный доступ ко всем функциям системы",
+     "max_active_tasks": 2, "max_in_progress_tasks": 1, "max_active_requests": 2},
     {"code": "manager", "name": "Менеджер",
-     "description": "Управление сотрудниками, объектами и сделками"},
+     "description": "Управление сотрудниками, объектами и сделками",
+     "max_active_tasks": 2, "max_in_progress_tasks": 1, "max_active_requests": 2},
     {"code": "agent",   "name": "Агент",
-     "description": "Работа с клиентами, объектами и заявками"},
+     "description": "Работа с клиентами, объектами и заявками",
+     "max_active_tasks": 2, "max_in_progress_tasks": 1, "max_active_requests": 2},
 ]
 
 PROPERTY_FEATURES = [

@@ -5,6 +5,3 @@ class KeyConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'key'
     verbose_name = 'Недвижимость (CRM/ERP)'
-
-    def ready(self):
-        from . import signals  # noqa: F401

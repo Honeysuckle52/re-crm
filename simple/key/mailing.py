@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import logging
 import socket
-import threading
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -24,6 +25,7 @@ TEMPLATE_TASK_ASSIGNED_CALL = 'task_assigned_call'
 TEMPLATE_TASK_ASSIGNED_SHOWING = 'task_assigned_showing'
 TEMPLATE_TASK_ASSIGNED_DOCUMENTS = 'task_assigned_documents'
 LEGACY_HTML_MARKER = '\n\n---- HTML ----\n'
+EMAIL_CLAIM_TIMEOUT = timedelta(minutes=15)
 
 
 def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
@@ -33,7 +35,7 @@ def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
     text = render_to_string(f'{base}/body.txt', ctx)
     try:
         html = render_to_string(f'{base}/body.html', ctx)
-    except Exception:  # noqa: BLE001 — html-шаблон опционален
+    except Exception:  # noqa: BLE001 - html-шаблон опционален
         html = ''
     return subject, text, html
 
@@ -81,7 +83,7 @@ def _audit_context(
 def _send_via_smtp(email: models.OutgoingEmail) -> None:
     """Отправляет письмо через SMTP."""
     timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 30) or 30)
-    connection = get_connection(
+    connection_obj = get_connection(
         backend=settings.EMAIL_BACKEND,
         host=settings.EMAIL_HOST,
         port=settings.EMAIL_PORT,
@@ -101,7 +103,7 @@ def _send_via_smtp(email: models.OutgoingEmail) -> None:
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[email.recipient.email],
         reply_to=[settings.AGENCY_REPLY_TO] if getattr(settings, 'AGENCY_REPLY_TO', '') else None,
-        connection=connection,
+        connection=connection_obj,
     )
     if html_body:
         msg.attach_alternative(html_body, 'text/html')
@@ -114,37 +116,84 @@ def _send_via_smtp(email: models.OutgoingEmail) -> None:
         socket.setdefaulttimeout(old_default)
 
 
-def _dispatch(email_id: int) -> None:
-    """Фоновая обёртка: грузит запись, шлёт, обновляет журнал."""
-    try:
-        email = models.OutgoingEmail.objects.get(pk=email_id)
-    except models.OutgoingEmail.DoesNotExist:
-        return
-    if email.status != 'pending':
-        return
-    try:
-        _send_via_smtp(email)
-    except Exception as exc:  # noqa: BLE001
-        log.exception('SMTP send failed for email=%s', email_id)
-        models.OutgoingEmail.objects.filter(pk=email_id).update(
-            status='failed',
-            error_message=str(exc)[:2000],
-        )
-        return
-    models.OutgoingEmail.objects.filter(pk=email_id).update(
-        status='sent',
-        sent_at=timezone.now(),
-        error_message=None,
+def _email_claim_queryset():
+    queryset = models.OutgoingEmail.objects.order_by('created_at', 'pk')
+    if connection.features.has_select_for_update:
+        if connection.features.has_select_for_update_skip_locked:
+            return queryset.select_for_update(skip_locked=True)
+        return queryset.select_for_update()
+    return queryset
+
+
+def _claim_next_email(
+    *,
+    stale_after: timedelta = EMAIL_CLAIM_TIMEOUT,
+) -> models.OutgoingEmail | None:
+    claim_time = timezone.now()
+    cutoff = claim_time - stale_after
+    eligible = (
+        Q(status='pending')
+        | Q(status='processing', processing_started_at__lt=cutoff)
     )
 
+    with transaction.atomic():
+        email = _email_claim_queryset().filter(eligible).first()
+        if email is None:
+            return None
+        updated = models.OutgoingEmail.objects.filter(pk=email.pk).filter(
+            eligible,
+        ).update(
+            status='processing',
+            processing_started_at=claim_time,
+            error_message=None,
+        )
+        if not updated:
+            return None
 
-def _spawn_thread(email_id: int) -> None:
-    threading.Thread(
-        target=_dispatch,
-        args=(email_id,),
-        name=f'outgoing-email-{email_id}',
-        daemon=True,
-    ).start()
+    return models.OutgoingEmail.objects.select_related(
+        'recipient', 'sender', 'task', 'request', 'property',
+    ).get(pk=email.pk)
+
+
+def process_email_queue(
+    *,
+    limit: int = 10,
+    stale_after: timedelta = EMAIL_CLAIM_TIMEOUT,
+) -> dict[str, int]:
+    """Обрабатывает очередь исходящих писем."""
+    summary = {
+        'processed': 0,
+        'sent': 0,
+        'failed': 0,
+    }
+
+    for _ in range(max(limit, 0)):
+        email = _claim_next_email(stale_after=stale_after)
+        if email is None:
+            break
+
+        summary['processed'] += 1
+        try:
+            _send_via_smtp(email)
+        except Exception as exc:  # noqa: BLE001
+            log.exception('SMTP send failed for email=%s', email.pk)
+            models.OutgoingEmail.objects.filter(pk=email.pk).update(
+                status='failed',
+                error_message=str(exc)[:2000],
+                processing_started_at=None,
+            )
+            summary['failed'] += 1
+            continue
+
+        models.OutgoingEmail.objects.filter(pk=email.pk).update(
+            status='sent',
+            sent_at=timezone.now(),
+            error_message=None,
+            processing_started_at=None,
+        )
+        summary['sent'] += 1
+
+    return summary
 
 
 def enqueue_property_matched(
@@ -231,7 +280,6 @@ def _enqueue_by_template(
         trigger_code, template, recipient.pk, getattr(request, 'pk', None),
         getattr(task, 'pk', None), getattr(property_obj, 'pk', None),
     )
-    transaction.on_commit(lambda: _spawn_thread(email.pk))
     return email
 
 
@@ -316,7 +364,7 @@ def enqueue_task_assigned(*, task: models.Task) -> models.OutgoingEmail | None:
 
 
 def resend(email: models.OutgoingEmail) -> None:
-    """Повторная отправка для статусов failed/cancelled."""
+    """Повторная постановка письма в очередь."""
     if email.status == 'sent':
         return
     recipient_email = (getattr(email.recipient, 'email', '') or '').strip()
@@ -325,9 +373,10 @@ def resend(email: models.OutgoingEmail) -> None:
     models.OutgoingEmail.objects.filter(pk=email.pk).update(
         status='pending',
         error_message=None,
+        sent_at=None,
+        processing_started_at=None,
     )
     log.info(
         'Email re-queued: id=%s trigger=%s template=%s',
         email.pk, email.trigger_code, email.template_code,
     )
-    transaction.on_commit(lambda: _spawn_thread(email.pk))

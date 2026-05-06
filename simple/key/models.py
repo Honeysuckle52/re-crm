@@ -85,6 +85,9 @@ class UserRole(models.Model):
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=50)
     description = models.TextField(blank=True, null=True)
+    max_active_tasks = models.PositiveSmallIntegerField(default=2)
+    max_in_progress_tasks = models.PositiveSmallIntegerField(default=1)
+    max_active_requests = models.PositiveSmallIntegerField(default=2)
 
     class Meta:
         db_table = 'user_roles'
@@ -431,9 +434,20 @@ class PropertyDocument(models.Model):
 
 class Request(models.Model):
     """Заявка клиента на подбор или конкретный объект."""
+    LEGACY_STATUS_CODE_ALIASES = {
+        'closed': 'completed',
+    }
+    STATUS_DISPLAY_NAMES = {
+        'open': 'Открыта',
+        'processing': 'В обработке',
+        'completed': 'Завершена',
+        'cancelled': 'Отменена',
+        'rejected': 'Отклонена',
+        'lost': 'Потеряна',
+    }
     ACTIVE_STATUS_CODES = ('open', 'processing')
     TERMINAL_STATUS_CODES = (
-        'completed', 'cancelled', 'rejected', 'lost', 'closed',
+        'completed', 'cancelled', 'rejected', 'lost',
     )
     SUCCESS_STATUS_CODES = ('completed',)
 
@@ -478,9 +492,50 @@ class Request(models.Model):
     def __str__(self):
         return f'Заявка №{self.pk} от {self.client.username}'
 
+    @classmethod
+    def normalize_status_code(cls, code: str | None) -> str | None:
+        if code is None:
+            return None
+        return cls.LEGACY_STATUS_CODE_ALIASES.get(code, code)
+
+    @classmethod
+    def expand_status_filter_codes(
+        cls,
+        codes: list[str] | tuple[str, ...],
+    ) -> tuple[str, ...]:
+        expanded: list[str] = []
+        reverse_aliases = {
+            current: legacy
+            for legacy, current in cls.LEGACY_STATUS_CODE_ALIASES.items()
+        }
+        for code in codes:
+            normalized = (code or '').strip()
+            if not normalized:
+                continue
+            for candidate in (
+                normalized,
+                cls.LEGACY_STATUS_CODE_ALIASES.get(normalized),
+                reverse_aliases.get(normalized),
+            ):
+                if candidate and candidate not in expanded:
+                    expanded.append(candidate)
+        return tuple(expanded)
+
     @_property
     def status_code(self) -> str | None:
-        return self.status.code if self.status_id else None
+        if not self.status_id:
+            return None
+        return self.normalize_status_code(self.status.code)
+
+    @_property
+    def status_display_name(self) -> str | None:
+        if not self.status_id:
+            return None
+        raw_code = self.status.code
+        if raw_code in self.LEGACY_STATUS_CODE_ALIASES:
+            normalized_code = self.normalize_status_code(raw_code)
+            return self.STATUS_DISPLAY_NAMES.get(normalized_code, self.status.name)
+        return self.status.name
 
     @_property
     def is_terminal(self) -> bool:
@@ -537,6 +592,13 @@ class RequestPropertyMatch(models.Model):
 
 
 class Deal(models.Model):
+    CONTRACT_STATUS_CHOICES = [
+        ('not_requested', 'Не запрошен'),
+        ('pending', 'В очереди'),
+        ('processing', 'Формируется'),
+        ('ready', 'Готов'),
+        ('failed', 'Ошибка'),
+    ]
     """Сделка по объекту и клиенту."""
     deal_number = models.CharField(max_length=50, unique=True)
     property = models.ForeignKey(Property, on_delete=models.PROTECT,
@@ -569,6 +631,15 @@ class Deal(models.Model):
     contract_file = models.FileField(
         upload_to='contracts/%Y/%m/', blank=True, null=True,
     )
+    contract_status = models.CharField(
+        max_length=20,
+        choices=CONTRACT_STATUS_CHOICES,
+        default='not_requested',
+        db_index=True,
+    )
+    contract_error_message = models.TextField(blank=True, null=True)
+    contract_requested_at = models.DateTimeField(blank=True, null=True)
+    contract_processing_started_at = models.DateTimeField(blank=True, null=True)
     contract_generated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
@@ -706,6 +777,7 @@ class Task(models.Model):
 class OutgoingEmail(models.Model):
     """Очередь исходящих писем."""
     STATUS_CHOICES = [
+        ('processing', 'Обрабатывается'),
         ('pending', 'Ожидает отправки'),
         ('sent', 'Отправлено'),
         ('failed', 'Ошибка отправки'),
@@ -735,6 +807,7 @@ class OutgoingEmail(models.Model):
                                  blank=True, null=True, related_name='emails')
 
     error_message = models.TextField(blank=True, null=True)
+    processing_started_at = models.DateTimeField(blank=True, null=True)
     sent_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
 
