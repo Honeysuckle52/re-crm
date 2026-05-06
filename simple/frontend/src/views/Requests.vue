@@ -550,6 +550,24 @@ onMounted(async () => {
   align-items: start;
 }
 
+.request-form__grid .select {
+  color-scheme: light;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, var(--c-accent) 50%),
+    linear-gradient(135deg, var(--c-accent) 50%, transparent 50%);
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 20px rgba(16, 55, 52, 0.08);
+}
+
+.request-form__grid .select option {
+  background: #f4f8fa;
+  color: var(--c-page-text);
+}
+
 .request-form__budget {
   max-width: 420px;
 }

@@ -202,8 +202,12 @@
                   <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="full" />
                 </div>
               </td>
-              <td>
-                <router-link v-if="task.request" :to="`/requests/${task.request}`" class="link">
+              <td class="task-request-cell" :class="{ 'is-clickable': !!task.request }">
+                <router-link
+                  v-if="task.request"
+                  :to="`/requests/${task.request}`"
+                  class="task-request-link"
+                >
                   №{{ task.request }}
                 </router-link>
                 <span v-else class="muted">—</span>
@@ -324,8 +328,12 @@
                 </span>
               </td>
               <td>{{ task.assignee_username }}</td>
-              <td>
-                <router-link v-if="task.request" :to="`/requests/${task.request}`" class="link">
+              <td class="task-request-cell" :class="{ 'is-clickable': !!task.request }">
+                <router-link
+                  v-if="task.request"
+                  :to="`/requests/${task.request}`"
+                  class="task-request-link"
+                >
                   №{{ task.request }}
                 </router-link>
                 <span v-else class="muted">—</span>
@@ -903,6 +911,49 @@ onMounted(async () => {
 .task-actions > .select {
   width: auto;
   min-width: 132px;
+}
+
+.task-request-cell {
+  min-width: 118px;
+}
+
+.task-request-cell.is-clickable {
+  cursor: pointer;
+}
+
+.task-request-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  color: var(--c-page-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(16, 55, 52, 0.08);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.task-request-link:hover {
+  transform: translateY(-1px);
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 10px 20px rgba(16, 55, 52, 0.1);
+  text-decoration: none;
 }
 
 .task-section-head {

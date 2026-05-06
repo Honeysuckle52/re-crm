@@ -289,6 +289,7 @@ function clear() {
   border: 0;
   border-bottom: 1px solid rgba(19, 78, 84, 0.08);
   background: transparent;
+  color: var(--c-page-text);
   text-align: left;
   transition: background 0.2s ease;
 }
@@ -303,13 +304,13 @@ function clear() {
 
 .remote-lookup__value {
   flex: 1;
-  color: var(--c-text);
+  color: var(--c-page-text);
   font-size: 14px;
   font-weight: 600;
 }
 
 .remote-lookup__hint {
-  color: var(--c-text-muted);
+  color: var(--c-page-muted);
   font-size: 12px;
   text-align: right;
 }
@@ -322,7 +323,11 @@ function clear() {
 
 .remote-lookup__state {
   padding: 14px;
-  color: var(--c-text-muted);
+  color: var(--c-page-muted);
   font-size: 13px;
+}
+
+.remote-lookup__selected-hint {
+  color: var(--c-page-muted);
 }
 </style>
