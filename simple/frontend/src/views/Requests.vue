@@ -44,9 +44,13 @@
     <form v-if="showForm" class="panel panel--light stack" @submit.prevent="createRequest">
       <div class="surface-head">
         <div class="surface-head__meta">
-          <h2 class="h3">Создание заявки</h2>
+          <h2 class="h3">
+            {{ isEditingRequest ? `Редактирование заявки #${editingRequestId}` : 'Создание заявки' }}
+          </h2>
           <div class="muted">
-            {{ auth.isStaff
+            {{ isEditingRequest
+              ? 'Измените параметры заявки и сохраните обновлённую версию карточки.'
+              : auth.isStaff
               ? 'Можно сразу назначить клиента, агента и привязать конкретный объект.'
               : 'Укажите параметры поиска и пожелания, после чего агент подхватит заявку в работу.' }}
           </div>
@@ -119,7 +123,12 @@
       <div v-if="formError" class="error">{{ formError }}</div>
 
       <div class="row" style="justify-content: flex-end">
-        <button class="btn btn--accent" type="submit">Создать заявку</button>
+        <button v-if="isEditingRequest" class="btn" type="button" @click="cancelForm">
+          Отмена
+        </button>
+        <button class="btn btn--accent" type="submit">
+          {{ isEditingRequest ? 'Сохранить заявку' : 'Создать заявку' }}
+        </button>
       </div>
     </form>
 
@@ -131,12 +140,82 @@
             Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
           </div>
         </div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('csv')">
+            CSV
+          </button>
+          <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('xlsx')">
+            XLSX
+          </button>
+          <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('json')">
+            JSON
+          </button>
+        </div>
       </div>
 
-      <div class="table-wrap">
-        <table class="table requests-table">
+      <DataFetchPanel
+        v-if="requestsLoadError && visibleRequests.length"
+        class="table-state"
+        compact
+        :error="requestsLoadError"
+        error-title="Список заявок загружен не полностью"
+        @retry="reloadRequestsScreen"
+      />
+
+      <DataFetchPanel
+        v-else-if="loadingRequests && visibleRequests.length"
+        class="table-state"
+        compact
+        loading
+        loading-title="Обновление заявок"
+        loading-text="Подтягиваем актуальную выборку по заявкам."
+      />
+
+      <BulkActionBar
+        v-if="auth.isStaff"
+        :count="selectedRequestCount"
+        label="заявок"
+        @clear="clearRequestSelection"
+      >
+        <select v-model="bulkCloseOutcome" class="select select--sm">
+          <option value="completed">Успешно</option>
+          <option value="cancelled">Отменены</option>
+          <option value="rejected">Отклонены</option>
+          <option value="lost">Потеряны</option>
+        </select>
+        <button
+          class="btn btn--sm btn--danger"
+          type="button"
+          @click="bulkCloseSelectedRequests"
+        >
+          Закрыть выбранные
+        </button>
+      </BulkActionBar>
+
+      <DataFetchPanel
+        v-if="loadingRequests && !visibleRequests.length"
+        loading
+        loading-title="Загрузка заявок"
+        loading-text="Подтягиваем заявки и их статусы."
+      />
+
+      <DataFetchPanel
+        v-else-if="requestsLoadError && !visibleRequests.length"
+        :error="requestsLoadError"
+        error-title="Не удалось загрузить заявки"
+        @retry="reloadRequestsScreen"
+      />
+
+      <div v-else class="table-wrap table-wrap--cards">
+        <table class="table requests-table table--responsive-cards">
           <thead>
             <tr>
+              <th v-if="auth.isStaff" class="table-check-cell">
+                <input
+                  type="checkbox"
+                  :checked="allRequestsOnPageSelected"
+                  @change="toggleRequestsPageSelection($event.target.checked)" />
+              </th>
               <th>#</th>
               <th v-if="auth.isStaff">Клиент</th>
               <th>Агент</th>
@@ -150,17 +229,23 @@
           </thead>
           <tbody>
             <tr v-for="requestItem in visibleRequests" :key="requestItem.id">
-              <td>
+              <td v-if="auth.isStaff" class="table-check-cell" data-label="Выбор">
+                <input
+                  type="checkbox"
+                  :checked="isRequestSelected(requestItem)"
+                  @change="toggleRequestSelection(requestItem, $event.target.checked)" />
+              </td>
+              <td data-label="Заявка">
                 <router-link :to="`/requests/${requestItem.id}`" class="link">
                   #{{ requestItem.id }}
                 </router-link>
               </td>
-              <td v-if="auth.isStaff">{{ requestItem.client_username }}</td>
-              <td>
+              <td v-if="auth.isStaff" data-label="Клиент">{{ requestItem.client_username }}</td>
+              <td data-label="Агент">
                 <span v-if="requestItem.agent_username">{{ requestItem.agent_username }}</span>
                 <span v-else class="tag">не назначен</span>
               </td>
-              <td>
+              <td data-label="Объект">
                 <router-link
                   v-if="requestItem.property"
                   :to="`/properties/${requestItem.property}`"
@@ -170,20 +255,20 @@
                 </router-link>
                 <span v-else class="muted">подбор</span>
               </td>
-              <td>{{ requestItem.operation_type_name }}</td>
-              <td>{{ formatBudget(requestItem) }}</td>
-              <td>
+              <td data-label="Операция">{{ requestItem.operation_type_name }}</td>
+              <td data-label="Бюджет">{{ formatBudget(requestItem) }}</td>
+              <td data-label="Статус">
                 <span class="tag" :class="statusClass(requestItem)">
                   {{ requestItem.status_name }}
                 </span>
               </td>
-              <td class="muted">
+              <td class="muted" data-label="Создана">
                 {{ new Date(requestItem.created_at).toLocaleDateString('ru-RU') }}
               </td>
-              <td>
+              <td class="table-actions-cell" data-label="Действия">
                 <div class="row requests-table__actions" style="gap: 6px; flex-wrap: wrap">
                   <button
-                    v-if="auth.isStaff && !requestItem.agent"
+                    v-if="auth.isStaff && canTakeRequest(requestItem)"
                     class="btn btn--sm btn--accent"
                     :disabled="takeDisabled"
                     :title="takeDisabled
@@ -192,6 +277,20 @@
                     @click="takeRequest(requestItem)"
                   >
                     Взять
+                  </button>
+                  <button
+                    v-if="canEditRequest(requestItem)"
+                    class="btn btn--sm"
+                    @click="startEditRequest(requestItem)"
+                  >
+                    Редактировать
+                  </button>
+                  <button
+                    v-if="canDeleteRequest(requestItem)"
+                    class="btn btn--sm btn--danger"
+                    @click="deleteRequest(requestItem)"
+                  >
+                    РЈРґР°Р»РёС‚СЊ
                   </button>
                   <button
                     v-if="auth.isStaff && requestItem.can_close"
@@ -207,7 +306,7 @@
         </table>
       </div>
 
-      <div v-if="!visibleRequests.length" class="empty">
+      <div v-if="!loadingRequests && !requestsLoadError && !visibleRequests.length" class="empty">
         {{ emptyLabel }}
       </div>
 
@@ -216,8 +315,10 @@
         :count="requestCount"
         :page="requestPage"
         :visible-count="visibleRequests.length"
+        :page-size="requestPageSize"
         label="заявок"
         @change="setRequestPage"
+        @change-page-size="setRequestPageSize"
       />
     </div>
 
@@ -234,22 +335,32 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
+import { bulkCloseRequests } from '../api/bulk'
+import { exportEntityData } from '../api/exports'
+import BulkActionBar from '../components/BulkActionBar.vue'
+import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
 import RemoteLookupField from '../components/RemoteLookupField.vue'
 import RequestCloseDialog from '../components/RequestCloseDialog.vue'
+import { useDraftPersistence } from '../composables/useDraftPersistence'
+import { useBulkSelection } from '../composables/useBulkSelection'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { closeRequest as closeRequestAction } from '../api/tasks'
 import { useAuthStore } from '../store/auth'
+import { useConfirmStore } from '../store/confirm'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney } from '@/utils/formatters'
-import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import {
   activeRequestStatusCodes,
+  canTakeRequest,
   getRequestCloseSuccessMessage,
   terminalRequestStatusCodes,
 } from '@/utils/requestClose'
 
 const auth = useAuthStore()
+const confirm = useConfirmStore()
 const workload = useWorkloadStore()
 const toasts = useToastsStore()
 
@@ -261,7 +372,15 @@ const formError = ref('')
 const scope = ref('all')
 const closeLoading = ref(false)
 const requestPage = ref(1)
+const requestPageSize = ref(DEFAULT_PAGE_SIZE)
 const requestCount = ref(0)
+const exportingRequests = ref(false)
+const loadingRequests = ref(false)
+const editingRequestId = ref(null)
+const bulkCloseOutcome = ref('cancelled')
+const requestFormBaseline = ref('')
+const requestDraftRestored = ref(false)
+const requestsLoadError = ref('')
 const closeDialog = reactive({
   open: false,
   requestId: null,
@@ -275,6 +394,11 @@ const requestStatsSnapshot = reactive({
 })
 
 const form = reactive(defaultForm())
+const isEditingRequest = computed(() => editingRequestId.value !== null)
+const requestFormSnapshot = computed(() => JSON.stringify({ ...form }))
+const isRequestFormDirty = computed(() => (
+  showForm.value && requestFormSnapshot.value !== requestFormBaseline.value
+))
 
 function defaultForm() {
   return {
@@ -289,6 +413,39 @@ function defaultForm() {
     description: '',
   }
 }
+
+function syncRequestFormBaseline() {
+  requestFormBaseline.value = requestFormSnapshot.value
+}
+
+function isRequestDraftEmpty(draft) {
+  const formData = draft?.form || {}
+  return !Object.entries(formData)
+    .filter(([key]) => key !== 'operation_type')
+    .some(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0
+      return value !== '' && value !== null && value !== undefined
+    })
+}
+
+const { clearDraft: clearRequestDraft } = useDraftPersistence({
+  key: 'requests:create',
+  enabled: () => showForm.value && !isEditingRequest.value,
+  getData: () => ({ form: { ...form } }),
+  applyData: (draft) => {
+    requestDraftRestored.value = true
+    Object.assign(form, defaultForm(), draft?.form || {})
+    formError.value = ''
+    toasts.info('Черновик заявки восстановлен')
+  },
+  isEmpty: isRequestDraftEmpty,
+})
+
+const { confirmLeave: confirmRequestFormLeave } = useUnsavedChangesGuard({
+  enabled: () => showForm.value,
+  isDirty: () => isRequestFormDirty.value,
+  message: 'Есть несохранённые изменения в форме заявки. Покинуть страницу?',
+})
 
 const staffTabs = computed(() => [
   { value: 'all', label: 'Все', count: requestStatsSnapshot.total },
@@ -305,6 +462,15 @@ const staffTabs = computed(() => [
 ])
 
 const visibleRequests = computed(() => requests.value)
+const {
+  selectedIds: selectedRequestIds,
+  selectedCount: selectedRequestCount,
+  allOnPageSelected: allRequestsOnPageSelected,
+  isSelected: isRequestSelected,
+  toggleSelection: toggleRequestSelection,
+  togglePageSelection: toggleRequestsPageSelection,
+  clearSelection: clearRequestSelection,
+} = useBulkSelection(visibleRequests)
 
 const emptyLabel = computed(() => {
   if (!auth.isStaff) return 'Вы пока не подавали заявок.'
@@ -354,35 +520,111 @@ function mapPropertyOption(property) {
 }
 
 function toggleForm() {
-  showForm.value = !showForm.value
   if (showForm.value) {
-    formError.value = ''
-    Object.assign(form, defaultForm())
-    if (operations.value.length) {
-      form.operation_type = operations.value[0].id
-    }
+    cancelForm()
+    return
   }
+  openCreateForm()
 }
 
-async function load() {
-  const { data } = await api.get('/requests/', { params: listParams() })
-  const payload = unpackPaginated(data)
-  requests.value = payload.items
-  requestCount.value = payload.count
-}
-
-async function loadLookups() {
-  const { data } = await api.get('/operation-types/', {
-    params: { page_size: LOOKUP_PAGE_SIZE },
-  })
-  operations.value = unpackPaginated(data).items
-  if (operations.value.length && !form.operation_type) {
+function resetForm() {
+  formError.value = ''
+  editingRequestId.value = null
+  Object.assign(form, defaultForm())
+  if (operations.value.length) {
     form.operation_type = operations.value[0].id
   }
 }
 
+function cancelForm() {
+  if (!confirmRequestFormLeave()) return
+  showForm.value = false
+  clearRequestDraft()
+  resetForm()
+  syncRequestFormBaseline()
+}
+
+function openCreateForm() {
+  requestDraftRestored.value = false
+  resetForm()
+  showForm.value = true
+  syncRequestFormBaseline()
+}
+
+function canEditRequest(requestItem) {
+  return auth.isStaff && !terminalRequestStatusCodes.includes(requestItem.status_code)
+}
+
+function canDeleteRequest(requestItem) {
+  return auth.isStaff && !terminalRequestStatusCodes.includes(requestItem.status_code)
+}
+
+function populateFormFromRequest(requestItem) {
+  formError.value = ''
+  editingRequestId.value = requestItem.id
+  Object.assign(form, {
+    client: requestItem.client ?? null,
+    agent: requestItem.agent ?? null,
+    operation_type: requestItem.operation_type ?? operations.value[0]?.id ?? null,
+    property: requestItem.property ?? null,
+    property_type: requestItem.property_type || '',
+    rooms_count: requestItem.rooms_count ?? null,
+    min_price: requestItem.min_price ?? null,
+    max_price: requestItem.max_price ?? null,
+    description: requestItem.description || '',
+  })
+}
+
+function startEditRequest(requestItem) {
+  requestDraftRestored.value = false
+  populateFormFromRequest(requestItem)
+  showForm.value = true
+  syncRequestFormBaseline()
+}
+
+async function load() {
+  loadingRequests.value = true
+  requestsLoadError.value = ''
+  try {
+    const { data } = await api.get('/requests/', { params: listParams() })
+    const payload = unpackPaginated(data)
+    requests.value = payload.items
+    requestCount.value = payload.count
+  } catch (err) {
+    requestsLoadError.value = extractError(err, 'Не удалось загрузить заявки')
+    toasts.error(requestsLoadError.value)
+  } finally {
+    loadingRequests.value = false
+  }
+}
+
+async function loadLookups() {
+  try {
+    const { data } = await api.get('/operation-types/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    })
+    operations.value = unpackPaginated(data).items
+    if (operations.value.length && !form.operation_type) {
+      form.operation_type = operations.value[0].id
+    }
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось загрузить справочники заявок'))
+  }
+}
+
 function listParams() {
-  const params = { page: requestPage.value }
+  const params = {
+    page: requestPage.value,
+    page_size: requestPageSize.value,
+  }
+  if (auth.isStaff && scope.value !== 'all') {
+    params.scope = scope.value
+  }
+  return params
+}
+
+function requestExportParams() {
+  const params = {}
   if (auth.isStaff && scope.value !== 'all') {
     params.scope = scope.value
   }
@@ -397,36 +639,45 @@ async function fetchRequestCount(params = {}) {
 }
 
 async function loadRequestCounts() {
-  if (auth.isStaff) {
-    const [total, active, unassigned, mine] = await Promise.all([
+  try {
+    if (auth.isStaff) {
+      const [total, active, unassigned, mine] = await Promise.all([
+        fetchRequestCount(),
+        fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
+        fetchRequestCount({ scope: 'unassigned' }),
+        fetchRequestCount({ scope: 'mine' }),
+      ])
+      requestStatsSnapshot.total = total
+      requestStatsSnapshot.active = active
+      requestStatsSnapshot.closed = Math.max(total - active, 0)
+      requestStatsSnapshot.unassigned = unassigned
+      requestStatsSnapshot.mine = mine
+      return
+    }
+
+    const [total, active, closed] = await Promise.all([
       fetchRequestCount(),
       fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
-      fetchRequestCount({ scope: 'unassigned' }),
-      fetchRequestCount({ scope: 'mine' }),
+      fetchRequestCount({ status_code: terminalRequestStatusCodes.join(',') }),
     ])
     requestStatsSnapshot.total = total
     requestStatsSnapshot.active = active
-    requestStatsSnapshot.closed = Math.max(total - active, 0)
-    requestStatsSnapshot.unassigned = unassigned
-    requestStatsSnapshot.mine = mine
-    return
+    requestStatsSnapshot.closed = closed
+    requestStatsSnapshot.unassigned = 0
+    requestStatsSnapshot.mine = 0
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось обновить счётчики заявок'))
   }
-
-  const [total, active, closed] = await Promise.all([
-    fetchRequestCount(),
-    fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
-    fetchRequestCount({ status_code: terminalRequestStatusCodes.join(',') }),
-  ])
-  requestStatsSnapshot.total = total
-  requestStatsSnapshot.active = active
-  requestStatsSnapshot.closed = closed
-  requestStatsSnapshot.unassigned = 0
-  requestStatsSnapshot.mine = 0
 }
 
 function setRequestPage(page) {
   if (page < 1 || page === requestPage.value) return
   requestPage.value = page
+}
+
+function setRequestPageSize(size) {
+  if (!size || size === requestPageSize.value) return
+  requestPageSize.value = size
 }
 
 async function createRequest() {
@@ -437,32 +688,48 @@ async function createRequest() {
   }
 
   try {
+    const wasEditing = isEditingRequest.value
     const payload = { ...form }
     if (!auth.isStaff) {
       delete payload.client
       delete payload.agent
     }
-    if (!payload.agent) delete payload.agent
-    if (!payload.property) delete payload.property
-    if (!payload.rooms_count) delete payload.rooms_count
-    if (!payload.min_price) delete payload.min_price
-    if (!payload.max_price) delete payload.max_price
-    if (!payload.property_type) delete payload.property_type
-
-    await api.post('/requests/', payload)
-    showForm.value = false
-    Object.assign(form, defaultForm())
-    if (operations.value.length) {
-      form.operation_type = operations.value[0].id
+    if (!isEditingRequest.value) {
+      if (!payload.agent) delete payload.agent
+      if (!payload.property) delete payload.property
+      if (!payload.rooms_count) delete payload.rooms_count
+      if (!payload.min_price) delete payload.min_price
+      if (!payload.max_price) delete payload.max_price
+      if (!payload.property_type) delete payload.property_type
     }
+
+    if (wasEditing) {
+      await api.patch(`/requests/${editingRequestId.value}/`, payload)
+    } else {
+      await api.post('/requests/', payload)
+    }
+
+    showForm.value = false
+    clearRequestDraft()
+    resetForm()
+    syncRequestFormBaseline()
     requestPage.value = 1
-    await Promise.all([load(), loadRequestCounts()])
-    toasts.success('Заявка создана')
+    await Promise.all([
+      load(),
+      loadRequestCounts(),
+      auth.isStaff ? workload.refresh() : Promise.resolve(),
+    ])
+    toasts.success(wasEditing ? 'Заявка обновлена' : 'Заявка создана')
   } catch (err) {
     formError.value = err.response?.data
       ? Object.values(err.response.data).flat().join(' ')
-      : 'Не удалось создать заявку.'
-    toasts.error(extractError(err, 'Не удалось создать заявку'))
+      : isEditingRequest.value
+        ? 'Не удалось обновить заявку.'
+        : 'Не удалось создать заявку.'
+    toasts.error(extractError(
+      err,
+      isEditingRequest.value ? 'Не удалось обновить заявку' : 'Не удалось создать заявку',
+    ))
   }
 }
 
@@ -485,6 +752,80 @@ async function takeRequest(requestItem) {
   }
 
   await Promise.all([load(), loadRequestCounts(), workload.refresh()])
+}
+
+async function exportRequests(format) {
+  exportingRequests.value = true
+  try {
+    await exportEntityData(
+      '/requests/export/',
+      format,
+      requestExportParams(),
+      `requests.${format}`,
+    )
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось выгрузить заявки'))
+  } finally {
+    exportingRequests.value = false
+  }
+}
+
+async function deleteRequest(requestItem) {
+  const approved = await confirm.ask({
+    title: 'Удаление заявки',
+    message: `Удалить заявку #${requestItem.id}?`,
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+  if (!approved) return
+
+  try {
+    await api.delete(`/requests/${requestItem.id}/`)
+    if (editingRequestId.value === requestItem.id) {
+      cancelForm()
+    }
+    requestPage.value = 1
+    await Promise.all([load(), loadRequestCounts(), workload.refresh()])
+    toasts.success(`Р—Р°СЏРІРєР° #${requestItem.id} СѓРґР°Р»РµРЅР°`)
+  } catch (err) {
+    toasts.error(extractError(err, 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ Р·Р°СЏРІРєСѓ'))
+  }
+}
+
+async function bulkCloseSelectedRequests() {
+  if (!selectedRequestIds.value.length) return
+  const approved = await confirm.ask({
+    title: 'Массовое закрытие заявок',
+    message: `Закрыть выбранные заявки (${selectedRequestIds.value.length})?`,
+    confirmLabel: 'Закрыть',
+    danger: true,
+  })
+  if (!approved) return
+
+  const result = await bulkCloseRequests(
+    [...selectedRequestIds.value],
+    bulkCloseOutcome.value,
+  )
+  if (!result.ok) {
+    toasts.error(result.error || 'Не удалось закрыть выбранные заявки')
+    return
+  }
+
+  clearRequestSelection()
+  await Promise.all([load(), loadRequestCounts(), workload.refresh()])
+  const {
+    closed,
+    deals_created: dealsCreated = 0,
+    errors = [],
+    not_found_ids: notFoundIds = [],
+  } = result.data
+  if (errors.length || notFoundIds.length) {
+    toasts.warn(
+      `Закрыто заявок: ${closed}. Сделок создано: ${dealsCreated}. Пропущено: ${errors.length + notFoundIds.length}.`,
+    )
+    return
+  }
+  toasts.success(`Закрыто заявок: ${closed}. Сделок создано: ${dealsCreated}.`)
 }
 
 function closeRequest(requestItem) {
@@ -520,6 +861,15 @@ async function submitCloseRequest(outcome) {
   await Promise.all([load(), loadRequestCounts(), workload.refresh()])
 }
 
+async function reloadRequestsScreen() {
+  await Promise.all([
+    load(),
+    loadLookups(),
+    loadRequestCounts(),
+    auth.isStaff ? workload.refresh() : Promise.resolve(),
+  ])
+}
+
 watch(scope, async () => {
   requestPage.value = 1
   await load()
@@ -529,11 +879,17 @@ watch(requestPage, async () => {
   await load()
 })
 
-onMounted(async () => {
-  await Promise.all([load(), loadLookups(), loadRequestCounts()])
-  if (auth.isStaff) {
-    await workload.refresh()
+watch(requestPageSize, async () => {
+  if (requestPage.value !== 1) {
+    requestPage.value = 1
+    return
   }
+  await load()
+})
+
+onMounted(async () => {
+  await reloadRequestsScreen()
+  syncRequestFormBaseline()
 })
 </script>
 
@@ -544,6 +900,16 @@ onMounted(async () => {
 
 .requests-tabs {
   align-items: stretch;
+}
+
+.table-check-cell {
+  width: 44px;
+  text-align: center;
+}
+
+.table-check-cell input {
+  width: 16px;
+  height: 16px;
 }
 
 .request-form__grid {
@@ -579,7 +945,7 @@ onMounted(async () => {
 }
 
 .requests-table__actions {
-  min-width: 148px;
+  min-width: 240px;
 }
 
 .link {
@@ -600,6 +966,11 @@ onMounted(async () => {
 }
 
 @media (max-width: 640px) {
+  .requests-table__actions {
+    min-width: 0;
+    width: 100%;
+  }
+
   .request-form__budget-row {
     grid-template-columns: 1fr;
   }

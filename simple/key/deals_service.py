@@ -9,6 +9,7 @@ from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from . import audit as audit_service
 from . import models
 from .documents import render_contract_pdf
 
@@ -69,6 +70,7 @@ def queue_contract_generation(
     deal: models.Deal,
     *,
     force: bool = False,
+    actor=None,
 ) -> models.Deal:
     """Ставит договор сделки в очередь на генерацию."""
     locked = models.Deal.objects.select_for_update().get(pk=deal.pk)
@@ -102,6 +104,19 @@ def queue_contract_generation(
     locked.contract_requested_at = now
     locked.contract_processing_started_at = None
     locked.save(update_fields=list(dict.fromkeys(update_fields)))
+    audit_service.log_event(
+        entity=locked,
+        action_code='contract_queued',
+        action_label='Постановка договора в очередь',
+        actor=actor,
+        message='Генерация PDF-договора поставлена в очередь.',
+        metadata={
+            'force': force,
+            'request_id': locked.request_id,
+        },
+        property_obj=locked.property,
+        request_obj=locked.request,
+    )
     return locked
 
 
@@ -168,6 +183,18 @@ def process_contract_queue(
                 contract_error_message=str(exc)[:2000],
                 contract_processing_started_at=None,
             )
+            audit_service.log_event(
+                entity=deal,
+                action_code='contract_failed',
+                action_label='Ошибка генерации договора',
+                actor=None,
+                message='Не удалось сформировать PDF-договор.',
+                metadata={
+                    'error': str(exc)[:500],
+                },
+                property_obj=deal.property,
+                request_obj=deal.request,
+            )
             summary['failed'] += 1
             continue
 
@@ -183,6 +210,18 @@ def process_contract_queue(
             'contract_error_message',
             'contract_processing_started_at',
         ])
+        audit_service.log_event(
+            entity=deal,
+            action_code='contract_ready',
+            action_label='Генерация договора',
+            actor=None,
+            message='PDF-договор сформирован.',
+            metadata={
+                'generated_at': deal.contract_generated_at.isoformat(),
+            },
+            property_obj=deal.property,
+            request_obj=deal.request,
+        )
         summary['generated'] += 1
 
     return summary
@@ -199,7 +238,7 @@ def create_deal_from_request(
     existing = models.Deal.objects.filter(request=request_obj).first()
     if existing:
         if generate_contract and not existing.contract_file:
-            return queue_contract_generation(existing)
+            return queue_contract_generation(existing, actor=actor)
         return existing
 
     prop = _resolve_property_for_request(request_obj)
@@ -243,9 +282,23 @@ def create_deal_from_request(
         ),
         contract_status='not_requested',
     )
+    audit_service.log_event(
+        entity=deal,
+        action_code='created',
+        action_label='Создание сделки',
+        actor=actor,
+        message=f'Сделка создана по заявке №{request_obj.pk}.',
+        metadata={
+            'request_id': request_obj.pk,
+            'property_id': prop.pk,
+            'client_id': request_obj.client_id,
+        },
+        property_obj=prop,
+        request_obj=request_obj,
+    )
 
     if generate_contract:
-        deal = queue_contract_generation(deal)
+        deal = queue_contract_generation(deal, actor=actor)
 
     logger.info(
         'Создана сделка %s по заявке #%s (объект #%s, клиент #%s).',

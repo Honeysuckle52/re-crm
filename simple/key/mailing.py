@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import ssl
 from datetime import timedelta
 from typing import Any
 
@@ -10,6 +11,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import connection, transaction
 from django.db.models import Q
+from django.template import Context, Template
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -30,6 +32,25 @@ EMAIL_CLAIM_TIMEOUT = timedelta(minutes=15)
 
 def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
     """Возвращает (subject, text, html) из шаблонов emails/<template>/*."""
+    configured = (
+        models.NotificationTemplate.objects
+        .filter(code=template, is_active=True)
+        .only(
+            'subject_template',
+            'body_template',
+            'html_template',
+        )
+        .first()
+    )
+    if configured is not None:
+        context = Context(ctx)
+        subject = Template(configured.subject_template).render(context).strip()
+        text = Template(configured.body_template).render(context)
+        html = ''
+        if configured.html_template:
+            html = Template(configured.html_template).render(context)
+        return subject, text, html
+
     base = f'emails/{template}'
     subject = render_to_string(f'{base}/subject.txt', ctx).strip()
     text = render_to_string(f'{base}/body.txt', ctx)
@@ -62,6 +83,81 @@ def _extract_bodies(email: models.OutgoingEmail) -> tuple[str, str]:
     return text, ''
 
 
+def _smtp_timeout() -> int:
+    return int(getattr(settings, 'EMAIL_TIMEOUT', 30) or 30)
+
+
+def _primary_smtp_config() -> dict[str, Any]:
+    return {
+        'backend': settings.EMAIL_BACKEND,
+        'host': settings.EMAIL_HOST,
+        'port': settings.EMAIL_PORT,
+        'username': settings.EMAIL_HOST_USER,
+        'password': settings.EMAIL_HOST_PASSWORD,
+        'use_tls': settings.EMAIL_USE_TLS,
+        'use_ssl': settings.EMAIL_USE_SSL,
+        'timeout': _smtp_timeout(),
+    }
+
+
+def _fallback_smtp_config(primary: dict[str, Any]) -> dict[str, Any] | None:
+    enabled = getattr(
+        settings,
+        'EMAIL_FALLBACK_ENABLED',
+        bool(primary['use_ssl']) and not bool(primary['use_tls']),
+    )
+    if not enabled:
+        return None
+
+    config = {
+        'backend': getattr(settings, 'EMAIL_FALLBACK_BACKEND', primary['backend']),
+        'host': getattr(settings, 'EMAIL_FALLBACK_HOST', primary['host']),
+        'port': int(
+            getattr(
+                settings,
+                'EMAIL_FALLBACK_PORT',
+                587 if primary['port'] == 465 else primary['port'],
+            ),
+        ),
+        'username': getattr(settings, 'EMAIL_FALLBACK_USER', primary['username']),
+        'password': getattr(settings, 'EMAIL_FALLBACK_PASSWORD', primary['password']),
+        'use_tls': getattr(settings, 'EMAIL_FALLBACK_USE_TLS', True),
+        'use_ssl': getattr(settings, 'EMAIL_FALLBACK_USE_SSL', False),
+        'timeout': int(getattr(settings, 'EMAIL_FALLBACK_TIMEOUT', primary['timeout'])),
+    }
+    if (
+        config['host'],
+        config['port'],
+        config['use_tls'],
+        config['use_ssl'],
+        config['username'],
+    ) == (
+        primary['host'],
+        primary['port'],
+        primary['use_tls'],
+        primary['use_ssl'],
+        primary['username'],
+    ):
+        return None
+    return config
+
+
+def _smtp_attempts() -> list[dict[str, Any]]:
+    primary = _primary_smtp_config()
+    attempts = [primary]
+    fallback = _fallback_smtp_config(primary)
+    if fallback is not None:
+        attempts.append(fallback)
+    return attempts
+
+
+def _is_retryable_smtp_error(exc: Exception) -> bool:
+    return isinstance(
+        exc,
+        (TimeoutError, socket.timeout, ConnectionError, OSError, ssl.SSLError),
+    )
+
+
 def _audit_context(
     *,
     trigger_code: str,
@@ -80,21 +176,21 @@ def _audit_context(
     }
 
 
-def _send_via_smtp(email: models.OutgoingEmail) -> None:
-    """Отправляет письмо через SMTP."""
-    timeout = int(getattr(settings, 'EMAIL_TIMEOUT', 30) or 30)
-    connection_obj = get_connection(
-        backend=settings.EMAIL_BACKEND,
-        host=settings.EMAIL_HOST,
-        port=settings.EMAIL_PORT,
-        username=settings.EMAIL_HOST_USER,
-        password=settings.EMAIL_HOST_PASSWORD,
-        use_tls=settings.EMAIL_USE_TLS,
-        use_ssl=settings.EMAIL_USE_SSL,
-        timeout=timeout,
+def _build_smtp_connection(config: dict[str, Any]):
+    return get_connection(
+        backend=config['backend'],
+        host=config['host'],
+        port=config['port'],
+        username=config['username'],
+        password=config['password'],
+        use_tls=config['use_tls'],
+        use_ssl=config['use_ssl'],
+        timeout=config['timeout'],
         fail_silently=False,
     )
 
+
+def _build_email_message(email: models.OutgoingEmail, *, connection_obj):
     text_body, html_body = _extract_bodies(email)
 
     msg = EmailMultiAlternatives(
@@ -107,13 +203,61 @@ def _send_via_smtp(email: models.OutgoingEmail) -> None:
     )
     if html_body:
         msg.attach_alternative(html_body, 'text/html')
+    return msg
 
-    old_default = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(timeout)
-    try:
-        msg.send(fail_silently=False)
-    finally:
-        socket.setdefaulttimeout(old_default)
+
+def _send_via_smtp(email: models.OutgoingEmail) -> None:
+    """Отправляет письмо через SMTP с fallback на альтернативный канал."""
+    attempts = _smtp_attempts()
+    last_exc: Exception | None = None
+    attempt_errors: list[str] = []
+
+    for index, config in enumerate(attempts, start=1):
+        connection_obj = _build_smtp_connection(config)
+        msg = _build_email_message(email, connection_obj=connection_obj)
+        old_default = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(config['timeout'])
+        try:
+            msg.send(fail_silently=False)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            attempt_errors.append(
+                f"{config['host']}:{config['port']} ssl={config['use_ssl']} "
+                f"tls={config['use_tls']} -> {exc}"
+            )
+            should_retry = (
+                index < len(attempts)
+                and _is_retryable_smtp_error(exc)
+            )
+            if should_retry:
+                fallback = attempts[index]
+                log.warning(
+                    'SMTP primary channel failed for email=%s (%s:%s ssl=%s tls=%s): %s. '
+                    'Retrying fallback channel %s:%s ssl=%s tls=%s.',
+                    email.pk,
+                    config['host'],
+                    config['port'],
+                    config['use_ssl'],
+                    config['use_tls'],
+                    exc,
+                    fallback['host'],
+                    fallback['port'],
+                    fallback['use_ssl'],
+                    fallback['use_tls'],
+                )
+                continue
+            raise
+        finally:
+            socket.setdefaulttimeout(old_default)
+            try:
+                connection_obj.close()
+            except Exception:  # noqa: BLE001
+                pass
+    if last_exc is not None:
+        if len(attempt_errors) > 1:
+            raise RuntimeError(' | '.join(attempt_errors)) from last_exc
+        raise last_exc
 
 
 def _email_claim_queryset():

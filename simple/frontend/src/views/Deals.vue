@@ -33,10 +33,47 @@
           <h2 class="h3">Сделки в работе</h2>
           <div class="muted">Показано {{ filtered.length }} из {{ filteredTotalCount }} записей по текущему фильтру.</div>
         </div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('csv')">CSV</button>
+          <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('xlsx')">XLSX</button>
+          <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('json')">JSON</button>
+        </div>
       </div>
 
-      <div class="table-wrap">
-        <table class="table deals-table">
+      <DataFetchPanel
+        v-if="dealsLoadError && filtered.length"
+        class="table-state"
+        compact
+        :error="dealsLoadError"
+        error-title="Список сделок загружен не полностью"
+        @retry="reloadDealsScreen"
+      />
+
+      <DataFetchPanel
+        v-else-if="loadingDeals && filtered.length"
+        class="table-state"
+        compact
+        loading
+        loading-title="Обновление сделок"
+        loading-text="Подтягиваем актуальную выборку по сделкам."
+      />
+
+      <DataFetchPanel
+        v-if="loadingDeals && !filtered.length"
+        loading
+        loading-title="Загрузка сделок"
+        loading-text="Подтягиваем сделки и статусы договоров."
+      />
+
+      <DataFetchPanel
+        v-else-if="dealsLoadError && !filtered.length"
+        :error="dealsLoadError"
+        error-title="Не удалось загрузить сделки"
+        @retry="reloadDealsScreen"
+      />
+
+      <div v-else class="table-wrap table-wrap--cards">
+        <table class="table deals-table table--responsive-cards">
           <thead>
             <tr>
               <th>Номер</th>
@@ -52,8 +89,10 @@
           </thead>
           <tbody>
             <tr v-for="deal in filtered" :key="deal.id">
-              <td>
-                <b>{{ deal.deal_number }}</b>
+              <td data-label="Номер">
+                <router-link :to="`/deals/${deal.id}`" class="link">
+                  <b>{{ deal.deal_number }}</b>
+                </router-link>
                 <div v-if="deal.request" class="muted deals-table__sub">
                   из заявки
                   <router-link :to="`/requests/${deal.request}`" class="link">
@@ -61,54 +100,54 @@
                   </router-link>
                 </div>
               </td>
-              <td>
+              <td data-label="Объект">
                 <router-link v-if="deal.property" :to="`/properties/${deal.property}`" class="link">
                   {{ deal.property_title || 'Объект №' + deal.property }}
                 </router-link>
                 <span v-else class="muted">—</span>
               </td>
-              <td><span class="tag tag--accent">{{ deal.operation_type_name }}</span></td>
-              <td>{{ formatMoney(deal.price_final) }}</td>
-              <td>
+              <td data-label="Тип"><span class="tag tag--accent">{{ deal.operation_type_name }}</span></td>
+              <td data-label="Стоимость">{{ formatMoney(deal.price_final) }}</td>
+              <td data-label="Комиссия">
                 {{ deal.commission_percent || '—' }}%
                 <span class="muted">
                   ({{ deal.commission_amount ? formatMoney(deal.commission_amount) + ' ₽' : '—' }})
                 </span>
               </td>
-              <td>
-                <span class="tag" :class="statusClass(deal.status_name)">
+              <td data-label="Статус">
+                <span class="tag" :class="dealStatusClass(deal.status_name)">
                   {{ deal.status_name || '—' }}
                 </span>
               </td>
-              <td class="muted">
+              <td class="muted" data-label="Дата">
                 {{ new Date(deal.deal_date).toLocaleDateString('ru-RU') }}
               </td>
-              <td class="deals-table__contract">
+              <td class="deals-table__contract" data-label="Договор">
                 <button v-if="deal.contract_url"
                         class="btn btn--sm deals-table__contract-btn"
-                        :title="contractStatusHint(deal)"
+                        :title="dealContractStatusHint(deal)"
                         @click="downloadContract(deal)">
                   Скачать PDF
                 </button>
-                <button v-else-if="contractQueueActive(deal)"
+                <button v-else-if="dealContractQueueActive(deal)"
                         class="btn btn--sm deals-table__contract-btn"
                         disabled
-                        :title="contractStatusHint(deal)">
-                  {{ contractStatusLabel(deal) }}
+                        :title="dealContractStatusHint(deal)">
+                  {{ dealContractStatusLabel(deal) }}
                 </button>
                 <button v-else-if="auth.isStaff"
                         class="btn btn--sm btn--ghost deals-table__contract-btn"
-                        :title="contractStatusHint(deal)"
+                        :title="dealContractStatusHint(deal)"
                         @click="regenerate(deal)">
                   {{ deal.contract_status === 'failed' ? 'Повторить генерацию' : 'Поставить в очередь' }}
                 </button>
                 <span v-else
                       class="tag deals-table__contract-state"
-                      :title="contractStatusHint(deal)">
-                  {{ contractStatusLabel(deal) }}
+                      :title="dealContractStatusHint(deal)">
+                  {{ dealContractStatusLabel(deal) }}
                 </span>
               </td>
-              <td class="deals-table__status">
+              <td class="deals-table__status table-actions-cell" data-label="Действия">
                 <select v-if="auth.isStaff"
                         class="select select--sm" :value="deal.status"
                         @change="changeStatus(deal, $event.target.value)">
@@ -124,7 +163,7 @@
         </table>
       </div>
 
-      <div v-if="!filtered.length" class="empty">
+      <div v-if="!loadingDeals && !dealsLoadError && !filtered.length" class="empty">
         Сделок по выбранному статусу нет.
       </div>
 
@@ -133,8 +172,10 @@
         :count="filteredTotalCount"
         :page="dealPage"
         :visible-count="filtered.length"
+        :page-size="dealPageSize"
         label="сделок"
         @change="setDealPage"
+        @change-page-size="setDealPageSize"
       />
     </div>
   </section>
@@ -143,19 +184,33 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import api from '../api'
+import { exportEntityData } from '../api/exports'
+import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
+import { useVisibilityRefresh } from '../composables/useVisibilityRefresh'
 import { useAuthStore } from '../store/auth'
 import { extractError, useToastsStore } from '../store/toasts'
+import {
+  dealContractQueueActive,
+  dealContractStatusHint,
+  dealContractStatusLabel,
+  dealStatusClass,
+} from '@/utils/deals'
+import { downloadBlobResponse } from '@/utils/downloads'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
-import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
 const deals = ref([])
 const statuses = ref([])
 const statusFilter = ref('')
 const dealPage = ref(1)
+const dealPageSize = ref(DEFAULT_PAGE_SIZE)
 const dealCount = ref(0)
 const statusCounts = ref({})
+const exportingDeals = ref(false)
+const loadingDeals = ref(false)
+const dealsLoadError = ref('')
 const toasts = useToastsStore()
 
 function formatMoney (value) {
@@ -165,6 +220,10 @@ function formatMoney (value) {
 const filtered = computed(() => {
   return deals.value
 })
+
+const hasPendingContracts = computed(() => (
+  deals.value.some((deal) => dealContractQueueActive(deal))
+))
 
 const filteredTotalCount = computed(() => (
   statusFilter.value ? (statusCounts.value[statusFilter.value] || 0) : dealCount.value
@@ -177,41 +236,6 @@ function countByStatus (id) {
 function dealStatusOptions (deal) {
   const allowedIds = new Set(deal.allowed_status_ids || [])
   return statuses.value.filter((status) => allowedIds.has(status.id))
-}
-
-function contractQueueActive (deal) {
-  return ['pending', 'processing'].includes(deal.contract_status)
-}
-
-function contractStatusLabel (deal) {
-  if (deal.contract_status === 'pending') return 'В очереди'
-  if (deal.contract_status === 'processing') return 'Формируется'
-  if (deal.contract_status === 'failed') return 'Ошибка PDF'
-  if (deal.contract_url) return 'Готов'
-  return 'Без PDF'
-}
-
-function contractStatusHint (deal) {
-  if (deal.contract_status === 'pending') {
-    return 'Договор уже поставлен в очередь на генерацию'
-  }
-  if (deal.contract_status === 'processing') {
-    return 'Договор формируется в фоновом процессе'
-  }
-  if (deal.contract_status === 'failed') {
-    return deal.contract_error_message || 'Предыдущая генерация завершилась ошибкой'
-  }
-  if (deal.contract_url) {
-    return 'PDF-договор уже готов к скачиванию'
-  }
-  return 'Поставить PDF-договор в очередь на генерацию'
-}
-
-function statusClass (name) {
-  const normalized = (name || '').toLowerCase()
-  if (normalized.includes('заверш')) return 'tag--accent'
-  if (normalized.includes('отмен')) return 'deal-status--cancelled'
-  return ''
 }
 
 async function changeStatus (deal, statusId) {
@@ -233,18 +257,10 @@ async function changeStatus (deal, statusId) {
 
 async function downloadContract (deal) {
   try {
-    const res = await api.get(`/deals/${deal.id}/contract/`, {
+    const response = await api.get(`/deals/${deal.id}/contract/`, {
       responseType: 'blob',
     })
-    const blob = new Blob([res.data], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `contract-${deal.deal_number}.pdf`
-    document.body.appendChild(anchor)
-    anchor.click()
-    document.body.removeChild(anchor)
-    URL.revokeObjectURL(url)
+    downloadBlobResponse(response, `contract-${deal.deal_number}.pdf`)
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось скачать договор'))
   }
@@ -261,6 +277,8 @@ async function regenerate (deal) {
 }
 
 async function load () {
+  loadingDeals.value = true
+  dealsLoadError.value = ''
   try {
     const { data } = await api.get('/deals/', {
       params: listParams(),
@@ -271,15 +289,22 @@ async function load () {
       dealCount.value = payload.count
     }
   } catch (err) {
+    dealsLoadError.value = extractError(err, 'Не удалось загрузить сделки')
     toasts.error(extractError(err, 'Не удалось загрузить сделки'))
+  } finally {
+    loadingDeals.value = false
   }
 }
 
 async function loadStatuses () {
-  const { data } = await api.get('/deal-statuses/', {
-    params: { page_size: LOOKUP_PAGE_SIZE },
-  })
-  statuses.value = unpackPaginated(data).items
+  try {
+    const { data } = await api.get('/deal-statuses/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    })
+    statuses.value = unpackPaginated(data).items
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось загрузить статусы сделок'))
+  }
 }
 
 async function fetchDealCount (params = {}) {
@@ -290,24 +315,38 @@ async function fetchDealCount (params = {}) {
 }
 
 async function loadStatusCounts () {
-  const requests = [
-    fetchDealCount(),
-    ...statuses.value.map((status) => fetchDealCount({ status: status.id })),
-  ]
-  const [total, ...counts] = await Promise.all(requests)
-  dealCount.value = total
-  const nextCounts = {}
-  statuses.value.forEach((status, index) => {
-    nextCounts[status.id] = counts[index]
-  })
-  statusCounts.value = nextCounts
+  try {
+    const requests = [
+      fetchDealCount(),
+      ...statuses.value.map((status) => fetchDealCount({ status: status.id })),
+    ]
+    const [total, ...counts] = await Promise.all(requests)
+    dealCount.value = total
+    const nextCounts = {}
+    statuses.value.forEach((status, index) => {
+      nextCounts[status.id] = counts[index]
+    })
+    statusCounts.value = nextCounts
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось обновить счётчики сделок'))
+  }
 }
 
 function listParams () {
-  const params = { page: dealPage.value }
+  const params = {
+    page: dealPage.value,
+    page_size: dealPageSize.value,
+  }
   if (statusFilter.value) {
     params.status = Number(statusFilter.value)
   }
+  return params
+}
+
+function dealExportParams () {
+  const params = listParams()
+  delete params.page
+  delete params.page_size
   return params
 }
 
@@ -315,6 +354,37 @@ function setDealPage (page) {
   if (page < 1 || page === dealPage.value) return
   dealPage.value = page
 }
+
+function setDealPageSize (size) {
+  if (!size || size === dealPageSize.value) return
+  dealPageSize.value = size
+}
+
+async function exportDeals (format) {
+  exportingDeals.value = true
+  try {
+    await exportEntityData(
+      '/deals/export/',
+      format,
+      dealExportParams(),
+      `deals.${format}`,
+    )
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось выгрузить сделки'))
+  } finally {
+    exportingDeals.value = false
+  }
+}
+
+async function reloadDealsScreen () {
+  await Promise.all([load(), loadStatusCounts()])
+}
+
+useVisibilityRefresh({
+  enabled: () => hasPendingContracts.value,
+  interval: 5_000,
+  onRefresh: () => load(),
+})
 
 watch(statusFilter, async () => {
   dealPage.value = 1
@@ -325,9 +395,17 @@ watch(dealPage, async () => {
   await load()
 })
 
+watch(dealPageSize, async () => {
+  if (dealPage.value !== 1) {
+    dealPage.value = 1
+    return
+  }
+  await load()
+})
+
 onMounted(async () => {
   await loadStatuses()
-  await Promise.all([load(), loadStatusCounts()])
+  await reloadDealsScreen()
 })
 </script>
 
@@ -403,5 +481,22 @@ onMounted(async () => {
 .deal-status--cancelled {
   border-color: rgba(194, 85, 74, 0.22);
   color: #7b4741;
+}
+
+@media (max-width: 640px) {
+  .deals-table__status {
+    min-width: 0;
+  }
+
+  .deals-table__status .select,
+  .deals-table__contract-btn,
+  .deals-table__contract-state {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .deals-table__contract {
+    white-space: normal;
+  }
 }
 </style>

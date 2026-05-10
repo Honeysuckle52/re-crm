@@ -25,7 +25,19 @@
       </div>
     </div>
 
-    <form v-if="showForm" class="panel panel--light stack" @submit.prevent="create">
+    <form v-if="showForm" class="panel panel--light stack" @submit.prevent="submitTaskForm">
+      <div class="surface-head">
+        <div class="surface-head__meta">
+          <h2 class="h3">
+            {{ isEditingTask ? `Редактирование задачи #${editingTaskId}` : 'Создание задачи' }}
+          </h2>
+          <div class="muted">
+            {{ isEditingTask
+              ? 'Измените заголовок, исполнителя, сроки и связанные сущности, затем сохраните карточку задачи.'
+              : 'Создайте новую рабочую задачу и сразу привяжите её к клиенту, заявке или объекту при необходимости.' }}
+          </div>
+        </div>
+      </div>
       <div class="grid grid--3">
         <div class="field">
           <label>Заголовок</label>
@@ -94,7 +106,12 @@
       </div>
 
       <div class="row" style="justify-content: flex-end">
-        <button class="btn btn--accent" type="submit">Создать задачу</button>
+        <button v-if="isEditingTask" class="btn" type="button" @click="cancelTaskForm">
+          Отмена
+        </button>
+        <button class="btn btn--accent" type="submit">
+          {{ isEditingTask ? 'Сохранить задачу' : 'Создать задачу' }}
+        </button>
       </div>
     </form>
 
@@ -148,6 +165,18 @@
           </select>
         </div>
       </div>
+
+      <div class="row task-export-actions" style="gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px">
+        <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('csv')">
+          CSV
+        </button>
+        <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('xlsx')">
+          XLSX
+        </button>
+        <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('json')">
+          JSON
+        </button>
+      </div>
     </div>
 
     <div v-if="viewMode === 'active'" class="panel panel--light">
@@ -161,10 +190,67 @@
         </div>
       </div>
 
-      <div class="table-wrap task-table-wrap">
+      <BulkActionBar
+        :count="selectedTaskCount"
+        label="задач"
+        @clear="clearTaskSelection"
+      >
+        <select v-model="bulkTaskActionCode" class="select select--sm">
+          <option value="pause">Пауза</option>
+          <option value="complete">Завершить</option>
+          <option value="delete">Удалить</option>
+        </select>
+        <button
+          class="btn btn--sm btn--primary"
+          type="button"
+          @click="runBulkTaskAction"
+        >
+          Применить
+        </button>
+      </BulkActionBar>
+
+      <DataFetchPanel
+        v-if="tasksLoadError && filtered.length"
+        class="table-state"
+        compact
+        :error="tasksLoadError"
+        error-title="Список активных задач обновлён не полностью"
+        @retry="reloadTaskBoard"
+      />
+
+      <DataFetchPanel
+        v-else-if="loadingTasks && filtered.length"
+        class="table-state"
+        compact
+        loading
+        loading-title="Обновление задач"
+        loading-text="Подтягиваем свежие данные по активным задачам."
+      />
+
+      <DataFetchPanel
+        v-if="loadingTasks && !filtered.length"
+        loading
+        loading-title="Загрузка задач"
+        loading-text="Подтягиваем активные задачи и их статусы."
+      />
+
+      <DataFetchPanel
+        v-else-if="tasksLoadError && !filtered.length"
+        :error="tasksLoadError"
+        error-title="Не удалось загрузить активные задачи"
+        @retry="reloadTaskBoard"
+      />
+
+      <div v-else class="table-wrap task-table-wrap">
         <table class="table">
           <thead>
             <tr>
+              <th class="table-check-cell">
+                <input
+                  type="checkbox"
+                  :checked="allTasksOnPageSelected"
+                  @change="toggleTasksPageSelection($event.target.checked)" />
+              </th>
               <th></th>
               <th>Заголовок</th>
               <th>Тип</th>
@@ -182,6 +268,12 @@
               :key="task.id"
               :class="{ 'row--mine': isMine(task), 'row--active': isMyActive(task) }"
             >
+              <td class="table-check-cell">
+                <input
+                  type="checkbox"
+                  :checked="isTaskSelected(task)"
+                  @change="toggleTaskSelection(task, $event.target.checked)" />
+              </td>
               <td class="mine-cell">
                 <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="dot" />
               </td>
@@ -233,11 +325,19 @@
               </td>
               <td class="task-actions">
                 <button
-                  v-if="canOpenWorkflow(task)"
+                  v-if="canViewTask(task)"
                   class="btn btn--sm btn--primary"
                   @click="openWorkflow(task)"
                 >
                   Открыть
+                </button>
+                <button
+                  v-if="canEditTask(task)"
+                  class="btn btn--sm"
+                  :disabled="busyId === task.id"
+                  @click="startEditTask(task)"
+                >
+                  Редактировать
                 </button>
                 <button
                   v-if="canStart(task)"
@@ -264,6 +364,14 @@
                 >
                   Завершить
                 </button>
+                <button
+                  v-if="canDeleteTask(task)"
+                  class="btn btn--sm btn--danger"
+                  :disabled="busyId === task.id"
+                  @click="removeTask(task)"
+                >
+                  Удалить
+                </button>
                 <select
                   class="select select--sm"
                   :value="task.status"
@@ -287,8 +395,10 @@
         :count="activeFilteredCount"
         :page="activePage"
         :visible-count="filtered.length"
+        :page-size="taskPageSize"
         label="задач"
         @change="setActivePage"
+        @change-page-size="setTaskPageSize"
       />
     </div>
 
@@ -301,7 +411,39 @@
         <div class="surface-head__caption">Записей: {{ historyCount }}</div>
       </div>
 
-      <div class="table-wrap task-history-wrap">
+      <DataFetchPanel
+        v-if="historyLoadError && history.length"
+        class="table-state"
+        compact
+        :error="historyLoadError"
+        error-title="История задач обновлена не полностью"
+        @retry="loadHistory"
+      />
+
+      <DataFetchPanel
+        v-else-if="loadingHistory && history.length"
+        class="table-state"
+        compact
+        loading
+        loading-title="Обновление истории"
+        loading-text="Подтягиваем завершённые задачи."
+      />
+
+      <DataFetchPanel
+        v-if="loadingHistory && !history.length"
+        loading
+        loading-title="Загрузка истории"
+        loading-text="Подтягиваем завершённые и отменённые задачи."
+      />
+
+      <DataFetchPanel
+        v-else-if="historyLoadError && !history.length"
+        :error="historyLoadError"
+        error-title="Не удалось загрузить историю задач"
+        @retry="loadHistory"
+      />
+
+      <div v-else class="table-wrap task-history-wrap">
         <table class="table">
           <thead>
             <tr>
@@ -312,6 +454,7 @@
               <th>Завершена</th>
               <th>Длительность</th>
               <th>Результат</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -356,6 +499,15 @@
                   {{ resultSummary(task) }}
                 </div>
               </td>
+              <td class="task-actions task-actions--history">
+                <button
+                  v-if="canViewTask(task)"
+                  class="btn btn--sm btn--primary"
+                  @click="openWorkflow(task)"
+                >
+                  Открыть
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -368,8 +520,10 @@
         :count="historyCount"
         :page="historyPage"
         :visible-count="history.length"
+        :page-size="taskPageSize"
         label="записей"
         @change="setHistoryPage"
+        @change-page-size="setTaskPageSize"
       />
     </div>
 
@@ -409,17 +563,26 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import { bulkTaskAction } from '../api/bulk'
+import { exportEntityData } from '../api/exports'
 import * as tasksApi from '../api/tasks'
+import BulkActionBar from '../components/BulkActionBar.vue'
+import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
 import RemoteLookupField from '../components/RemoteLookupField.vue'
 import TaskMineBadge from '../components/TaskMineBadge.vue'
+import { useDraftPersistence } from '../composables/useDraftPersistence'
+import { useBulkSelection } from '../composables/useBulkSelection'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { useAuthStore } from '../store/auth'
+import { useConfirmStore } from '../store/confirm'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatDateShort as formatDate, formatMoney } from '@/utils/formatters'
-import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
+const confirm = useConfirmStore()
 const workload = useWorkloadStore()
 const toasts = useToastsStore()
 const router = useRouter()
@@ -435,10 +598,20 @@ const busyId = ref(null)
 const viewMode = ref('active')
 const activePage = ref(1)
 const historyPage = ref(1)
+const taskPageSize = ref(DEFAULT_PAGE_SIZE)
+const exportingTasks = ref(false)
+const loadingTasks = ref(false)
+const loadingHistory = ref(false)
+const editingTaskId = ref(null)
 const activeTotalCount = ref(0)
 const activeFilteredCount = ref(0)
 const historyTotalCount = ref(0)
+const tasksLoadError = ref('')
+const historyLoadError = ref('')
 const statusCounts = ref({})
+const bulkTaskActionCode = ref('pause')
+const taskFormBaseline = ref('')
+const taskDraftRestored = ref(false)
 
 const taskTypes = [
   { code: 'contact_client', name: 'Связаться с клиентом' },
@@ -463,6 +636,11 @@ function closeCompleteModal() {
 }
 
 const form = reactive(defaultForm())
+const isEditingTask = computed(() => editingTaskId.value !== null)
+const taskFormSnapshot = computed(() => JSON.stringify({ ...form }))
+const isTaskFormDirty = computed(() => (
+  showForm.value && taskFormSnapshot.value !== taskFormBaseline.value
+))
 
 function defaultForm() {
   return {
@@ -478,6 +656,74 @@ function defaultForm() {
   }
 }
 
+function toDatetimeLocal(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const offsetMs = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
+function syncTaskFormBaseline() {
+  taskFormBaseline.value = taskFormSnapshot.value
+}
+
+function isTaskDraftEmpty(draft) {
+  const formData = draft?.form || {}
+  return !Object.entries(formData)
+    .filter(([key]) => !['priority', 'task_type'].includes(key))
+    .some(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0
+      return value !== '' && value !== null && value !== undefined
+    })
+}
+
+const { clearDraft: clearTaskDraft } = useDraftPersistence({
+  key: 'tasks:create',
+  enabled: () => showForm.value && !isEditingTask.value,
+  getData: () => ({ form: { ...form } }),
+  applyData: (draft) => {
+    taskDraftRestored.value = true
+    Object.assign(form, defaultForm(), draft?.form || {})
+    toasts.info('Черновик задачи восстановлен')
+  },
+  isEmpty: isTaskDraftEmpty,
+})
+
+const { confirmLeave: confirmTaskFormLeave } = useUnsavedChangesGuard({
+  enabled: () => showForm.value,
+  isDirty: () => isTaskFormDirty.value,
+  message: 'Есть несохранённые изменения в форме задачи. Покинуть страницу?',
+})
+
+function resetTaskForm() {
+  editingTaskId.value = null
+  Object.assign(form, defaultForm())
+}
+
+function cancelTaskForm() {
+  if (!confirmTaskFormLeave()) return
+  showForm.value = false
+  clearTaskDraft()
+  resetTaskForm()
+  syncTaskFormBaseline()
+}
+
+function fillTaskForm(task) {
+  editingTaskId.value = task.id
+  Object.assign(form, {
+    title: task.title || '',
+    description: task.description || '',
+    assignee: task.assignee ?? null,
+    priority: task.priority || 'normal',
+    task_type: task.task_type || 'other',
+    due_date: toDatetimeLocal(task.due_date),
+    request: task.request ?? null,
+    client: task.client ?? null,
+    property: task.property ?? null,
+  })
+}
+
 const TERMINAL_CODES = ['done', 'cancelled']
 
 const activeTasks = computed(() => tasks.value)
@@ -487,6 +733,15 @@ const activeStatuses = computed(() => (
 const filtered = computed(() => activeTasks.value)
 const activeCount = computed(() => activeTotalCount.value)
 const historyCount = computed(() => historyTotalCount.value)
+const {
+  selectedIds: selectedTaskIds,
+  selectedCount: selectedTaskCount,
+  allOnPageSelected: allTasksOnPageSelected,
+  isSelected: isTaskSelected,
+  toggleSelection: toggleTaskSelection,
+  togglePageSelection: toggleTasksPageSelection,
+  clearSelection: clearTaskSelection,
+} = useBulkSelection(filtered)
 
 function countByStatus(id) {
   return statusCounts.value[String(id)] || 0
@@ -568,16 +823,21 @@ function resultSummary(task) {
 }
 
 function toggleForm() {
-  showForm.value = !showForm.value
   if (showForm.value) {
-    Object.assign(form, defaultForm())
+    cancelTaskForm()
+    return
   }
+  taskDraftRestored.value = false
+  resetTaskForm()
+  showForm.value = true
+  syncTaskFormBaseline()
 }
 
 function activeListParams({ includeStatusFilter = true, page = activePage.value } = {}) {
   const params = {
     status_code: 'new,in_progress,waiting',
     page,
+    page_size: taskPageSize.value,
   }
   if (includeStatusFilter && statusFilter.value) {
     params.status = Number(statusFilter.value)
@@ -593,6 +853,7 @@ function historyListParams({ page = historyPage.value } = {}) {
     status_code: 'done,cancelled',
     ordering: '-completed_at',
     page,
+    page_size: taskPageSize.value,
   }
   if (!auth.isManager) {
     params.assignee = 'me'
@@ -600,25 +861,56 @@ function historyListParams({ page = historyPage.value } = {}) {
   return params
 }
 
+function taskExportParams() {
+  const params = viewMode.value === 'history'
+    ? historyListParams({ page: 1 })
+    : activeListParams({ page: 1 })
+  delete params.page
+  delete params.page_size
+  return params
+}
+
 async function load() {
-  const { data } = await api.get('/tasks/', { params: activeListParams() })
-  const payload = unpackPaginated(data)
-  tasks.value = payload.items
-  activeFilteredCount.value = payload.count
+  loadingTasks.value = true
+  tasksLoadError.value = ''
+  try {
+    const { data } = await api.get('/tasks/', { params: activeListParams() })
+    const payload = unpackPaginated(data)
+    tasks.value = payload.items
+    activeFilteredCount.value = payload.count
+  } catch (err) {
+    tasksLoadError.value = extractError(err, 'Не удалось загрузить задачи')
+    toasts.error(tasksLoadError.value)
+  } finally {
+    loadingTasks.value = false
+  }
 }
 
 async function loadLookups() {
-  const { data } = await api.get('/task-statuses/', {
-    params: { page_size: LOOKUP_PAGE_SIZE },
-  })
-  statuses.value = unpackPaginated(data).items
+  try {
+    const { data } = await api.get('/task-statuses/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    })
+    statuses.value = unpackPaginated(data).items
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось загрузить справочники задач'))
+  }
 }
 
 async function loadHistory() {
-  const { data } = await api.get('/tasks/', { params: historyListParams() })
-  const payload = unpackPaginated(data)
-  history.value = payload.items
-  historyTotalCount.value = payload.count
+  loadingHistory.value = true
+  historyLoadError.value = ''
+  try {
+    const { data } = await api.get('/tasks/', { params: historyListParams() })
+    const payload = unpackPaginated(data)
+    history.value = payload.items
+    historyTotalCount.value = payload.count
+  } catch (err) {
+    historyLoadError.value = extractError(err, 'Не удалось загрузить историю задач')
+    toasts.error(historyLoadError.value)
+  } finally {
+    loadingHistory.value = false
+  }
 }
 
 function setViewMode(mode) {
@@ -636,28 +928,32 @@ async function fetchTaskCount(params = {}) {
 }
 
 async function loadTaskCounts() {
-  const baseActiveParams = activeListParams({
-    includeStatusFilter: false,
-    page: 1,
-  })
-  const requests = [
-    fetchTaskCount(baseActiveParams),
-    fetchTaskCount(historyListParams({ page: 1 })),
-    ...activeStatuses.value.map((status) => fetchTaskCount({
-      ...baseActiveParams,
-      status: status.id,
-    })),
-  ]
+  try {
+    const baseActiveParams = activeListParams({
+      includeStatusFilter: false,
+      page: 1,
+    })
+    const requests = [
+      fetchTaskCount(baseActiveParams),
+      fetchTaskCount(historyListParams({ page: 1 })),
+      ...activeStatuses.value.map((status) => fetchTaskCount({
+        ...baseActiveParams,
+        status: status.id,
+      })),
+    ]
 
-  const [activeTotal, historyTotal, ...perStatus] = await Promise.all(requests)
-  activeTotalCount.value = activeTotal
-  historyTotalCount.value = historyTotal
+    const [activeTotal, historyTotal, ...perStatus] = await Promise.all(requests)
+    activeTotalCount.value = activeTotal
+    historyTotalCount.value = historyTotal
 
-  const nextCounts = {}
-  activeStatuses.value.forEach((status, index) => {
-    nextCounts[String(status.id)] = perStatus[index]
-  })
-  statusCounts.value = nextCounts
+    const nextCounts = {}
+    activeStatuses.value.forEach((status, index) => {
+      nextCounts[String(status.id)] = perStatus[index]
+    })
+    statusCounts.value = nextCounts
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось обновить счётчики задач'))
+  }
 }
 
 function setActivePage(page) {
@@ -670,27 +966,47 @@ function setHistoryPage(page) {
   historyPage.value = page
 }
 
-async function create() {
+function setTaskPageSize(size) {
+  if (!size || size === taskPageSize.value) return
+  taskPageSize.value = size
+}
+
+async function submitTaskForm() {
   if (!form.assignee) {
     toasts.error('Выберите исполнителя задачи')
     return
   }
 
+  const wasEditing = isEditingTask.value
   const payload = { ...form }
-  if (!payload.due_date) delete payload.due_date
-  if (!payload.request) delete payload.request
-  if (!payload.client) delete payload.client
-  if (!payload.property) delete payload.property
+  if (wasEditing) {
+    if (!payload.due_date) payload.due_date = null
+  } else if (!payload.due_date) {
+    delete payload.due_date
+  }
+  if (!wasEditing && !payload.request) delete payload.request
+  if (!wasEditing && !payload.client) delete payload.client
+  if (!wasEditing && !payload.property) delete payload.property
 
   try {
-    await api.post('/tasks/', payload)
+    const result = wasEditing
+      ? await tasksApi.patchTask(editingTaskId.value, payload)
+      : await tasksApi.createTask(payload)
+    if (!result.ok) {
+      toasts.error(
+        result.error || (wasEditing ? 'Не удалось обновить задачу' : 'Не удалось создать задачу'),
+      )
+      return
+    }
     showForm.value = false
-    Object.assign(form, defaultForm())
-    toasts.success('Задача создана')
+    clearTaskDraft()
+    resetTaskForm()
+    syncTaskFormBaseline()
+    toasts.success(wasEditing ? 'Задача обновлена' : 'Задача создана')
     activePage.value = 1
     await Promise.all([load(), loadTaskCounts(), workload.refresh()])
   } catch (err) {
-    toasts.error(extractError(err, 'Не удалось создать задачу'))
+    toasts.error(extractError(err, wasEditing ? 'Не удалось обновить задачу' : 'Не удалось создать задачу'))
   }
 }
 
@@ -706,6 +1022,22 @@ async function changeStatus(task, statusId) {
   }
 }
 
+async function exportTasks(format) {
+  exportingTasks.value = true
+  try {
+    await exportEntityData(
+      '/tasks/export/',
+      format,
+      taskExportParams(),
+      `tasks-${viewMode.value}.${format}`,
+    )
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось выгрузить задачи'))
+  } finally {
+    exportingTasks.value = false
+  }
+}
+
 function isMine(task) {
   return task.assignee === auth.user?.id
 }
@@ -718,6 +1050,18 @@ function isOwnOrManaged(task) {
   return auth.isManager || task.assignee === auth.user?.id
 }
 
+function canViewTask(task) {
+  return isOwnOrManaged(task)
+}
+
+function canEditTask(task) {
+  return isOwnOrManaged(task) && !TERMINAL_CODES.includes(task.status_code)
+}
+
+function canDeleteTask(task) {
+  return isOwnOrManaged(task) && !TERMINAL_CODES.includes(task.status_code)
+}
+
 function canStart(task) {
   return isOwnOrManaged(task) && ['new', 'waiting'].includes(task.status_code)
 }
@@ -728,10 +1072,6 @@ function canPause(task) {
 
 function canComplete(task) {
   return isOwnOrManaged(task) && ['new', 'in_progress', 'waiting'].includes(task.status_code)
-}
-
-function canOpenWorkflow(task) {
-  return task.assignee === auth.user?.id && !TERMINAL_CODES.includes(task.status_code)
 }
 
 function canStartBtn(task) {
@@ -827,6 +1167,91 @@ function openWorkflow(task) {
   router.push({ name: 'task-workflow', params: { id: task.id } })
 }
 
+function startEditTask(task) {
+  taskDraftRestored.value = false
+  fillTaskForm(task)
+  showForm.value = true
+  syncTaskFormBaseline()
+}
+
+async function removeTask(task) {
+  const approved = await confirm.ask({
+    title: 'Удаление задачи',
+    message: `Удалить задачу «${task.title}»?`,
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+  if (!approved) return
+  busyId.value = task.id
+  const { ok, error } = await tasksApi.deleteTask(task.id)
+  if (ok) {
+    if (editingTaskId.value === task.id) {
+      cancelTaskForm()
+    }
+    tasks.value = tasks.value.filter((item) => item.id !== task.id)
+    history.value = history.value.filter((item) => item.id !== task.id)
+    await Promise.all([
+      load(),
+      loadTaskCounts(),
+      viewMode.value === 'history' ? loadHistory() : Promise.resolve(),
+      workload.refresh(),
+    ])
+    toasts.success('Задача удалена')
+  } else {
+    toasts.error(error || 'Не удалось удалить задачу')
+  }
+  busyId.value = null
+}
+
+async function runBulkTaskAction() {
+  if (!selectedTaskIds.value.length) return
+  const actionLabel = {
+    pause: 'приостановить',
+    complete: 'завершить',
+    delete: 'удалить',
+  }[bulkTaskActionCode.value] || 'обработать'
+  const approved = await confirm.ask({
+    title: 'Массовое действие по задачам',
+    message: `${actionLabel} выбранные задачи (${selectedTaskIds.value.length})?`,
+    confirmLabel: 'Применить',
+    danger: bulkTaskActionCode.value === 'delete',
+  })
+  if (!approved) return
+
+  const result = await bulkTaskAction(
+    [...selectedTaskIds.value],
+    bulkTaskActionCode.value,
+  )
+  if (!result.ok) {
+    toasts.error(result.error || 'Не удалось выполнить массовое действие по задачам')
+    return
+  }
+
+  clearTaskSelection()
+  await Promise.all([load(), loadTaskCounts(), workload.refresh()])
+  const {
+    processed,
+    errors = [],
+    not_found_ids: notFoundIds = [],
+  } = result.data
+  if (errors.length || notFoundIds.length) {
+    toasts.warn(
+      `Обработано задач: ${processed}. Пропущено: ${errors.length + notFoundIds.length}.`,
+    )
+    return
+  }
+  toasts.success(`Обработано задач: ${processed}.`)
+}
+
+async function reloadTaskBoard() {
+  await Promise.all([
+    load(),
+    loadTaskCounts(),
+    viewMode.value === 'history' ? loadHistory() : Promise.resolve(),
+    auth.isStaff ? workload.refresh() : Promise.resolve(),
+  ])
+}
+
 watch([statusFilter, typeFilter], async () => {
   activePage.value = 1
   await Promise.all([load(), loadTaskCounts()])
@@ -842,9 +1267,26 @@ watch(historyPage, async () => {
   }
 })
 
+watch(taskPageSize, async () => {
+  const changedActivePage = activePage.value !== 1
+  const changedHistoryPage = historyPage.value !== 1
+  if (changedActivePage) activePage.value = 1
+  if (changedHistoryPage) historyPage.value = 1
+  if (changedActivePage || changedHistoryPage) {
+    return
+  }
+  await Promise.all([
+    load(),
+    viewMode.value === 'history' ? loadHistory() : Promise.resolve(),
+  ])
+})
+
 onMounted(async () => {
   await Promise.all([loadLookups(), load()])
   await loadTaskCounts()
+  if (!taskDraftRestored.value) {
+    syncTaskFormBaseline()
+  }
   if (auth.isStaff) {
     workload.refresh()
   }
@@ -892,6 +1334,16 @@ onMounted(async () => {
 .select--sm {
   padding: 10px 42px 10px 14px;
   font-size: 13px;
+}
+
+.table-check-cell {
+  width: 44px;
+  text-align: center;
+}
+
+.table-check-cell input {
+  width: 16px;
+  height: 16px;
 }
 
 .task-actions {

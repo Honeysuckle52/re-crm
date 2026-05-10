@@ -14,7 +14,7 @@
           </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <button v-if="auth.isStaff && !request.agent"
+          <button v-if="auth.isStaff && canTakeRequest(request)"
                   class="btn btn--accent"
                   @click="takeRequest">
             Взять в работу
@@ -76,6 +76,21 @@
           />
           <InfoRow label="Закрыта" :value="request.closed_at ? formatDate(request.closed_at) : '—'" />
         </div>
+        <div class="request-process" style="margin-top: 16px">
+          <div class="muted" style="font-size: 13px; margin-bottom: 8px">
+            {{ request.process_version_label }}
+          </div>
+          <ol v-if="request.process_schema?.length" class="request-process__steps">
+            <li
+              v-for="step in request.process_schema"
+              :key="step.id"
+              class="request-process__step"
+              :class="{ 'request-process__step--terminal': step.terminal }">
+              <span>{{ step.label }}</span>
+              <span v-if="step.terminal" class="request-process__hint">финал</span>
+            </li>
+          </ol>
+        </div>
       </div>
 
       <div class="panel panel--light">
@@ -93,7 +108,7 @@
         <h2 class="h3" style="margin-top: 20px">Связанная сделка</h2>
         <div v-if="relatedDeal" class="deal-summary" style="margin-top: 12px">
           <div class="stack" style="gap: 4px; flex: 1">
-            <router-link to="/deals" class="link">
+            <router-link :to="`/deals/${relatedDeal.id}`" class="link">
               {{ relatedDeal.deal_number }}
             </router-link>
             <div class="muted" style="font-size: 13px">
@@ -110,8 +125,8 @@
                     @click="downloadDealContract(relatedDeal)">
               Скачать PDF
             </button>
-            <router-link to="/deals" class="btn btn--sm btn--ghost">
-              Открыть сделки
+            <router-link :to="`/deals/${relatedDeal.id}`" class="btn btn--sm btn--ghost">
+              Открыть сделку
             </router-link>
           </div>
         </div>
@@ -217,10 +232,19 @@
           <span class="tag tag--accent">{{ task.status_name }}</span>
         </div>
       </div>
-      <div v-else class="muted" style="margin-top: 12px">
+    <div v-else class="muted" style="margin-top: 12px">
         Задач пока нет.
       </div>
     </div>
+
+    <AuditLogPanel
+      v-if="request"
+      :params="{ request: request.id }"
+      title="История заявки"
+      caption="Журнал действий"
+      empty-text="По заявке ещё нет записей журнала."
+      :page-size="12"
+    />
   </section>
   <RequestCloseDialog
     v-if="closeDialogOpen && request"
@@ -236,14 +260,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
+import AuditLogPanel from '../components/AuditLogPanel.vue'
 import InfoRow from '../components/InfoRow.vue'
 import RequestCloseDialog from '../components/RequestCloseDialog.vue'
+import { useVisibilityRefresh } from '../composables/useVisibilityRefresh'
 import { useAuthStore } from '../store/auth'
+import { useConfirmStore } from '../store/confirm'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
+import { dealContractStatusHint, dealContractStatusLabel } from '@/utils/deals'
+import { downloadBlobResponse } from '@/utils/downloads'
 import { formatMoney, formatDate } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import {
+  canTakeRequest,
   getRequestCloseSuccessMessage,
   terminalRequestStatusCodes,
 } from '@/utils/requestClose'
@@ -255,6 +285,7 @@ import {
 
 const route = useRoute()
 const auth = useAuthStore()
+const confirm = useConfirmStore()
 const workload = useWorkloadStore()
 const toasts = useToastsStore()
 
@@ -287,32 +318,9 @@ const activeTasksCount = computed(() =>
 const autoClosedTasksCount = computed(() =>
   requestTasks.value.filter((task) => task.is_auto_closed).length,
 )
-
-function dealContractStatusLabel (deal) {
-  if (!deal) return ''
-  if (deal.contract_status === 'ready' || deal.contract_url) return 'договор готов'
-  if (deal.contract_status === 'pending') return 'в очереди на генерацию'
-  if (deal.contract_status === 'processing') return 'договор формируется'
-  if (deal.contract_status === 'failed') return 'ошибка генерации PDF'
-  return 'PDF ещё не запрошен'
-}
-
-function dealContractStatusHint (deal) {
-  if (!deal) return ''
-  if (deal.contract_status === 'ready' || deal.contract_url) {
-    return 'Договор уже сформирован и доступен для скачивания.'
-  }
-  if (deal.contract_status === 'pending') {
-    return 'PDF-договор поставлен в очередь и будет сформирован фоновым процессом.'
-  }
-  if (deal.contract_status === 'processing') {
-    return 'PDF-договор сейчас формируется в фоновом процессе.'
-  }
-  if (deal.contract_status === 'failed') {
-    return deal.contract_error_message || 'Предыдущая генерация договора завершилась ошибкой.'
-  }
-  return 'Договор появится после постановки сделки в очередь на генерацию.'
-}
+const hasPendingDealContract = computed(() => (
+  ['pending', 'processing'].includes(relatedDeal.value?.contract_status)
+))
 
 function matchBadgeLabel (match) {
   if (match.state === 'confirmed') return 'Подтверждён'
@@ -415,7 +423,13 @@ async function attachProperty () {
 }
 
 async function detachProperty (match) {
-  if (!confirm('Убрать объект из подборки?')) return
+  const approved = await confirm.ask({
+    title: 'Удаление из подборки',
+    message: 'Убрать объект из подборки?',
+    confirmLabel: 'Убрать',
+    danger: true,
+  })
+  if (!approved) return
   try {
     await api.post(`/requests/${route.params.id}/detach_property/`, {
       match_id: match.id,
@@ -447,22 +461,20 @@ async function confirmProperty (match) {
 
 async function downloadDealContract (deal) {
   try {
-    const res = await api.get(`/deals/${deal.id}/contract/`, {
+    const response = await api.get(`/deals/${deal.id}/contract/`, {
       responseType: 'blob',
     })
-    const blob = new Blob([res.data], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `contract-${deal.deal_number}.pdf`
-    document.body.appendChild(anchor)
-    anchor.click()
-    document.body.removeChild(anchor)
-    URL.revokeObjectURL(url)
+    downloadBlobResponse(response, `contract-${deal.deal_number}.pdf`)
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось скачать договор'))
   }
 }
+
+useVisibilityRefresh({
+  enabled: () => hasPendingDealContract.value,
+  interval: 5_000,
+  onRefresh: () => load(),
+})
 
 onMounted(load)
 </script>
@@ -535,6 +547,37 @@ onMounted(load)
   background: rgba(255, 255, 255, 0.06);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.request-process__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.request-process__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+}
+
+.request-process__step--terminal {
+  border-color: rgba(99, 208, 197, 0.28);
+  background: rgba(99, 208, 197, 0.1);
+}
+
+.request-process__hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .select--sm,

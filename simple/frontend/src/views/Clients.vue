@@ -11,6 +11,11 @@
           <div class="surface-head__meta">Реестр пользователей</div>
           <h2 class="h3">Поиск и фильтрация</h2>
         </div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button class="btn btn--sm" :disabled="exportingUsers" @click="exportUsers('csv')">CSV</button>
+          <button class="btn btn--sm" :disabled="exportingUsers" @click="exportUsers('xlsx')">XLSX</button>
+          <button class="btn btn--sm" :disabled="exportingUsers" @click="exportUsers('json')">JSON</button>
+        </div>
       </div>
 
       <div class="row" style="gap: 10px; flex-wrap: wrap; margin-bottom: 12px">
@@ -23,8 +28,40 @@
         </select>
       </div>
 
-      <div class="table-wrap clients-table-wrap">
-        <table class="table">
+      <DataFetchPanel
+        v-if="usersLoadError && users.length"
+        class="table-state"
+        compact
+        :error="usersLoadError"
+        error-title="Список пользователей загружен не полностью"
+        @retry="reloadUsersScreen"
+      />
+
+      <DataFetchPanel
+        v-else-if="loadingUsers && users.length"
+        class="table-state"
+        compact
+        loading
+        loading-title="Обновление пользователей"
+        loading-text="Подтягиваем актуальную выборку по пользователям."
+      />
+
+      <DataFetchPanel
+        v-if="loadingUsers && !users.length"
+        loading
+        loading-title="Загрузка пользователей"
+        loading-text="Подтягиваем список пользователей и роли."
+      />
+
+      <DataFetchPanel
+        v-else-if="usersLoadError && !users.length"
+        :error="usersLoadError"
+        error-title="Не удалось загрузить пользователей"
+        @retry="reloadUsersScreen"
+      />
+
+      <div v-else class="table-wrap table-wrap--cards clients-table-wrap">
+        <table class="table table--responsive-cards">
           <thead>
             <tr>
               <th>Логин</th>
@@ -38,7 +75,7 @@
           </thead>
           <tbody>
             <tr v-for="u in users" :key="u.id">
-              <td><b>{{ u.username }}</b></td>
+              <td data-label="Логин"><b>{{ u.username }}</b></td>
               <td>{{ u.email || '—' }}</td>
               <td>{{ u.phone || '—' }}</td>
               <td>
@@ -50,7 +87,7 @@
               <td class="muted">
                 {{ new Date(u.created_at).toLocaleDateString('ru-RU') }}
               </td>
-              <td v-if="auth.isManager">
+              <td v-if="auth.isManager" class="table-actions-cell" data-label="Действия">
                 <button class="btn btn--sm" @click="openAssign(u)">Назначить</button>
               </td>
             </tr>
@@ -64,8 +101,10 @@
         :count="totalUsers"
         :page="userPage"
         :visible-count="users.length"
+        :page-size="userPageSize"
         label="пользователей"
         @change="setUserPage"
+        @change-page-size="setUserPageSize"
       />
     </div>
 
@@ -110,17 +149,25 @@
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
+import { exportEntityData } from '../api/exports'
+import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
 import { useAuthStore } from '../store/auth'
-import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { extractError, useToastsStore } from '../store/toasts'
 
 const auth = useAuthStore()
+const toasts = useToastsStore()
 const users = ref([])
 const roles = ref([])
 const search = ref('')
 const typeFilter = ref('')
 const totalUsers = ref(0)
 const userPage = ref(1)
+const userPageSize = ref(DEFAULT_PAGE_SIZE)
+const exportingUsers = ref(false)
+const loadingUsers = ref(false)
+const usersLoadError = ref('')
 
 const assignOpen = ref(false)
 const assignUser = ref(null)
@@ -129,23 +176,47 @@ const assignError = ref('')
 const assignForm = reactive({ user_type: 'client', role_id: null })
 
 async function loadUsers() {
-  const { data } = await api.get('/users/', { params: listParams() })
-  const payload = unpackPaginated(data)
-  users.value = payload.items
-  totalUsers.value = payload.count
+  loadingUsers.value = true
+  usersLoadError.value = ''
+  try {
+    const { data } = await api.get('/users/', { params: listParams() })
+    const payload = unpackPaginated(data)
+    users.value = payload.items
+    totalUsers.value = payload.count
+  } catch (err) {
+    usersLoadError.value = extractError(err, 'Не удалось загрузить пользователей')
+    toasts.error(usersLoadError.value)
+  } finally {
+    loadingUsers.value = false
+  }
 }
 
 async function loadRoles() {
-  const response = await api.get('/user-roles/', {
-    params: { page_size: LOOKUP_PAGE_SIZE },
-  }).catch(() => ({ data: [] }))
-  roles.value = unpackPaginated(response.data).items
+  try {
+    const response = await api.get('/user-roles/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
+    })
+    roles.value = unpackPaginated(response.data).items
+  } catch (err) {
+    roles.value = []
+    toasts.error(extractError(err, 'Не удалось загрузить роли пользователей'))
+  }
 }
 
 function listParams () {
-  const params = { page: userPage.value }
+  const params = {
+    page: userPage.value,
+    page_size: userPageSize.value,
+  }
   if (search.value.trim()) params.search = search.value.trim()
   if (typeFilter.value) params.user_type = typeFilter.value
+  return params
+}
+
+function userExportParams () {
+  const params = listParams()
+  delete params.page
+  delete params.page_size
   return params
 }
 
@@ -154,12 +225,33 @@ function setUserPage (page) {
   userPage.value = page
 }
 
+function setUserPageSize (size) {
+  if (!size || size === userPageSize.value) return
+  userPageSize.value = size
+}
+
 function openAssign(u) {
   assignUser.value = u
   assignForm.user_type = u.user_type || 'client'
   assignForm.role_id = u.role ?? null
   assignError.value = ''
   assignOpen.value = true
+}
+
+async function exportUsers (format) {
+  exportingUsers.value = true
+  try {
+    await exportEntityData(
+      '/users/export/',
+      format,
+      userExportParams(),
+      `users.${format}`,
+    )
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось выгрузить пользователей'))
+  } finally {
+    exportingUsers.value = false
+  }
 }
 
 async function saveAssign() {
@@ -179,6 +271,10 @@ async function saveAssign() {
   }
 }
 
+async function reloadUsersScreen() {
+  await Promise.all([loadUsers(), loadRoles()])
+}
+
 let filtersTimer = null
 
 watch([search, typeFilter], () => {
@@ -193,12 +289,20 @@ watch(userPage, async () => {
   await loadUsers()
 })
 
+watch(userPageSize, async () => {
+  if (userPage.value !== 1) {
+    userPage.value = 1
+    return
+  }
+  await loadUsers()
+})
+
 onBeforeUnmount(() => {
   if (filtersTimer) clearTimeout(filtersTimer)
 })
 
 onMounted(async () => {
-  await Promise.all([loadUsers(), loadRoles()])
+  await reloadUsersScreen()
 })
 </script>
 
@@ -303,6 +407,31 @@ onMounted(async () => {
 @media (max-width: 720px) {
   .clients-table-wrap .table {
     min-width: 860px;
+  }
+
+  .clients-table-wrap .table td:nth-child(2)::before {
+    content: 'Почта';
+  }
+
+  .clients-table-wrap .table td:nth-child(3)::before {
+    content: 'Телефон';
+  }
+
+  .clients-table-wrap .table td:nth-child(4)::before {
+    content: 'Тип';
+  }
+
+  .clients-table-wrap .table td:nth-child(5)::before {
+    content: 'Должность';
+  }
+
+  .clients-table-wrap .table td:nth-child(6)::before {
+    content: 'Создан';
+  }
+
+  .clients-table-wrap .btn--sm {
+    min-width: 0;
+    width: 100%;
   }
 }
 </style>

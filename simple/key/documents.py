@@ -4,48 +4,149 @@ from __future__ import annotations
 import io
 from decimal import Decimal
 from pathlib import Path
+from typing import Iterable
+from xml.sax.saxutils import escape
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
-    Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
 )
 
+FONT_REGULAR = 'TimesNewRoman'
+FONT_BOLD = 'TimesNewRoman-Bold'
+FONT_ITALIC = 'TimesNewRoman-Italic'
+FONT_BOLD_ITALIC = 'TimesNewRoman-BoldItalic'
 
 FONTS_DIR = Path(__file__).resolve().parent / 'fonts'
-FONT_REGULAR_PATH = FONTS_DIR / 'DejaVuSans.ttf'
-FONT_BOLD_PATH = FONTS_DIR / 'DejaVuSans-Bold.ttf'
+FONT_FILES = {
+    FONT_REGULAR: FONTS_DIR / 'times.ttf',
+    FONT_BOLD: FONTS_DIR / 'timesbd.ttf',
+    FONT_ITALIC: FONTS_DIR / 'timesi.ttf',
+    FONT_BOLD_ITALIC: FONTS_DIR / 'timesbi.ttf',
+}
 
-FONT_REGULAR = 'DejaVuSans'
-FONT_BOLD = 'DejaVuSans-Bold'
+PAGE_WIDTH, PAGE_HEIGHT = A4
+PAGE_MARGIN_LEFT = 25 * mm
+PAGE_MARGIN_RIGHT = 15 * mm
+PAGE_MARGIN_TOP = 20 * mm
+PAGE_MARGIN_BOTTOM = 18 * mm
+CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN_LEFT - PAGE_MARGIN_RIGHT
+LABEL_WIDTH = 48 * mm
+VALUE_WIDTH = CONTENT_WIDTH - LABEL_WIDTH
+
+COLOR_BORDER = colors.black
+COLOR_MUTED = colors.black
+COLOR_PANEL = colors.white
+COLOR_PANEL_STRONG = colors.white
+COLOR_TEXT = colors.black
 
 _FONTS_REGISTERED = False
 
+UNITS_MALE = (
+    '',
+    'один',
+    'два',
+    'три',
+    'четыре',
+    'пять',
+    'шесть',
+    'семь',
+    'восемь',
+    'девять',
+)
+UNITS_FEMALE = (
+    '',
+    'одна',
+    'две',
+    'три',
+    'четыре',
+    'пять',
+    'шесть',
+    'семь',
+    'восемь',
+    'девять',
+)
+TEENS = (
+    'десять',
+    'одиннадцать',
+    'двенадцать',
+    'тринадцать',
+    'четырнадцать',
+    'пятнадцать',
+    'шестнадцать',
+    'семнадцать',
+    'восемнадцать',
+    'девятнадцать',
+)
+TENS = (
+    '',
+    '',
+    'двадцать',
+    'тридцать',
+    'сорок',
+    'пятьдесят',
+    'шестьдесят',
+    'семьдесят',
+    'восемьдесят',
+    'девяносто',
+)
+HUNDREDS = (
+    '',
+    'сто',
+    'двести',
+    'триста',
+    'четыреста',
+    'пятьсот',
+    'шестьсот',
+    'семьсот',
+    'восемьсот',
+    'девятьсот',
+)
+ORDERS = (
+    (False, ('', '', '')),
+    (True, ('тысяча', 'тысячи', 'тысяч')),
+    (False, ('миллион', 'миллиона', 'миллионов')),
+    (False, ('миллиард', 'миллиарда', 'миллиардов')),
+    (False, ('триллион', 'триллиона', 'триллионов')),
+)
+
 
 def _ensure_fonts_registered() -> None:
-    """Регистрирует шрифты DejaVu в ReportLab один раз на процесс."""
+    """Регистрирует Times New Roman из локальной папки fonts."""
     global _FONTS_REGISTERED
     if _FONTS_REGISTERED:
         return
-    if not FONT_REGULAR_PATH.exists() or not FONT_BOLD_PATH.exists():
-        raise FileNotFoundError(
-            f'Не найдены шрифты DejaVu в {FONTS_DIR}. '
-            f'Ожидаются файлы DejaVuSans.ttf и DejaVuSans-Bold.ttf.'
-        )
-    pdfmetrics.registerFont(TTFont(FONT_REGULAR, str(FONT_REGULAR_PATH)))
-    pdfmetrics.registerFont(TTFont(FONT_BOLD, str(FONT_BOLD_PATH)))
+    for font_name, font_path in FONT_FILES.items():
+        if not font_path.exists():
+            raise FileNotFoundError(f'Missing PDF font file: {font_path}')
+        pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+    pdfmetrics.registerFontFamily(
+        FONT_REGULAR,
+        normal=FONT_REGULAR,
+        bold=FONT_BOLD,
+        italic=FONT_ITALIC,
+        boldItalic=FONT_BOLD_ITALIC,
+    )
     _FONTS_REGISTERED = True
 
 
 def _money(value) -> str:
-    """Формат цены с разделителями тысяч: 12 345 678 ₽."""
+    """Формат цены с разделителями тысяч: 12 345 678,90 ₽."""
     if value is None:
         return '—'
     try:
@@ -54,14 +155,119 @@ def _money(value) -> str:
         return str(value)
     whole, _, frac = f'{num:.2f}'.partition('.')
     groups = []
-    s = whole
-    while len(s) > 3:
-        groups.insert(0, s[-3:])
-        s = s[:-3]
-    if s:
-        groups.insert(0, s)
-    pretty = ' '.join(groups)
-    return f'{pretty},{frac} ₽'
+    digits = whole
+    while len(digits) > 3:
+        groups.insert(0, digits[-3:])
+        digits = digits[:-3]
+    if digits:
+        groups.insert(0, digits)
+    return f'{" ".join(groups)},{frac} ₽'
+
+
+def _plural(value: int, forms: tuple[str, str, str]) -> str:
+    value = abs(int(value))
+    if value % 100 in {11, 12, 13, 14}:
+        return forms[2]
+    remainder = value % 10
+    if remainder == 1:
+        return forms[0]
+    if remainder in {2, 3, 4}:
+        return forms[1]
+    return forms[2]
+
+
+def _triplet_to_words(value: int, *, female: bool = False) -> str:
+    if value == 0:
+        return ''
+
+    words: list[str] = []
+    hundreds = value // 100
+    tens_units = value % 100
+    tens = tens_units // 10
+    units = tens_units % 10
+
+    if hundreds:
+        words.append(HUNDREDS[hundreds])
+
+    if 10 <= tens_units <= 19:
+        words.append(TEENS[tens_units - 10])
+    else:
+        if tens:
+            words.append(TENS[tens])
+        if units:
+            words.append((UNITS_FEMALE if female else UNITS_MALE)[units])
+
+    return ' '.join(filter(None, words))
+
+
+def _number_to_words(value: int) -> str:
+    if value == 0:
+        return 'ноль'
+
+    parts: list[str] = []
+    order_index = 0
+    remaining = value
+
+    while remaining > 0:
+        remaining, triplet = divmod(remaining, 1000)
+        if not triplet:
+            order_index += 1
+            continue
+
+        order_female, order_forms = ORDERS[order_index]
+        triplet_words = _triplet_to_words(triplet, female=order_female)
+        chunk = triplet_words
+        if order_index > 0:
+            chunk = f'{chunk} {_plural(triplet, order_forms)}'.strip()
+        parts.insert(0, chunk)
+        order_index += 1
+
+    return ' '.join(filter(None, parts))
+
+
+def _money_words(value) -> str:
+    if value is None:
+        return '—'
+    amount = Decimal(str(value)).quantize(Decimal('0.01'))
+    rubles = int(amount)
+    kopeks = int((amount - rubles) * 100)
+    rubles_words = _number_to_words(rubles)
+    text = (
+        f'{rubles_words} {_plural(rubles, ("рубль", "рубля", "рублей"))} '
+        f'{kopeks:02d} {_plural(kopeks, ("копейка", "копейки", "копеек"))}'
+    )
+    return text[:1].upper() + text[1:]
+
+
+def _format_decimal(value, suffix: str = '') -> str:
+    if value in (None, ''):
+        return '—'
+    try:
+        num = Decimal(str(value))
+    except Exception:
+        return f'{value}{suffix}'
+    normalized = f'{num:.2f}'.rstrip('0').rstrip('.').replace('.', ',')
+    return f'{normalized}{suffix}'
+
+
+def _format_date(value) -> str:
+    if not value:
+        return '—'
+    return value.strftime('%d.%m.%Y')
+
+
+def _as_text(value, fallback: str = '—') -> str:
+    if value in (None, ''):
+        return fallback
+    return str(value)
+
+
+def _paragraph_text(value, fallback: str = '—') -> str:
+    return escape(_as_text(value, fallback)).replace('\n', '<br/>')
+
+
+def _setting(name: str, default: str = '') -> str:
+    return _as_text(getattr(settings, name, default), default)
 
 
 def _client_full_name(client) -> str:
@@ -87,6 +293,13 @@ def _agent_full_name(agent) -> str:
     return agent.username
 
 
+def _agent_position(agent) -> str:
+    profile = getattr(agent, 'employee_profile', None)
+    if profile and profile.position:
+        return profile.position
+    return 'ответственный специалист'
+
+
 def _property_address(prop) -> str:
     """Человекочитаемая строка адреса объекта."""
     try:
@@ -95,18 +308,279 @@ def _property_address(prop) -> str:
         return f'Объект №{prop.pk}'
 
 
+def _deal_city(deal) -> str:
+    try:
+        city = deal.property.address.house.street.city
+    except Exception:
+        return 'г. ________'
+    region = f', {city.region}' if getattr(city, 'region', None) else ''
+    return f'г. {city.name}{region}'
+
+
 def _passport_line(client) -> str:
-    p = getattr(client, 'client_profile', None)
-    if not p or not (p.passport_series or p.passport_number):
+    profile = getattr(client, 'client_profile', None)
+    if not profile or not (profile.passport_series or profile.passport_number):
         return '—'
     pieces = []
-    if p.passport_series and p.passport_number:
-        pieces.append(f'серия {p.passport_series} № {p.passport_number}')
-    if p.passport_issued_by:
-        pieces.append(f'выдан: {p.passport_issued_by}')
-    if p.passport_issued_date:
-        pieces.append(f'дата выдачи: {p.passport_issued_date:%d.%m.%Y}')
+    if profile.passport_series and profile.passport_number:
+        pieces.append(
+            f'серия {profile.passport_series} № {profile.passport_number}',
+        )
+    if profile.passport_issued_by:
+        pieces.append(f'выдан: {profile.passport_issued_by}')
+    if profile.passport_code:
+        pieces.append(f'код подразделения: {profile.passport_code}')
+    if profile.passport_issued_date:
+        pieces.append(f'дата выдачи: {profile.passport_issued_date:%d.%m.%Y}')
     return ', '.join(pieces) or '—'
+
+
+def _client_address_line(client) -> str:
+    profile = getattr(client, 'client_profile', None)
+    if not profile:
+        return '—'
+    if profile.registration_address and profile.actual_address:
+        if profile.registration_address.strip() == profile.actual_address.strip():
+            return profile.registration_address
+        return (
+            f'адрес регистрации: {profile.registration_address}; '
+            f'фактический адрес: {profile.actual_address}'
+        )
+    return profile.registration_address or profile.actual_address or '—'
+
+
+def _client_contact_line(client) -> str:
+    profile = getattr(client, 'client_profile', None)
+    parts = [client.phone or '—', client.email or '—']
+    if profile and profile.preferred_contact_method:
+        parts.append(
+            f'предпочтительный способ связи: {profile.preferred_contact_method}',
+        )
+    return ' / '.join(p for p in parts if p)
+
+
+def _agency_name() -> str:
+    return getattr(settings, 'AGENCY_NAME', 'Агентство недвижимости')
+
+
+def _agency_legal_name() -> str:
+    return _setting('AGENCY_LEGAL_NAME', _agency_name())
+
+
+def _agency_signatory_name(agent) -> str:
+    return _setting('AGENCY_SIGNATORY_NAME', _agent_full_name(agent))
+
+
+def _agency_signatory_title(agent) -> str:
+    return _setting('AGENCY_SIGNATORY_TITLE', _agent_position(agent))
+
+
+def _agency_signatory_basis() -> str:
+    return _setting(
+        'AGENCY_SIGNATORY_BASIS',
+        'внутренних документов Исполнителя',
+    )
+
+
+def _agency_address() -> str:
+    return _setting('AGENCY_ADDRESS', 'адрес указывается при подписании')
+
+
+def _agency_phone() -> str:
+    return _setting('AGENCY_PHONE')
+
+
+def _agency_contact_line() -> str:
+    parts = []
+    phone = _agency_phone()
+    reply_to = getattr(settings, 'AGENCY_REPLY_TO', '') or getattr(
+        settings,
+        'DEFAULT_FROM_EMAIL',
+        '',
+    )
+    public_url = getattr(settings, 'AGENCY_PUBLIC_URL', '')
+    if phone:
+        parts.append(phone)
+    if reply_to:
+        parts.append(reply_to)
+    if public_url:
+        parts.append(public_url)
+    return ' / '.join(parts) or 'контакты уточняются при подписании'
+
+
+def _agency_requisites_lines() -> list[str]:
+    fields = [
+        ('Адрес', _agency_address()),
+        ('Телефон', _agency_phone()),
+        ('Email', _setting('AGENCY_REPLY_TO', _setting('DEFAULT_FROM_EMAIL'))),
+        ('ИНН', _setting('AGENCY_INN')),
+        ('КПП', _setting('AGENCY_KPP')),
+        ('ОГРН', _setting('AGENCY_OGRN')),
+    ]
+    lines = [f'{label}: {value}' for label, value in fields if value and value != '—']
+
+    bank_details = getattr(settings, 'AGENCY_BANK_DETAILS', '') or ''
+    if bank_details:
+        normalized_bank_details = str(bank_details).replace(';', '\n')
+        for line in normalized_bank_details.splitlines():
+            normalized = line.strip()
+            if normalized:
+                lines.append(normalized)
+
+    public_url = getattr(settings, 'AGENCY_PUBLIC_URL', '')
+    if public_url:
+        lines.append(f'Сайт: {public_url}')
+    return lines or ['Реквизиты уточняются при подписании']
+
+
+def _join_lines(lines: Iterable[str]) -> str:
+    return '<br/>'.join(_paragraph_text(line) for line in lines if line)
+
+
+def _deal_transaction_label(deal) -> str:
+    code = getattr(deal.operation_type, 'code', None)
+    if code == 'sale':
+        return 'купли-продажи'
+    if code == 'rent':
+        return 'аренды'
+    return 'сделки'
+
+
+def _deal_result_label(deal) -> str:
+    code = getattr(deal.operation_type, 'code', None)
+    if code == 'sale':
+        return 'заключения сделки купли-продажи'
+    if code == 'rent':
+        return 'заключения договора аренды'
+    return 'завершения сделки'
+
+
+def _deal_subject(deal) -> str:
+    operation_name = deal.operation_type.name if deal.operation_type_id else 'сделка'
+    property_title = deal.property.title or f'объект №{deal.property_id}'
+    return (
+        f'оказание информационно-консультационных и организационных услуг '
+        f'по сопровождению {operation_name.lower()} объекта недвижимости '
+        f'«{property_title}»'
+    )
+
+
+def _section_heading(text: str, style) -> Paragraph:
+    return Paragraph(escape(text), style)
+
+
+def _table_value(value, style, *, fallback: str = '—') -> Paragraph:
+    if isinstance(value, Paragraph):
+        return value
+    return Paragraph(_paragraph_text(value, fallback), style)
+
+
+def _info_table(rows, *, label_style, value_style, col_widths=None) -> Table:
+    normalized = []
+    for label, value in rows:
+        normalized.append(
+            [
+                Paragraph(f'<b>{escape(_as_text(label, ""))}</b>', label_style),
+                _table_value(value, value_style),
+            ],
+        )
+
+    table = Table(
+        normalized,
+        colWidths=col_widths or [LABEL_WIDTH, VALUE_WIDTH],
+        repeatRows=0,
+        hAlign='LEFT',
+    )
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+        ('TEXTCOLOR', (0, 0), (-1, -1), COLOR_TEXT),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (0, -1), 0),
+        ('LEFTPADDING', (1, 0), (1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 2),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    return table
+
+
+def _meta_header_table(deal, *, styles) -> Table:
+    meta_left = Paragraph(escape(_deal_city(deal)), styles['meta_header_left'])
+    meta_right = Paragraph(
+        escape(f'Дата составления: {_format_date(deal.deal_date)}'),
+        styles['meta_header_right'],
+    )
+    table = Table([[meta_left, meta_right]], colWidths=[CONTENT_WIDTH * 0.55, CONTENT_WIDTH * 0.45], hAlign='LEFT')
+    table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _signature_table(deal, *, styles) -> Table:
+    signature = styles['signature']
+    small = styles['signature_note']
+    signature_line = '______________________________'
+    left = Paragraph(
+        (
+            f'<b>Исполнитель</b><br/>'
+            f'{_paragraph_text(_agency_legal_name())}<br/>'
+            f'Подписант: {_paragraph_text(_agency_signatory_name(deal.agent))}<br/>'
+            f'Должность: {_paragraph_text(_agency_signatory_title(deal.agent))}<br/>'
+            f'Основание полномочий: {_paragraph_text(_agency_signatory_basis())}<br/>'
+            f'{_join_lines(_agency_requisites_lines())}<br/><br/>'
+            f'{signature_line}<br/>'
+            f'<font size="8">{_paragraph_text(_agency_signatory_title(deal.agent))}</font>'
+        ),
+        signature,
+    )
+    right = Paragraph(
+        (
+            f'<b>Заказчик</b><br/>'
+            f'{_paragraph_text(_client_full_name(deal.client))}<br/>'
+            f'Контакты: {_paragraph_text(_client_contact_line(deal.client))}<br/>'
+            f'Паспорт: {_paragraph_text(_passport_line(deal.client))}<br/><br/>'
+            f'{signature_line}<br/>'
+            f'<font size="8">подпись / расшифровка</font>'
+        ),
+        signature,
+    )
+    table = Table([[left, right]], colWidths=[(CONTENT_WIDTH - 10) / 2, (CONTENT_WIDTH - 10) / 2], hAlign='LEFT')
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (0, -1), 10),
+        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    note = Paragraph(
+        (
+            f'Документ сформирован автоматически CRM {_paragraph_text(_agency_name())} '
+            f'{timezone.now():%d.%m.%Y %H:%M}. Для подписания допускается печать '
+            f'и дополнение реквизитов в бумажном экземпляре.'
+        ),
+        small,
+    )
+    return KeepTogether([table, Spacer(1, 6), note])
+
+
+def _draw_page_chrome(canvas, doc, deal) -> None:
+    canvas.saveState()
+    canvas.setFillColor(COLOR_MUTED)
+    canvas.setFont(FONT_REGULAR, 8)
+    canvas.drawString(doc.leftMargin, 7.5 * mm, _agency_name())
+    canvas.drawRightString(
+        PAGE_WIDTH - doc.rightMargin,
+        7.5 * mm,
+        f'Договор {deal.deal_number} • стр. {canvas.getPageNumber()}',
+    )
+    canvas.restoreState()
 
 
 def render_contract_pdf(deal) -> ContentFile:
@@ -115,164 +589,358 @@ def render_contract_pdf(deal) -> ContentFile:
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer, pagesize=A4,
-        leftMargin=20 * mm, rightMargin=20 * mm,
-        topMargin=18 * mm, bottomMargin=18 * mm,
+        buffer,
+        pagesize=A4,
+        leftMargin=PAGE_MARGIN_LEFT,
+        rightMargin=PAGE_MARGIN_RIGHT,
+        topMargin=PAGE_MARGIN_TOP,
+        bottomMargin=PAGE_MARGIN_BOTTOM,
+        pageCompression=0,
         title=f'Договор по сделке {deal.deal_number}',
-        author='Агентство недвижимости',
+        author=_agency_name(),
+        subject='Договор оказания риэлторских услуг',
     )
 
     base = getSampleStyleSheet()['BodyText']
-    style_body = ParagraphStyle(
-        'Body', parent=base, fontName=FONT_REGULAR,
-        fontSize=10.5, leading=14, spaceAfter=6,
-    )
-    style_small = ParagraphStyle(
-        'Small', parent=style_body, fontSize=9, leading=12,
-        textColor=colors.HexColor('#555555'),
-    )
-    style_h1 = ParagraphStyle(
-        'H1', parent=style_body, fontName=FONT_BOLD,
-        fontSize=16, leading=20, alignment=1, spaceAfter=4,
-    )
-    style_h2 = ParagraphStyle(
-        'H2', parent=style_body, fontName=FONT_BOLD,
-        fontSize=12, leading=16, spaceBefore=10, spaceAfter=4,
-    )
-    style_center = ParagraphStyle(
-        'Center', parent=style_body, alignment=1,
-    )
+    styles = {
+        'body': ParagraphStyle(
+            'ContractBody',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=10.2,
+            leading=13.6,
+            textColor=COLOR_TEXT,
+            alignment=TA_JUSTIFY,
+            firstLineIndent=14,
+            spaceAfter=2.5,
+        ),
+        'clause': ParagraphStyle(
+            'ContractClause',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=10.1,
+            leading=13.5,
+            textColor=COLOR_TEXT,
+            alignment=TA_JUSTIFY,
+            firstLineIndent=0,
+            spaceAfter=2.2,
+        ),
+        'table_value': ParagraphStyle(
+            'ContractTableValue',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=9.8,
+            leading=12.2,
+            textColor=COLOR_TEXT,
+            alignment=TA_LEFT,
+            firstLineIndent=0,
+            spaceAfter=0,
+        ),
+        'label': ParagraphStyle(
+            'ContractLabel',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=9.2,
+            leading=11.2,
+            textColor=COLOR_TEXT,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        ),
+        'small': ParagraphStyle(
+            'ContractSmall',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=7.8,
+            leading=9.6,
+            textColor=COLOR_MUTED,
+        ),
+        'meta_header_left': ParagraphStyle(
+            'ContractMetaHeaderLeft',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=9.2,
+            leading=11,
+            textColor=COLOR_MUTED,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        ),
+        'meta_header_right': ParagraphStyle(
+            'ContractMetaHeaderRight',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=9.2,
+            leading=11,
+            textColor=COLOR_MUTED,
+            alignment=TA_RIGHT,
+            spaceAfter=0,
+        ),
+        'meta': ParagraphStyle(
+            'ContractMeta',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=9.2,
+            leading=11.2,
+            textColor=COLOR_MUTED,
+            alignment=TA_CENTER,
+            spaceAfter=0.5,
+        ),
+        'title': ParagraphStyle(
+            'ContractTitle',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=14.2,
+            leading=16.6,
+            textColor=COLOR_TEXT,
+            alignment=TA_CENTER,
+            spaceAfter=1,
+        ),
+        'subtitle': ParagraphStyle(
+            'ContractSubtitle',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=10.1,
+            leading=12.2,
+            textColor=COLOR_TEXT,
+            alignment=TA_CENTER,
+            spaceAfter=1,
+        ),
+        'section': ParagraphStyle(
+            'ContractSection',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=10.8,
+            leading=12.8,
+            textColor=COLOR_TEXT,
+            spaceBefore=7,
+            spaceAfter=3,
+        ),
+        'signature': ParagraphStyle(
+            'ContractSignature',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=9.8,
+            leading=12.4,
+            textColor=COLOR_TEXT,
+            alignment=TA_LEFT,
+            firstLineIndent=0,
+            spaceAfter=0,
+        ),
+        'signature_note': ParagraphStyle(
+            'ContractSignatureNote',
+            parent=base,
+            fontName=FONT_ITALIC,
+            fontSize=7.5,
+            leading=9.2,
+            textColor=COLOR_MUTED,
+            alignment=TA_LEFT,
+            firstLineIndent=0,
+            spaceAfter=0,
+        ),
+    }
+
+    operation_name = deal.operation_type.name if deal.operation_type_id else 'Сделка'
+    property_obj = deal.property
+    deal_transaction_label = _deal_transaction_label(deal)
+    deal_result_label = _deal_result_label(deal)
+    clause_style = styles['clause']
 
     story = []
 
-    story.append(Paragraph('ДОГОВОР', style_h1))
-    story.append(Paragraph(
-        f'№ {deal.deal_number} от {deal.deal_date:%d.%m.%Y}',
-        style_center,
-    ))
-    op_name = deal.operation_type.name if deal.operation_type_id else '—'
-    story.append(Paragraph(
-        f'Предмет: {op_name.lower()} объекта недвижимости', style_center,
-    ))
-    story.append(Spacer(1, 8))
+    story.extend([
+        _meta_header_table(deal, styles=styles),
+        Spacer(1, 8),
+        Paragraph('ДОГОВОР ОКАЗАНИЯ РИЭЛТОРСКИХ УСЛУГ', styles['title']),
+        Paragraph(f'№ {escape(deal.deal_number)}', styles['subtitle']),
+        Paragraph(_paragraph_text(_deal_subject(deal)), styles['meta']),
+        Spacer(1, 7),
+    ])
 
-    story.append(Paragraph('1. Стороны договора', style_h2))
-    parties = [
-        ['Агентство (исполнитель):',
-         Paragraph(_agent_full_name(deal.agent), style_body)],
-        ['Клиент (заказчик):',
-         Paragraph(_client_full_name(deal.client), style_body)],
-        ['Паспортные данные клиента:',
-         Paragraph(_passport_line(deal.client), style_body)],
-        ['Контакт клиента:',
-         Paragraph(
-             f'{deal.client.email or "—"} / {deal.client.phone or "—"}',
-             style_body,
-         )],
-    ]
-    table_parties = Table(parties, colWidths=[55 * mm, 110 * mm])
-    table_parties.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), FONT_BOLD),
-        ('FONTNAME', (1, 0), (1, -1), FONT_REGULAR),
-        ('FONTSIZE', (0, 0), (-1, -1), 10.5),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table_parties)
+    story.append(_section_heading('1. Стороны договора', styles['section']))
+    story.append(
+        Paragraph(
+            (
+                f'Исполнитель: {_paragraph_text(_agency_legal_name())}, '
+                f'в лице {_paragraph_text(_agency_signatory_name(deal.agent))}, '
+                f'действующего на основании {_paragraph_text(_agency_signatory_basis())}. '
+                f'Заказчик: {_paragraph_text(_client_full_name(deal.client))}. '
+                f'Стороны подтверждают намерение организовать и сопровождать '
+                f'подготовку и совершение {deal_transaction_label} по объекту '
+                f'недвижимости на условиях настоящего договора.'
+            ),
+            styles['body'],
+        ),
+    )
+    story.append(
+        _info_table(
+            [
+                ('Исполнитель', _agency_legal_name()),
+                ('Подписант Исполнителя', _agency_signatory_name(deal.agent)),
+                ('Должность / роль', _agency_signatory_title(deal.agent)),
+                ('Основание полномочий', _agency_signatory_basis()),
+                ('Контакты исполнителя', _agency_contact_line()),
+                ('Заказчик', _client_full_name(deal.client)),
+                ('Паспортные данные', _passport_line(deal.client)),
+                ('Адрес заказчика', _client_address_line(deal.client)),
+                ('Контакты заказчика', _client_contact_line(deal.client)),
+            ],
+            label_style=styles['label'],
+            value_style=styles['table_value'],
+        ),
+    )
 
-    story.append(Paragraph('2. Объект недвижимости', style_h2))
-    prop = deal.property
-    rows_prop = [
-        ['Наименование:', prop.title or f'Объект №{prop.pk}'],
-        ['Адрес:', _property_address(prop)],
-        ['Тип операции:', op_name],
-    ]
-    if prop.area_total:
-        rows_prop.append(['Общая площадь:', f'{prop.area_total} м²'])
-    if prop.rooms_count:
-        rows_prop.append(['Комнат:', str(prop.rooms_count)])
-    if prop.floor_number and prop.total_floors:
-        rows_prop.append(
-            ['Этаж:', f'{prop.floor_number} из {prop.total_floors}']
+    story.append(
+        _section_heading('2. Предмет договора', styles['section']),
+    )
+    story.extend([
+        Paragraph(
+            (
+                'Исполнитель обязуется оказать Заказчику информационно-'
+                'консультационные, организационные и сопровождающие услуги, '
+                'необходимые для подготовки, согласования и проведения '
+                f'{deal_transaction_label} '
+                'с объектом недвижимости, указанным в разделе 3 настоящего '
+                'договора, а Заказчик обязуется принять и оплатить такие услуги.'
+            ),
+            styles['body'],
+        ),
+        Paragraph(
+            (
+                'Оказание услуг включает анализ параметров сделки, коммуникацию '
+                'с участниками, организацию показов и переговоров, проверку '
+                'доступного комплекта документов, подготовку проекта договорного '
+                f'комплекта и сопровождение согласования до момента {deal_result_label}.'
+            ),
+            styles['body'],
+        ),
+    ])
+    if deal.request_id:
+        story.append(
+            Paragraph(
+                (
+                    f'Основание для сопровождения: клиентская заявка '
+                    f'№ {deal.request_id}.'
+                ),
+                styles['body'],
+            ),
         )
-    rows_prop = [
-        [k, Paragraph(str(v), style_body)] for k, v in rows_prop
-    ]
-    table_prop = Table(rows_prop, colWidths=[55 * mm, 110 * mm])
-    table_prop.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), FONT_BOLD),
-        ('FONTNAME', (1, 0), (1, -1), FONT_REGULAR),
-        ('FONTSIZE', (0, 0), (-1, -1), 10.5),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table_prop)
 
-    story.append(Paragraph('3. Финансовые условия', style_h2))
-    rows_money = [
-        ['Стоимость объекта:', _money(deal.price_final)],
-        ['Комиссия агентства:',
-         f'{deal.commission_percent or "—"}% '
-         f'({_money(deal.commission_amount)})'],
+    story.append(
+        _section_heading('3. Сведения об объекте и параметрах сделки', styles['section']),
+    )
+    property_rows = [
+        ('Объект', property_obj.title or f'Объект №{property_obj.pk}'),
+        ('Адрес объекта', _property_address(property_obj)),
+        ('Тип операции', operation_name),
+        ('Финальная стоимость сделки', _money(deal.price_final)),
+        ('Стоимость прописью', _money_words(deal.price_final)),
+        ('Статус сделки', getattr(deal.status, 'name', '—')),
     ]
-    rows_money = [
-        [k, Paragraph(str(v), style_body)] for k, v in rows_money
-    ]
-    table_money = Table(rows_money, colWidths=[55 * mm, 110 * mm])
-    table_money.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), FONT_BOLD),
-        ('FONTNAME', (1, 0), (1, -1), FONT_REGULAR),
-        ('FONTSIZE', (0, 0), (-1, -1), 10.5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    story.append(table_money)
+    if property_obj.area_total:
+        property_rows.append(('Общая площадь', _format_decimal(property_obj.area_total, ' м²')))
+    if property_obj.area_living:
+        property_rows.append(('Жилая площадь', _format_decimal(property_obj.area_living, ' м²')))
+    if property_obj.area_kitchen:
+        property_rows.append(('Площадь кухни', _format_decimal(property_obj.area_kitchen, ' м²')))
+    if property_obj.rooms_count:
+        property_rows.append(('Количество комнат', property_obj.rooms_count))
+    if property_obj.floor_number and property_obj.total_floors:
+        property_rows.append(
+            ('Этаж / этажность', f'{property_obj.floor_number} / {property_obj.total_floors}'),
+        )
+    story.append(
+        _info_table(
+            property_rows,
+            label_style=styles['label'],
+            value_style=styles['table_value'],
+        ),
+    )
 
-    story.append(Paragraph('4. Предмет и условия', style_h2))
-    story.append(Paragraph(
-        'Исполнитель (агентство) обязуется оказать Заказчику (клиенту) '
-        'услуги по сопровождению сделки с вышеуказанным объектом '
-        'недвижимости. Заказчик обязуется принять и оплатить услуги '
-        'в размере, определённом разделом 3 настоящего договора.',
-        style_body,
-    ))
-    story.append(Paragraph(
-        'Настоящий договор вступает в силу с момента подписания '
-        'сторонами и действует до полного исполнения обязательств.',
-        style_body,
-    ))
+    story.append(
+        _section_heading('4. Порядок оказания услуг', styles['section']),
+    )
+    workflow_points = [
+        f'4.1. Исполнитель собирает и уточняет параметры {deal_transaction_label}, согласует ключевые условия и перечень необходимых действий.',
+        '4.2. Исполнитель организует коммуникацию между сторонами сделки, включая переговоры, показы объекта и согласование даты подписания документов.',
+        '4.3. Исполнитель помогает сформировать и проверить доступный комплект документов по объекту и по участникам сделки в пределах переданных ему сведений.',
+        f'4.4. Исполнитель сопровождает подготовку проекта договора и связанных документов, а также информирует Заказчика о ходе оказания услуг до момента {deal_result_label}.',
+    ]
+    for point in workflow_points:
+        story.append(Paragraph(point, clause_style))
+
+    story.append(
+        _section_heading('5. Стоимость услуг и порядок расчётов', styles['section']),
+    )
+    commission_percent = (
+        f'{_format_decimal(deal.commission_percent)} %'
+        if deal.commission_percent not in (None, '')
+        else '—'
+    )
+    story.append(
+        _info_table(
+            [
+                ('Размер вознаграждения', commission_percent),
+                ('Сумма вознаграждения', _money(deal.commission_amount)),
+                ('Сумма вознаграждения прописью', _money_words(deal.commission_amount)),
+                ('Стоимость объекта', _money(deal.price_final)),
+                (
+                    'Порядок оплаты',
+                    'определяется Сторонами на основании настоящего договора и подтверждается при завершении сделки',
+                ),
+            ],
+            label_style=styles['label'],
+            value_style=styles['table_value'],
+        ),
+    )
+    story.append(
+        Paragraph(
+            (
+                'В случае изменения согласованных параметров сделки Стороны вправе '
+                'оформить письменное дополнение либо зафиксировать новые условия '
+                'в отдельном согласовании.'
+            ),
+            styles['body'],
+        ),
+    )
+
+    story.append(
+        _section_heading('6. Права и обязанности сторон', styles['section']),
+    )
+    rights_block = [
+        '6.1. Исполнитель обязан действовать добросовестно, информировать Заказчика о существенных этапах сопровождения и обеспечивать надлежащее оформление сопровождающих материалов.',
+        '6.2. Заказчик обязан предоставлять достоверные сведения, своевременно отвечать на запросы Исполнителя и участвовать в согласовании условий сделки.',
+        '6.3. Стороны обязуются не допускать действий, способных сорвать подготовленную сделку либо исказить существенные условия договорённостей.',
+    ]
+    for point in rights_block:
+        story.append(Paragraph(point, clause_style))
+
+    story.append(
+        _section_heading('7. Ответственность, срок действия и прочие условия', styles['section']),
+    )
+    final_points = [
+        '7.1. Настоящий договор вступает в силу с момента подписания Сторонами и действует до полного исполнения обязательств либо до прекращения по соглашению Сторон.',
+        '7.2. Заказчик вправе отказаться от исполнения договора при условии оплаты фактически оказанных услуг и подтверждённых расходов Исполнителя, если иное не согласовано Сторонами отдельно.',
+        '7.3. Исполнитель вправе отказаться от исполнения договора при условии полного возмещения Заказчику подтверждённых убытков, причинённых таким отказом, если иное не следует из существа обязательства.',
+        '7.4. Все разногласия по договору Стороны стремятся урегулировать путём переговоров; при недостижении соглашения спор разрешается в порядке, установленном законодательством Российской Федерации.',
+        '7.5. Во всём, что не урегулировано настоящим договором, Стороны руководствуются действующим законодательством Российской Федерации.',
+    ]
+    for point in final_points:
+        story.append(Paragraph(point, clause_style))
+
     if deal.notes:
-        story.append(Paragraph('Дополнительные условия:', style_h2))
-        story.append(Paragraph(deal.notes, style_body))
+        story.append(_section_heading('8. Особые условия', styles['section']))
+        story.append(Paragraph(_paragraph_text(deal.notes), styles['table_value']))
 
-    story.append(Spacer(1, 18))
-    signatures = [
-        [
-            Paragraph('<b>Агентство:</b><br/>'
-                      f'{_agent_full_name(deal.agent)}<br/><br/>'
-                      '_______________ / подпись /', style_body),
-            Paragraph('<b>Клиент:</b><br/>'
-                      f'{_client_full_name(deal.client)}<br/><br/>'
-                      '_______________ / подпись /', style_body),
-        ]
-    ]
-    table_sig = Table(signatures, colWidths=[82 * mm, 82 * mm])
-    table_sig.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), FONT_REGULAR),
-        ('FONTSIZE', (0, 0), (-1, -1), 10.5),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-    ]))
-    story.append(table_sig)
+    story.extend([
+        Spacer(1, 10),
+        _section_heading('9. Реквизиты и подписи сторон', styles['section']),
+        _signature_table(deal, styles=styles),
+    ])
 
-    story.append(Spacer(1, 14))
-    story.append(Paragraph(
-        f'Документ сформирован автоматически CRM агентства '
-        f'{timezone.now():%d.%m.%Y %H:%M}.',
-        style_small,
-    ))
-
-    doc.build(story)
+    doc.build(
+        story,
+        onFirstPage=lambda canvas, page_doc: _draw_page_chrome(canvas, page_doc, deal),
+        onLaterPages=lambda canvas, page_doc: _draw_page_chrome(canvas, page_doc, deal),
+    )
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return ContentFile(pdf_bytes, name=f'contract-{deal.deal_number}.pdf')

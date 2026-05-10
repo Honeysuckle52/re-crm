@@ -1,0 +1,33 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block title %}{{ title }} | РИЭЛТ Admin{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/custom_admin.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <div class="crm-admin-brand">
+    <div class="crm-admin-brand__badge">РИЭЛТ</div>
+    <div class="crm-admin-brand__copy">
+      <h1 id="site-name">
+        <a href="{% url 'admin:index' %}">Системная админ-панель</a>
+      </h1>
+      <p>
+        Управление сущностями, справочниками, шаблонами, версиями процессов,
+        аудитом и фоновыми очередями.
+      </p>
+    </div>
+  </div>
+{% endblock %}
+
+{% block nav-global %}
+  <div class="crm-admin-links">
+    <a href="/">Сайт</a>
+    <a href="/reports">Отчёты</a>
+    <a href="/clients">Пользователи</a>
+    <a href="/api/docs/">API Docs</a>
+  </div>
+{% endblock %}

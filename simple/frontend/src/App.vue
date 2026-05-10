@@ -1,6 +1,7 @@
 <template>
   <div class="app-shell">
     <TopBar v-if="auth.isAuthenticated" />
+    <NetworkBanner />
     <main class="layout">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
@@ -9,6 +10,7 @@
       </router-view>
     </main>
     <ToastHost />
+    <ConfirmHost />
     <AppFooter v-if="auth.isAuthenticated" />
   </div>
 </template>
@@ -17,6 +19,8 @@
 import { useAuthStore } from './store/auth'
 import TopBar from './components/TopBar.vue'
 import AppFooter from './components/AppFooter.vue'
+import NetworkBanner from './components/NetworkBanner.vue'
+import ConfirmHost from './components/ConfirmHost.vue'
 import ToastHost from './components/ToastHost.vue'
 
 const auth = useAuthStore()

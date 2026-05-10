@@ -14,7 +14,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from django.http import FileResponse, Http404
 
-from . import business_rules, deals_service, models, serializers
+from . import audit as audit_service
+from . import business_rules, data_exchange, deals_service, models, reports, serializers
+from . import process_versions
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
 from .mailing import (
@@ -66,6 +68,85 @@ def _validation_error_payload(exc: ValidationError):
     return {'detail': detail}
 
 
+def _apply_property_filters(qs, params):
+    if params.get('operation_type'):
+        qs = qs.filter(operation_type_id=params['operation_type'])
+    if params.get('status'):
+        qs = qs.filter(status_id=params['status'])
+    if params.get('rooms'):
+        qs = qs.filter(rooms_count=params['rooms'])
+    if params.get('min_price'):
+        qs = qs.filter(price__gte=params['min_price'])
+    if params.get('max_price'):
+        qs = qs.filter(price__lte=params['max_price'])
+    search = (params.get('search') or '').strip()
+    if search:
+        search_filter = (
+            Q(title__icontains=search)
+            | Q(description__icontains=search)
+        )
+        if search.isdigit():
+            search_filter |= Q(pk=int(search))
+        qs = qs.filter(search_filter)
+    ordering = (params.get('ordering') or '').strip()
+    if ordering in {
+        'price', '-price',
+        'created_at', '-created_at',
+        'area_total', '-area_total',
+    }:
+        qs = qs.order_by(ordering)
+    return qs
+
+
+@transaction.atomic
+def _pause_task_instance(task, *, actor):
+    task = (
+        models.Task.objects
+        .select_for_update()
+        .select_related('status')
+        .get(pk=task.pk)
+    )
+    waiting = business_rules.status_by_code(
+        models.TaskStatus,
+        'waiting',
+    )
+    if not waiting:
+        raise ValidationError(
+            {'detail': 'Справочник статусов не заполнен.'},
+        )
+
+    old_status_code = task.status.code if task.status_id else None
+    old_status = task.status
+    task.status = waiting
+    update_fields = ['status', 'updated_at']
+    if old_status_code in models.Task.TERMINAL_STATUS_CODES:
+        if task.completed_at is not None:
+            task.completed_at = None
+            update_fields.append('completed_at')
+        if task.is_auto_closed:
+            task.is_auto_closed = False
+            update_fields.append('is_auto_closed')
+    task.save(update_fields=list(dict.fromkeys(update_fields)))
+    audit_service.log_event(
+        entity=task,
+        action_code='paused',
+        action_label='Пауза задачи',
+        actor=actor,
+        message=(
+            f'Задача переведена из статуса «{old_status.name}» '
+            f'в «{waiting.name}».'
+        ),
+        metadata={
+            'from_status_code': old_status_code,
+            'to_status_code': waiting.code,
+        },
+        property_obj=task.property,
+        request_obj=task.request,
+        deal_obj=task.deal,
+    )
+    return task
+
+
 class RegisterView(APIView):
     """Регистрация клиента."""
     permission_classes = [AllowAny]
@@ -91,34 +172,78 @@ class MeView(APIView):
         return Response(serializers.UserSerializer(request.user).data)
 
 
-class OperationTypeViewSet(viewsets.ReadOnlyModelViewSet):
+class OperationTypeViewSet(viewsets.ModelViewSet):
     queryset = models.OperationType.objects.all()
     serializer_class = serializers.OperationTypeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
-class PropertyStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class PropertyStatusViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyStatus.objects.all()
     serializer_class = serializers.PropertyStatusSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
-class RequestStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class RequestStatusViewSet(viewsets.ModelViewSet):
     queryset = models.RequestStatus.objects.exclude(code='closed').order_by('id')
     serializer_class = serializers.RequestStatusSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
-class DealStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class DealStatusViewSet(viewsets.ModelViewSet):
     queryset = models.DealStatus.objects.all()
     serializer_class = serializers.DealStatusSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
-class TaskStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class TaskStatusViewSet(viewsets.ModelViewSet):
     queryset = models.TaskStatus.objects.all()
     serializer_class = serializers.TaskStatusSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class NotificationTemplateViewSet(viewsets.ModelViewSet):
+    queryset = models.NotificationTemplate.objects.all()
+    serializer_class = serializers.NotificationTemplateSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class ProcessVersionViewSet(viewsets.ModelViewSet):
+    queryset = models.ProcessVersion.objects.all()
+    serializer_class = serializers.ProcessVersionSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['process_code', 'scope_code', 'version', 'updated_at']
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            instance = serializer.save()
+            if instance.is_active:
+                models.ProcessVersion.objects.filter(
+                    process_code=instance.process_code,
+                    scope_code=instance.scope_code,
+                ).exclude(pk=instance.pk).update(is_active=False)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            instance = serializer.save()
+            if instance.is_active:
+                models.ProcessVersion.objects.filter(
+                    process_code=instance.process_code,
+                    scope_code=instance.scope_code,
+                ).exclude(pk=instance.pk).update(is_active=False)
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        instance = self.get_object()
+        with transaction.atomic():
+            models.ProcessVersion.objects.filter(
+                process_code=instance.process_code,
+                scope_code=instance.scope_code,
+            ).exclude(pk=instance.pk).update(is_active=False)
+            instance.is_active = True
+            instance.save(update_fields=['is_active', 'updated_at'])
+        return Response(serializers.ProcessVersionSerializer(instance).data)
 
 
 class UserRoleViewSet(viewsets.ModelViewSet):
@@ -263,6 +388,22 @@ class UserViewSet(viewsets.ModelViewSet):
         if user_type == 'client' and not hasattr(target, 'client_profile'):
             models.ClientProfile.objects.create(user=target, **names)
 
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='export',
+        permission_classes=[IsAdminOrManager],
+    )
+    def export(self, request):
+        """Экспорт реестра пользователей в CSV, JSON или XLSX."""
+        export_format = (
+            request.query_params.get('export_format')
+            or request.query_params.get('format')
+            or 'csv'
+        )
+        queryset = self.filter_queryset(self.get_queryset())
+        return data_exchange.export_users(queryset, export_format)
+
     @action(detail=True, methods=['post'], url_path='assign_role')
     def assign_role(self, request, pk=None):
         """Назначить тип учётной записи и роль."""
@@ -324,13 +465,13 @@ class UserViewSet(viewsets.ModelViewSet):
 
 
 class EmployeeProfileViewSet(viewsets.ModelViewSet):
-    queryset = models.EmployeeProfile.objects.select_related('user').all()
+    queryset = models.EmployeeProfile.objects.select_related('user').order_by('id')
     serializer_class = serializers.EmployeeProfileSerializer
     permission_classes = [IsEmployee]
 
 
 class ClientProfileViewSet(viewsets.ModelViewSet):
-    queryset = models.ClientProfile.objects.select_related('user').all()
+    queryset = models.ClientProfile.objects.select_related('user').order_by('id')
     serializer_class = serializers.ClientProfileSerializer
     permission_classes = [IsOwnClientProfileOrEmployee]
 
@@ -354,20 +495,153 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        params = self.request.query_params
+        return _apply_property_filters(qs, self.request.query_params)
 
-        if params.get('operation_type'):
-            qs = qs.filter(operation_type_id=params['operation_type'])
-        if params.get('status'):
-            qs = qs.filter(status_id=params['status'])
-        if params.get('rooms'):
-            qs = qs.filter(rooms_count=params['rooms'])
-        if params.get('min_price'):
-            qs = qs.filter(price__gte=params['min_price'])
-        if params.get('max_price'):
-            qs = qs.filter(price__lte=params['max_price'])
+    def perform_create(self, serializer):
+        property_obj = serializer.save()
+        audit_service.log_event(
+            entity=property_obj,
+            action_code='created',
+            action_label='Создание объекта',
+            actor=self.request.user,
+            message='Объект недвижимости создан.',
+            metadata={
+                'status_code': getattr(property_obj.status, 'code', None),
+                'operation_type_id': property_obj.operation_type_id,
+            },
+        )
 
-        return qs
+    def perform_update(self, serializer):
+        changed_fields = sorted(serializer.validated_data.keys())
+        before_snapshot = audit_service.snapshot_fields(
+            serializer.instance,
+            changed_fields,
+        )
+        property_obj = serializer.save()
+        field_changes = audit_service.diff_field_snapshots(
+            before_snapshot,
+            audit_service.snapshot_fields(property_obj, changed_fields),
+        )
+        audit_service.log_event(
+            entity=property_obj,
+            action_code='updated',
+            action_label='Редактирование объекта',
+            actor=self.request.user,
+            message='Карточка объекта обновлена.',
+            metadata={
+                'changed_fields': changed_fields,
+                'field_changes': field_changes,
+            },
+        )
+
+    def perform_destroy(self, instance):
+        audit_service.log_event(
+            entity=instance,
+            action_code='deleted',
+            action_label='Удаление объекта',
+            actor=self.request.user,
+            message='Объект недвижимости удалён.',
+        )
+        super().perform_destroy(instance)
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='import-csv',
+        parser_classes=[MultiPartParser, FormParser],
+        permission_classes=[IsEmployee],
+    )
+    def import_csv(self, request):
+        """Импорт каталога объектов из CSV или XLSX."""
+        upload = request.FILES.get('file')
+        if upload is None:
+            return Response(
+                {'detail': 'Нужно передать файл в поле file.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            summary = data_exchange.import_properties(
+                upload,
+                actor=request.user,
+                request=request,
+            )
+        return Response(summary, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='bulk-archive')
+    def bulk_archive(self, request):
+        serializer = serializers.BulkIdsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        archived_status = models.PropertyStatus.objects.filter(
+            code='archived',
+        ).first()
+        if archived_status is None:
+            return Response(
+                {'detail': 'Статус архива не настроен.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        requested_ids = serializer.validated_data['ids']
+        properties = list(
+            self.get_queryset()
+            .filter(pk__in=requested_ids)
+            .select_related('status', 'operation_type')
+        )
+        found_ids = {property_obj.pk for property_obj in properties}
+        archived_count = 0
+        errors = []
+
+        for property_obj in properties:
+            transition_error = business_rules.property_status_transition_error(
+                property_obj,
+                archived_status,
+            )
+            if transition_error:
+                errors.append({
+                    'id': property_obj.pk,
+                    'detail': transition_error,
+                })
+                continue
+            if property_obj.status_id == archived_status.pk:
+                continue
+
+            previous_status = property_obj.status
+            property_obj.status = archived_status
+            property_obj.save(update_fields=['status', 'updated_at'])
+            models.PropertyStatusHistory.objects.create(
+                property=property_obj,
+                status=archived_status,
+                changed_by=request.user,
+            )
+            audit_service.log_event(
+                entity=property_obj,
+                action_code='bulk_archived',
+                action_label='Массовое архивирование объекта',
+                actor=request.user,
+                message=(
+                    f'Объект переведён из статуса «{previous_status.name}» '
+                    'в архив.'
+                ),
+                metadata={
+                    'from_status_id': previous_status.pk,
+                    'from_status_code': getattr(previous_status, 'code', None),
+                    'to_status_id': archived_status.pk,
+                    'to_status_code': archived_status.code,
+                    'bulk': True,
+                },
+            )
+            archived_count += 1
+
+        not_found_ids = [
+            property_id for property_id in requested_ids
+            if property_id not in found_ids
+        ]
+        return Response({
+            'requested': len(requested_ids),
+            'processed': len(properties),
+            'archived': archived_count,
+            'errors': errors,
+            'not_found_ids': not_found_ids,
+        })
 
     @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
@@ -390,12 +664,29 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if transition_error:
             return Response({'detail': transition_error},
                             status=status.HTTP_400_BAD_REQUEST)
+        previous_status = property_obj.status
         property_obj.status = next_status
         property_obj.save(update_fields=['status', 'updated_at'])
         models.PropertyStatusHistory.objects.create(
             property=property_obj,
             status=next_status,
             changed_by=request.user,
+        )
+        audit_service.log_event(
+            entity=property_obj,
+            action_code='status_changed',
+            action_label='Смена статуса',
+            actor=request.user,
+            message=(
+                f'Статус объекта изменён с «{previous_status.name}» '
+                f'на «{next_status.name}».'
+            ),
+            metadata={
+                'from_status_id': previous_status.pk,
+                'from_status_code': getattr(previous_status, 'code', None),
+                'to_status_id': next_status.pk,
+                'to_status_code': next_status.code,
+            },
         )
         return Response(serializers.PropertySerializer(
             property_obj, context={'request': request}).data)
@@ -601,6 +892,7 @@ class RequestViewSet(viewsets.ModelViewSet):
     """Заявки клиентов."""
     queryset = models.Request.objects.select_related(
         'client', 'agent', 'operation_type', 'status', 'property',
+        'process_version',
     ).prefetch_related(
         'matches__property', 'matches__agent', 'matches__confirmed_by',
     ).all()
@@ -621,6 +913,7 @@ class RequestViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in {
             'update', 'partial_update', 'destroy',
+            'bulk_close',
             'close', 'take', 'attach_property',
             'detach_property', 'confirm_property', 'accept_match',
         }:
@@ -635,6 +928,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
             mutable_actions = {
                 'update', 'partial_update', 'destroy',
+                'bulk_close',
                 'close', 'attach_property', 'detach_property',
                 'confirm_property', 'accept_match',
             }
@@ -686,15 +980,67 @@ class RequestViewSet(viewsets.ModelViewSet):
         )
 
     def perform_update(self, serializer):
+        if serializer.instance.is_terminal:
+            raise ValidationError(
+                {'detail': 'Нельзя редактировать закрытую заявку.'},
+            )
         previous_agent_id = serializer.instance.agent_id
+        changed_fields = sorted(serializer.validated_data.keys())
+        before_snapshot = audit_service.snapshot_fields(
+            serializer.instance,
+            changed_fields,
+        )
         with transaction.atomic():
             request_obj = serializer.save()
             if request_obj.agent_id:
                 request_obj = request_lifecycle.sync_request_assignment(
                     request_obj,
                     previous_agent_id=previous_agent_id,
+                    actor=self.request.user,
                 ).request
+            field_changes = audit_service.diff_field_snapshots(
+                before_snapshot,
+                audit_service.snapshot_fields(request_obj, changed_fields),
+            )
+            audit_service.log_event(
+                entity=request_obj,
+                action_code='updated',
+                action_label='Редактирование заявки',
+                actor=self.request.user,
+                message='Карточка заявки обновлена.',
+                metadata={
+                    'changed_fields': changed_fields,
+                    'field_changes': field_changes,
+                },
+                property_obj=request_obj.property,
+            )
         serializer.instance = request_obj
+
+    def perform_destroy(self, instance):
+        if instance.is_terminal:
+            raise ValidationError(
+                {'detail': 'Нельзя удалить закрытую заявку.'},
+            )
+        audit_service.log_event(
+            entity=instance,
+            action_code='deleted',
+            action_label='Удаление заявки',
+            actor=self.request.user,
+            message='Заявка удалена.',
+            property_obj=instance.property,
+        )
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request):
+        """Экспорт списка заявок в CSV, JSON или XLSX."""
+        export_format = (
+            request.query_params.get('export_format')
+            or request.query_params.get('format')
+            or 'csv'
+        )
+        queryset = self.filter_queryset(self.get_queryset())
+        return data_exchange.export_requests(queryset, export_format)
 
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
@@ -729,6 +1075,55 @@ class RequestViewSet(viewsets.ModelViewSet):
         if result.deal is not None:
             payload['deal'] = serializers.DealSerializer(result.deal).data
         return Response(payload)
+
+    @action(detail=False, methods=['post'], url_path='bulk-close')
+    def bulk_close(self, request):
+        serializer = serializers.RequestBulkCloseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_ids = serializer.validated_data['ids']
+        outcome = serializer.validated_data['outcome']
+
+        requests_qs = list(
+            self.get_queryset()
+            .filter(pk__in=requested_ids)
+            .select_related('status', 'client', 'agent', 'operation_type')
+        )
+        found_ids = {request_obj.pk for request_obj in requests_qs}
+        closed_count = 0
+        deals_created = 0
+        errors = []
+
+        for request_obj in requests_qs:
+            try:
+                result = request_lifecycle.close_request(
+                    request_obj,
+                    outcome=outcome,
+                    actor=request.user,
+                )
+            except ValidationError as exc:
+                payload = _validation_error_payload(exc)
+                errors.append({
+                    'id': request_obj.pk,
+                    'detail': payload.get('detail', 'Не удалось закрыть заявку.'),
+                })
+                continue
+            closed_count += 1
+            if result.deal is not None:
+                deals_created += 1
+
+        not_found_ids = [
+            request_id for request_id in requested_ids
+            if request_id not in found_ids
+        ]
+        return Response({
+            'requested': len(requested_ids),
+            'processed': len(requests_qs),
+            'closed': closed_count,
+            'outcome': outcome,
+            'deals_created': deals_created,
+            'errors': errors,
+            'not_found_ids': not_found_ids,
+        })
 
     @action(detail=True, methods=['post'])
     def take(self, request, pk=None):
@@ -799,6 +1194,19 @@ class RequestViewSet(viewsets.ModelViewSet):
                 update_fields.append('agent_note')
             if update_fields:
                 match.save(update_fields=update_fields)
+        audit_service.log_event(
+            entity=req,
+            action_code='match_attached',
+            action_label='Добавление варианта',
+            actor=request.user,
+            message=f'В подборку заявки добавлен объект №{match.property_id}.',
+            metadata={
+                'match_id': match.pk,
+                'property_id': match.property_id,
+                'created': created,
+            },
+            property_obj=match.property,
+        )
         return Response(
             serializers.RequestPropertyMatchSerializer(match).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
@@ -814,6 +1222,22 @@ class RequestViewSet(viewsets.ModelViewSet):
             )
         req = self.get_object()
         match_id = request.data.get('match_id')
+        match = req.matches.select_related('property').filter(pk=match_id).first()
+        if match is None:
+            return Response({'detail': 'Вариант не найден.'},
+                            status=status.HTTP_404_NOT_FOUND)
+        audit_service.log_event(
+            entity=req,
+            action_code='match_detached',
+            action_label='Удаление варианта',
+            actor=request.user,
+            message=f'Из подборки заявки удалён объект №{match.property_id}.',
+            metadata={
+                'match_id': match.pk,
+                'property_id': match.property_id,
+            },
+            property_obj=match.property,
+        )
         deleted, _ = req.matches.filter(pk=match_id).delete()
         if not deleted:
             return Response({'detail': 'Вариант не найден.'},
@@ -918,6 +1342,17 @@ class DealViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(agent_id=value)
         return qs
 
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request):
+        """Экспорт списка сделок в CSV, JSON или XLSX."""
+        export_format = (
+            request.query_params.get('export_format')
+            or request.query_params.get('format')
+            or 'csv'
+        )
+        queryset = self.filter_queryset(self.get_queryset())
+        return data_exchange.export_deals(queryset, export_format)
+
     @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
         """Смена статуса сделки (воронка продаж)."""
@@ -938,8 +1373,27 @@ class DealViewSet(viewsets.ModelViewSet):
         if transition_error:
             return Response({'detail': transition_error},
                             status=status.HTTP_400_BAD_REQUEST)
+        previous_status = deal.status
         deal.status = next_status
         deal.save(update_fields=['status'])
+        audit_service.log_event(
+            entity=deal,
+            action_code='status_changed',
+            action_label='Смена статуса сделки',
+            actor=request.user,
+            message=(
+                f'Статус сделки изменён с «{getattr(previous_status, "name", "не указан")}» '
+                f'на «{next_status.name}».'
+            ),
+            metadata={
+                'from_status_id': getattr(previous_status, 'pk', None),
+                'from_status_code': getattr(previous_status, 'code', None),
+                'to_status_id': next_status.pk,
+                'to_status_code': next_status.code,
+            },
+            property_obj=deal.property,
+            request_obj=deal.request,
+        )
         return Response(serializers.DealSerializer(deal).data)
 
     @action(detail=True, methods=['get'], url_path='contract')
@@ -952,6 +1406,9 @@ class DealViewSet(viewsets.ModelViewSet):
                     {
                         'detail': 'Договор формируется в фоновом процессе.',
                         'contract_status': deal.contract_status,
+                        'contract_status_display': deal.get_contract_status_display(),
+                        'contract_requested_at': deal.contract_requested_at,
+                        'contract_generated_at': deal.contract_generated_at,
                     },
                     status=status.HTTP_409_CONFLICT,
                 )
@@ -960,7 +1417,10 @@ class DealViewSet(viewsets.ModelViewSet):
                     {
                         'detail': 'Не удалось сформировать договор.',
                         'contract_status': deal.contract_status,
+                        'contract_status_display': deal.get_contract_status_display(),
                         'contract_error_message': deal.contract_error_message,
+                        'contract_requested_at': deal.contract_requested_at,
+                        'contract_generated_at': deal.contract_generated_at,
                     },
                     status=status.HTTP_409_CONFLICT,
                 )
@@ -982,7 +1442,11 @@ class DealViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         deal = self.get_object()
-        deal = deals_service.queue_contract_generation(deal, force=True)
+        deal = deals_service.queue_contract_generation(
+            deal,
+            force=True,
+            actor=request.user,
+        )
         return Response(serializers.DealSerializer(deal).data)
 
 
@@ -1005,7 +1469,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     """Задачи сотрудников агентства."""
     queryset = models.Task.objects.select_related(
         'status', 'assignee', 'created_by', 'client', 'property',
-        'request', 'deal',
+        'request', 'deal', 'process_version',
     ).all()
     serializer_class = serializers.TaskSerializer
     permission_classes = [IsEmployee]
@@ -1053,7 +1517,163 @@ class TaskViewSet(viewsets.ModelViewSet):
             except WorkloadLimitExceeded as exc:
                 raise ValidationError({'assignee': [exc.detail]})
         task = serializer.save(created_by=self.request.user)
+        process_versions.assign_task_process_version(task)
+        audit_service.log_event(
+            entity=task,
+            action_code='created',
+            action_label='Создание задачи',
+            actor=self.request.user,
+            message='Задача создана.',
+            metadata={
+                'task_type': task.task_type,
+                'assignee_id': task.assignee_id,
+                'process_version_id': task.process_version_id,
+            },
+            property_obj=task.property,
+            request_obj=task.request,
+            deal_obj=task.deal,
+        )
         enqueue_task_assigned(task=task)
+
+    def perform_update(self, serializer):
+        task = serializer.instance
+        if task.is_terminal:
+            raise ValidationError(
+                {'detail': 'Нельзя редактировать завершённую задачу.'},
+            )
+        changed_fields = sorted(serializer.validated_data.keys())
+        before_snapshot = audit_service.snapshot_fields(
+            task,
+            changed_fields,
+        )
+        assignee = serializer.validated_data.get('assignee', task.assignee)
+        assignee_changed = assignee and assignee != task.assignee
+        if assignee_changed and not self.request.user.is_admin_or_manager:
+            try:
+                business_rules.assert_can_assign_task(
+                    assignee,
+                    exclude_pk=task.pk if task.assignee_id == assignee.pk else None,
+                )
+            except WorkloadLimitExceeded as exc:
+                raise ValidationError({'assignee': [exc.detail]})
+        task = serializer.save()
+        process_versions.assign_task_process_version(
+            task,
+            reassign_for_scope_change='task_type' in changed_fields,
+        )
+        field_changes = audit_service.diff_field_snapshots(
+            before_snapshot,
+            audit_service.snapshot_fields(task, changed_fields),
+        )
+        audit_service.log_event(
+            entity=task,
+            action_code='updated',
+            action_label='Редактирование задачи',
+            actor=self.request.user,
+            message='Карточка задачи обновлена.',
+            metadata={
+                'changed_fields': changed_fields,
+                'field_changes': field_changes,
+            },
+            property_obj=task.property,
+            request_obj=task.request,
+            deal_obj=task.deal,
+        )
+
+    def perform_destroy(self, instance):
+        if instance.is_terminal:
+            raise ValidationError(
+                {'detail': 'Нельзя удалить завершённую задачу.'},
+            )
+        audit_service.log_event(
+            entity=instance,
+            action_code='deleted',
+            action_label='Удаление задачи',
+            actor=self.request.user,
+            message='Задача удалена.',
+            property_obj=instance.property,
+            request_obj=instance.request,
+            deal_obj=instance.deal,
+        )
+        super().perform_destroy(instance)
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export(self, request):
+        """Экспорт списка задач в CSV, JSON или XLSX."""
+        export_format = (
+            request.query_params.get('export_format')
+            or request.query_params.get('format')
+            or 'csv'
+        )
+        queryset = self.filter_queryset(self.get_queryset())
+        return data_exchange.export_tasks(queryset, export_format)
+
+    @action(detail=False, methods=['post'], url_path='bulk-action')
+    def bulk_action(self, request):
+        serializer = serializers.TaskBulkActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_ids = serializer.validated_data['ids']
+        action_code = serializer.validated_data['action']
+        result_text = serializer.validated_data.get('result')
+
+        tasks = list(
+            self.get_queryset()
+            .filter(pk__in=requested_ids)
+            .select_related('status', 'assignee', 'created_by')
+        )
+        found_ids = {task.pk for task in tasks}
+        processed = 0
+        errors = []
+
+        for task in tasks:
+            try:
+                if action_code == 'pause':
+                    if (
+                        not request.user.is_admin_or_manager
+                        and task.assignee_id != request.user.id
+                    ):
+                        raise ValidationError(
+                            {'detail': 'Нельзя приостанавливать чужую задачу.'},
+                        )
+                    _pause_task_instance(task, actor=request.user)
+                elif action_code == 'complete':
+                    if (
+                        not request.user.is_admin_or_manager
+                        and task.assignee_id != request.user.id
+                    ):
+                        raise ValidationError(
+                            {'detail': 'Нельзя завершить чужую задачу.'},
+                        )
+                    from . import task_actions
+                    task_actions.complete_task(
+                        task,
+                        actor=request.user,
+                        result=result_text,
+                    )
+                elif action_code == 'delete':
+                    self.perform_destroy(task)
+                else:
+                    raise ValidationError({'detail': 'Неизвестное действие.'})
+            except ValidationError as exc:
+                payload = _validation_error_payload(exc)
+                errors.append({
+                    'id': task.pk,
+                    'detail': payload.get('detail', 'Не удалось обработать задачу.'),
+                })
+                continue
+            processed += 1
+
+        not_found_ids = [
+            task_id for task_id in requested_ids
+            if task_id not in found_ids
+        ]
+        return Response({
+            'requested': len(requested_ids),
+            'processed': processed,
+            'action': action_code,
+            'errors': errors,
+            'not_found_ids': not_found_ids,
+        })
 
     @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
@@ -1087,6 +1707,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             return Response(serializers.TaskSerializer(task).data)
 
         old_status_code = task.status.code if task.status_id else None
+        old_status = task.status
         task.status = new_status
         update_fields = ['status', 'updated_at']
         if new_status.code == 'cancelled':
@@ -1101,6 +1722,25 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.is_auto_closed = False
                 update_fields.append('is_auto_closed')
         task.save(update_fields=list(dict.fromkeys(update_fields)))
+        audit_service.log_event(
+            entity=task,
+            action_code='status_changed',
+            action_label='Смена статуса задачи',
+            actor=request.user,
+            message=(
+                f'Статус задачи изменён с «{old_status.name}» '
+                f'на «{new_status.name}».'
+            ),
+            metadata={
+                'from_status_id': old_status.pk,
+                'from_status_code': old_status_code,
+                'to_status_id': new_status.pk,
+                'to_status_code': new_status.code,
+            },
+            property_obj=task.property,
+            request_obj=task.request,
+            deal_obj=task.deal,
+        )
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -1129,6 +1769,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
         old_status_code = task.status.code if task.status_id else None
+        old_status = task.status
         task.status = in_progress
         update_fields = ['status', 'updated_at']
         if old_status_code in models.Task.TERMINAL_STATUS_CODES:
@@ -1139,6 +1780,23 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.is_auto_closed = False
                 update_fields.append('is_auto_closed')
         task.save(update_fields=list(dict.fromkeys(update_fields)))
+        audit_service.log_event(
+            entity=task,
+            action_code='started',
+            action_label='Перевод в работу',
+            actor=request.user,
+            message=(
+                f'Задача переведена из статуса «{old_status.name}» '
+                f'в «{in_progress.name}».'
+            ),
+            metadata={
+                'from_status_code': old_status_code,
+                'to_status_code': in_progress.code,
+            },
+            property_obj=task.property,
+            request_obj=task.request,
+            deal_obj=task.deal,
+        )
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -1160,6 +1818,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         old_status_code = task.status.code if task.status_id else None
+        old_status = task.status
         task.status = waiting
         update_fields = ['status', 'updated_at']
         if old_status_code in models.Task.TERMINAL_STATUS_CODES:
@@ -1170,6 +1829,23 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task.is_auto_closed = False
                 update_fields.append('is_auto_closed')
         task.save(update_fields=list(dict.fromkeys(update_fields)))
+        audit_service.log_event(
+            entity=task,
+            action_code='paused',
+            action_label='Пауза задачи',
+            actor=request.user,
+            message=(
+                f'Задача переведена из статуса «{old_status.name}» '
+                f'в «{waiting.name}».'
+            ),
+            metadata={
+                'from_status_code': old_status_code,
+                'to_status_code': waiting.code,
+            },
+            property_obj=task.property,
+            request_obj=task.request,
+            deal_obj=task.deal,
+        )
         return Response(serializers.TaskSerializer(task).data)
 
     @action(detail=True, methods=['post'])
@@ -1268,6 +1944,51 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
         return Response(serializers.OutgoingEmailSerializer(email).data)
 
 
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """Единый журнал значимых действий системы."""
+    queryset = models.AuditLog.objects.select_related(
+        'actor', 'property', 'request', 'task', 'deal',
+    ).all()
+    serializer_class = serializers.AuditLogSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        user = self.request.user
+
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(
+                Q(request__client=user)
+                | Q(deal__client=user)
+                | Q(task__client=user)
+            )
+        elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+            qs = qs.filter(
+                Q(property__isnull=False)
+                | Q(request__agent=user)
+                | Q(deal__agent=user)
+                | Q(task__assignee=user)
+                | Q(task__created_by=user)
+            ).distinct()
+
+        if params.get('property'):
+            qs = qs.filter(property_id=params['property'])
+        if params.get('request'):
+            qs = qs.filter(request_id=params['request'])
+        if params.get('task'):
+            qs = qs.filter(task_id=params['task'])
+        if params.get('deal'):
+            qs = qs.filter(deal_id=params['deal'])
+        if params.get('entity_type'):
+            qs = qs.filter(entity_type=params['entity_type'])
+        if params.get('entity_id'):
+            qs = qs.filter(entity_id=params['entity_id'])
+        if params.get('action_code'):
+            qs = qs.filter(action_code=params['action_code'])
+        return qs
+
+
 class DashboardStatsView(APIView):
     """Агрегированные показатели учётной системы."""
     permission_classes = [IsAuthenticated]
@@ -1302,3 +2023,91 @@ class DashboardStatsView(APIView):
                 open_tasks = open_tasks.filter(assignee=user)
             data['tasks_open'] = open_tasks.count()
         return Response(data)
+
+
+class PropertyExportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        queryset = models.Property.objects.select_related(
+            'operation_type', 'status', 'address__house__street__city',
+        ).prefetch_related('photos', 'feature_values__feature').all()
+        queryset = _apply_property_filters(queryset, request.query_params)
+        export_format = request.query_params.get('export_format', 'csv')
+        return data_exchange.export_properties(queryset, export_format)
+
+
+class DealsReportView(APIView):
+    permission_classes = [IsEmployee]
+
+    def get(self, request):
+        payload = reports.build_deals_report(
+            request.query_params,
+            user=request.user,
+        )
+        export_format = request.query_params.get('export')
+        if export_format:
+            return reports.export_report(
+                payload['definition'],
+                payload['summary'],
+                payload['rows'],
+                export_format,
+                ordering=payload.get('ordering'),
+            )
+        return Response({
+            'report_code': payload['definition'].code,
+            'title': payload['definition'].title,
+            'columns': [
+                {'key': key, 'label': label}
+                for key, label in payload['definition'].columns
+            ],
+            'ordering': payload.get('ordering'),
+            'ordering_options': [
+                {'value': value, 'label': label}
+                for value, label in payload['definition'].ordering_options
+            ],
+            'summary': payload['summary'],
+            'rows': payload['rows'],
+        })
+
+
+class DictionaryExportView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        export_format = request.query_params.get('export_format', 'json')
+        return data_exchange.export_dictionaries(export_format)
+
+
+class TasksReportView(APIView):
+    permission_classes = [IsEmployee]
+
+    def get(self, request):
+        payload = reports.build_tasks_report(
+            request.query_params,
+            user=request.user,
+        )
+        export_format = request.query_params.get('export')
+        if export_format:
+            return reports.export_report(
+                payload['definition'],
+                payload['summary'],
+                payload['rows'],
+                export_format,
+                ordering=payload.get('ordering'),
+            )
+        return Response({
+            'report_code': payload['definition'].code,
+            'title': payload['definition'].title,
+            'columns': [
+                {'key': key, 'label': label}
+                for key, label in payload['definition'].columns
+            ],
+            'ordering': payload.get('ordering'),
+            'ordering_options': [
+                {'value': value, 'label': label}
+                for value, label in payload['definition'].ordering_options
+            ],
+            'summary': payload['summary'],
+            'rows': payload['rows'],
+        })

@@ -53,6 +53,7 @@ simple/
 │   ├── mailing.py
 │   ├── models.py
 │   ├── permissions.py
+│   ├── process_versions.py
 │   ├── request_lifecycle.py
 │   ├── serializers.py
 │   ├── task_actions.py
@@ -66,8 +67,8 @@ simple/
 │   ├── management/
 │   │   └── commands/
 │   │       ├── process_background_jobs.py
-│   │       ├── seed_demo.py
-│   │       └── seed_dictionaries.py
+│   │       ├── runserver.py
+│   │       └── seed_data.py
 │   ├── migrations/
 │   │   ├── __init__.py
 │   │   └── 0001_initial.py
@@ -172,12 +173,36 @@ cp .env.example .env                 # заполните креды PostgreSQL 
 createdb re_crm                      # или через pgAdmin / psql
 
 python manage.py migrate
-python manage.py seed_dictionaries   # наполнение справочников
+python manage.py seed_data --with-gar --gar-limit 20
 python manage.py createsuperuser
-python manage.py runserver
-# в отдельном терминале для писем и PDF-договоров
-python manage.py process_background_jobs --loop
+python manage.py runserver           # worker process_background_jobs стартует автоматически
+# если worker нужно отключить:
+# python manage.py runserver --without-worker
 ```
+
+Для почты можно задать резервный SMTP-канал через `EMAIL_FALLBACK_*`.
+Это полезно, если основной `465/SSL` подвисает на handshake, а
+`587/STARTTLS` работает стабильнее.
+
+Для GAR/FIAS можно указать корневой каталог через `GAR_ROOT`. Если переменная не
+задана, проект ищет данные в соседней папке `../GAR`.
+Если `--gar-region` не указан, `seed_data` сам подбирает до 5 наиболее полных
+регионов из доступной выгрузки. Можно также передать список кодов через запятую,
+например `--gar-region 38,76,24,16,66`.
+
+Для корректного оформления PDF-договоров заполните в `.env` реквизиты
+агентства:
+
+- `AGENCY_LEGAL_NAME`
+- `AGENCY_ADDRESS`
+- `AGENCY_PHONE`
+- `AGENCY_INN`
+- `AGENCY_KPP`
+- `AGENCY_OGRN`
+- `AGENCY_BANK_DETAILS`
+- `AGENCY_SIGNATORY_NAME`
+- `AGENCY_SIGNATORY_TITLE`
+- `AGENCY_SIGNATORY_BASIS`
 
 Админка: http://127.0.0.1:8000/admin/
 
@@ -212,6 +237,13 @@ python manage.py collectstatic --noinput
 | GET   | `/api/dadata/suggest-address/?q=...`        | Подсказки адресов через DaData                |
 | CRUD  | `/api/users/`                               | Пользователи (список для сотрудников)         |
 | CRUD  | `/api/user-roles/`                          | Роли сотрудников и лимиты нагрузки            |
+| CRUD  | `/api/operation-types/`                     | Справочник типов операций                     |
+| CRUD  | `/api/property-statuses/`                   | Справочник статусов объектов                  |
+| CRUD  | `/api/request-statuses/`                    | Справочник статусов заявок                    |
+| CRUD  | `/api/deal-statuses/`                       | Справочник статусов сделок                    |
+| CRUD  | `/api/task-statuses/`                       | Справочник статусов задач                     |
+| CRUD  | `/api/notification-templates/`              | Редактируемые email-шаблоны                   |
+| CRUD  | `/api/process-versions/`                    | Версии схем бизнес-процессов                  |
 | POST  | `/api/users/{id}/assign_role/`              | Назначить тип и должность (админ/менеджер)    |
 | CRUD  | `/api/properties/`                          | Объекты недвижимости                          |
 | POST  | `/api/properties/{id}/change_status/`       | Смена статуса + запись в историю              |
@@ -259,6 +291,11 @@ python manage.py process_background_jobs --loop
   в статусах `pending` / `processing`.
 - `GET /api/deals/{id}/contract/` возвращает `409`, если договор ещё
   формируется или предыдущая попытка завершилась ошибкой.
+- При SMTP-таймаутах воркер может автоматически переключиться на
+  резервный канал из `EMAIL_FALLBACK_*`.
+- `key/documents.py` строит PDF-договор через ReportLab на базе
+  данных сделки, объекта, клиента и агентства; суммы выводятся
+  цифрами и прописью, а реквизиты Исполнителя берутся из `.env`.
 
 ## Назначение файлов
 
@@ -291,6 +328,7 @@ python manage.py process_background_jobs --loop
 - **mailing.py** — очередь и отправка email-уведомлений.
 - **models.py** — ORM-модели (User, Property, Request, Deal, Task и т. д.).
 - **permissions.py** — DRF-пермишены по ролям.
+- **process_versions.py** — активные версии процессов и fallback-схемы заявок/задач.
 - **request_lifecycle.py** — единый жизненный цикл заявки и побочных эффектов.
 - **serializers.py** — DRF-сериализаторы.
 - **task_actions.py** — операции над задачами (старт/пауза/завершение).
@@ -298,10 +336,12 @@ python manage.py process_background_jobs --loop
 - **tests.py** — модульные тесты.
 - **urls.py** — URL-роутер приложения.
 - **views.py** — DRF ViewSet'ы и API-эндпоинты.
+- **gar_seed.py** — выборка адресов и помещений из локального GAR/FIAS.
+- **seeding.py** — общий слой заполнения справочников, demo-данных и GAR-данных.
 - **fonts/DejaVuSans.ttf**, **DejaVuSans-Bold.ttf** — шрифты с кириллицей для PDF.
 - **management/commands/process_background_jobs.py** — воркер очереди писем и PDF.
-- **management/commands/seed_demo.py** — заполнение демо-данными.
-- **management/commands/seed_dictionaries.py** — заполнение справочников.
+- **management/commands/runserver.py** — dev-runserver с автозапуском background worker.
+- **management/commands/seed_data.py** — единая команда заполнения справочников, demo-данных и выборки из GAR.
 - **migrations/0001_initial.py** — начальная миграция схемы БД.
 - **templatetags/vite.py** — теги шаблонов для подключения Vite-бандла.
 

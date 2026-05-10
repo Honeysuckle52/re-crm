@@ -29,7 +29,15 @@ export const useToastsStore = defineStore('toasts', {
 
 export function extractError (err, fallback = 'Что-то пошло не так') {
   const data = err?.response?.data
-  if (!data) return err?.message || fallback
+  if (!data) {
+    if (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error') {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'Нет подключения к интернету. Проверьте сеть и попробуйте ещё раз.'
+      }
+      return 'Сервер недоступен или соединение было прервано. Повторите попытку.'
+    }
+    return err?.message || fallback
+  }
   if (typeof data === 'string') return data
   if (data.detail) return data.detail
   const first = Object.values(data)[0]

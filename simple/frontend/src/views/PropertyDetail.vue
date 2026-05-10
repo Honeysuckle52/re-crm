@@ -198,6 +198,15 @@
         </table>
       </div>
     </div>
+
+    <AuditLogPanel
+      v-if="auth.isStaff && property"
+      :params="{ property: property.id }"
+      title="История объекта"
+      caption="Журнал действий"
+      empty-text="По объекту ещё нет записей журнала."
+      :page-size="12"
+    />
   </section>
   <div v-else class="empty">Загрузка объекта…</div>
 </template>
@@ -206,14 +215,17 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import AuditLogPanel from '../components/AuditLogPanel.vue'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
+import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
+const confirm = useConfirmStore()
 const toasts = useToastsStore()
 const property = ref(null)
 const statuses = ref([])
@@ -306,7 +318,13 @@ async function uploadPhotos(e) {
 }
 
 async function removePhoto(photo) {
-  if (!confirm('Удалить фотографию?')) return
+  const approved = await confirm.ask({
+    title: 'Удаление фотографии',
+    message: 'Удалить фотографию?',
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+  if (!approved) return
   try {
     await api.delete(`/property-photos/${photo.id}/`)
     await load()
@@ -334,7 +352,13 @@ async function toggleHidden (photo) {
 }
 
 async function remove() {
-  if (!confirm('Удалить объект?')) return
+  const approved = await confirm.ask({
+    title: 'Удаление объекта',
+    message: 'Удалить объект?',
+    confirmLabel: 'Удалить',
+    danger: true,
+  })
+  if (!approved) return
   try {
     await api.delete(`/properties/${route.params.id}/`)
     router.push('/properties')

@@ -11,6 +11,7 @@
             </span>
             <span>{{ task.client_username ? 'Клиент: ' + task.client_username : 'Клиент не указан' }}</span>
             <span v-if="task.due_date"> · Срок: {{ formatDate(task.due_date) }}</span>
+            <span v-if="task.process_version_label"> · {{ task.process_version_label }}</span>
           </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
@@ -232,6 +233,10 @@
           Опишите итог — это попадёт в историю и в отчёты.
         </p>
 
+        <div v-if="isTerminalTask" class="notice-card" style="margin-top: 12px">
+          Задача уже завершена и открыта в историческом режиме.
+        </div>
+
         <div v-if="task.steps_log?.length" class="steps-log">
           <div v-for="(entry, i) in task.steps_log" :key="i" class="steps-log__row">
             <span class="steps-log__time">{{ formatDate(entry.at) }}</span>
@@ -246,9 +251,10 @@
         <div class="field" style="margin-top: 14px">
           <label>Результат</label>
           <textarea class="textarea" v-model="completionSummary" rows="4"
+                    :disabled="isTerminalTask"
                     placeholder="Например: клиент согласился на объект №12, договорились подписать договор 20 мая"></textarea>
         </div>
-        <div class="row" style="gap: 8px; justify-content: flex-end">
+        <div v-if="!isTerminalTask" class="row" style="gap: 8px; justify-content: flex-end">
           <button class="btn btn--accent" :disabled="busy" @click="submitComplete">
             Завершить задачу
           </button>
@@ -256,6 +262,15 @@
       </template>
 
     </div>
+
+    <AuditLogPanel
+      v-if="task"
+      :params="{ task: task.id }"
+      title="История задачи"
+      caption="Журнал действий"
+      empty-text="По задаче ещё нет записей журнала."
+      :page-size="12"
+    />
   </section>
   <div v-else class="empty">Загрузка задачи…</div>
 </template>
@@ -264,6 +279,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import AuditLogPanel from '../components/AuditLogPanel.vue'
 import * as tasksApi from '../api/tasks'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
@@ -356,6 +372,7 @@ const visibleStepCount = computed(() => (
 const completedStepCount = computed(() => (
   steps.value.filter((step) => step.done).length
 ))
+const isTerminalTask = computed(() => ['done', 'cancelled'].includes(task.value?.status_code))
 
 const activeRequestId = computed(() => (
   task.value?.request || clientActiveRequest.value?.id || null
@@ -372,11 +389,7 @@ async function load () {
     router.replace('/tasks')
     return
   }
-
-  if (['done', 'cancelled'].includes(task.value.status_code)) {
-    router.replace('/tasks')
-    return
-  }
+  completionSummary.value = taskResultText(data)
 
   const extra = []
   extra.push(api.get('/operation-types/', {
@@ -436,6 +449,11 @@ const OUTCOME_LABELS = {
 }
 function stepLabel (id) { return STEP_LABELS[id] || id }
 function outcomeLabel (id) { return OUTCOME_LABELS[id] || id }
+function taskResultText (taskPayload) {
+  if (!taskPayload?.result) return ''
+  if (typeof taskPayload.result === 'string') return taskPayload.result
+  return taskPayload.result.summary || JSON.stringify(taskPayload.result)
+}
 
 async function submitContact (outcome) {
   busy.value = true

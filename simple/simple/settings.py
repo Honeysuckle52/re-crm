@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'key',
     'django.contrib.staticfiles',
 
     'rest_framework',
@@ -27,8 +28,6 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_vite',
     'drf_spectacular',
-
-    'key',
 ]
 
 MIDDLEWARE = [
@@ -100,6 +99,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+GAR_ROOT = Path(os.getenv('GAR_ROOT', BASE_DIR.parent / 'GAR'))
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -170,10 +170,52 @@ EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '30'))
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'danil_naumov_90@bk.ru')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+EMAIL_FALLBACK_ENABLED = os.getenv('EMAIL_FALLBACK_ENABLED', '').lower() in {
+    '1', 'true', 'yes', 'on',
+} if os.getenv('EMAIL_FALLBACK_ENABLED') is not None else EMAIL_USE_SSL
+EMAIL_FALLBACK_BACKEND = os.getenv('EMAIL_FALLBACK_BACKEND', EMAIL_BACKEND)
+EMAIL_FALLBACK_HOST = os.getenv('EMAIL_FALLBACK_HOST', EMAIL_HOST)
+EMAIL_FALLBACK_PORT = int(
+    os.getenv(
+        'EMAIL_FALLBACK_PORT',
+        '587' if EMAIL_PORT == 465 else str(EMAIL_PORT),
+    ),
+)
+EMAIL_FALLBACK_USE_SSL = os.getenv(
+    'EMAIL_FALLBACK_USE_SSL',
+    'False',
+).lower() == 'true'
+EMAIL_FALLBACK_USE_TLS = os.getenv(
+    'EMAIL_FALLBACK_USE_TLS',
+    'True' if EMAIL_USE_SSL else str(EMAIL_USE_TLS),
+).lower() == 'true'
+if EMAIL_FALLBACK_USE_SSL and EMAIL_FALLBACK_USE_TLS:
+    EMAIL_FALLBACK_USE_TLS = False
+EMAIL_FALLBACK_TIMEOUT = int(
+    os.getenv('EMAIL_FALLBACK_TIMEOUT', str(EMAIL_TIMEOUT)),
+)
+EMAIL_FALLBACK_USER = os.getenv('EMAIL_FALLBACK_USER', EMAIL_HOST_USER)
+EMAIL_FALLBACK_PASSWORD = os.getenv(
+    'EMAIL_FALLBACK_PASSWORD',
+    EMAIL_HOST_PASSWORD,
+)
 
 AGENCY_NAME = os.getenv('AGENCY_NAME', 'Агентство недвижимости')
+AGENCY_LEGAL_NAME = os.getenv('AGENCY_LEGAL_NAME', AGENCY_NAME)
 AGENCY_PUBLIC_URL = os.getenv('AGENCY_PUBLIC_URL', 'http://127.0.0.1:8000')
 AGENCY_REPLY_TO = os.getenv('AGENCY_REPLY_TO', EMAIL_HOST_USER)
+AGENCY_PHONE = os.getenv('AGENCY_PHONE', '')
+AGENCY_ADDRESS = os.getenv('AGENCY_ADDRESS', '')
+AGENCY_INN = os.getenv('AGENCY_INN', '')
+AGENCY_KPP = os.getenv('AGENCY_KPP', '')
+AGENCY_OGRN = os.getenv('AGENCY_OGRN', '')
+AGENCY_BANK_DETAILS = os.getenv('AGENCY_BANK_DETAILS', '')
+AGENCY_SIGNATORY_NAME = os.getenv('AGENCY_SIGNATORY_NAME', '')
+AGENCY_SIGNATORY_TITLE = os.getenv('AGENCY_SIGNATORY_TITLE', '')
+AGENCY_SIGNATORY_BASIS = os.getenv(
+    'AGENCY_SIGNATORY_BASIS',
+    'внутренних документов Исполнителя',
+)
 
 DADATA_API_URL = os.getenv(
     'DADATA_API_URL',

@@ -432,6 +432,42 @@ class PropertyDocument(models.Model):
         verbose_name = 'Документ объекта'
         verbose_name_plural = 'Документы объектов'
 
+
+class ProcessVersion(models.Model):
+    """Версия схемы бизнес-процесса."""
+
+    PROCESS_CODE_CHOICES = [
+        ('request', 'Заявки'),
+        ('task', 'Задачи'),
+    ]
+
+    process_code = models.CharField(max_length=32, choices=PROCESS_CODE_CHOICES)
+    scope_code = models.CharField(max_length=32, blank=True, default='')
+    version = models.PositiveIntegerField(default=1)
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True, default='')
+    schema = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'process_versions'
+        verbose_name = 'Версия процесса'
+        verbose_name_plural = 'Версии процессов'
+        ordering = ['process_code', 'scope_code', '-version']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['process_code', 'scope_code', 'version'],
+                name='unique_process_version_per_scope',
+            ),
+        ]
+
+    def __str__(self):
+        scope = f'/{self.scope_code}' if self.scope_code else ''
+        return f'{self.process_code}{scope} v{self.version}'
+
+
 class Request(models.Model):
     """Заявка клиента на подбор или конкретный объект."""
     LEGACY_STATUS_CODE_ALIASES = {
@@ -466,6 +502,13 @@ class Request(models.Model):
                                        related_name='requests')
     status = models.ForeignKey(RequestStatus, on_delete=models.PROTECT,
                                related_name='requests', default=1)
+    process_version = models.ForeignKey(
+        'ProcessVersion',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='requests',
+    )
 
     property_type = models.CharField(max_length=50, blank=True, null=True)
     min_price = models.FloatField(blank=True, null=True)
@@ -717,6 +760,13 @@ class Task(models.Model):
                                  default='other', db_index=True)
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
                                related_name='tasks')
+    process_version = models.ForeignKey(
+        'ProcessVersion',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='tasks',
+    )
 
     assignee = models.ForeignKey(User, on_delete=models.PROTECT,
                                  related_name='assigned_tasks',
@@ -774,6 +824,29 @@ class Task(models.Model):
         return dict(self.TASK_TYPE_CHOICES).get(self.task_type, self.task_type)
 
 
+class NotificationTemplate(models.Model):
+    """Редактируемый шаблон внешнего уведомления."""
+
+    code = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=120)
+    description = models.TextField(blank=True, default='')
+    subject_template = models.TextField()
+    body_template = models.TextField()
+    html_template = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'notification_templates'
+        verbose_name = 'Шаблон уведомления'
+        verbose_name_plural = 'Шаблоны уведомлений'
+        ordering = ['code']
+
+    def __str__(self):
+        return f'{self.code}: {self.name}'
+
+
 class OutgoingEmail(models.Model):
     """Очередь исходящих писем."""
     STATUS_CHOICES = [
@@ -819,3 +892,67 @@ class OutgoingEmail(models.Model):
 
     def __str__(self):
         return f'{self.subject} → {self.recipient.email}'
+
+
+class AuditLog(models.Model):
+    """Единый журнал значимых действий системы."""
+
+    ENTITY_TYPE_CHOICES = [
+        ('property', 'Объект'),
+        ('request', 'Заявка'),
+        ('task', 'Задача'),
+        ('deal', 'Сделка'),
+    ]
+
+    entity_type = models.CharField(max_length=32, choices=ENTITY_TYPE_CHOICES, db_index=True)
+    entity_id = models.PositiveIntegerField(db_index=True)
+    action_code = models.CharField(max_length=64, db_index=True)
+    action_label = models.CharField(max_length=255)
+    message = models.TextField(blank=True, default='')
+    metadata = models.JSONField(default=dict, blank=True)
+
+    actor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='audit_logs',
+    )
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='audit_logs',
+    )
+    request = models.ForeignKey(
+        Request,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='audit_logs',
+    )
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='audit_logs',
+    )
+    deal = models.ForeignKey(
+        Deal,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='audit_logs',
+    )
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = 'audit_logs'
+        verbose_name = 'Запись журнала'
+        verbose_name_plural = 'Журнал действий'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f'{self.get_entity_type_display()} #{self.entity_id}: {self.action_label}'

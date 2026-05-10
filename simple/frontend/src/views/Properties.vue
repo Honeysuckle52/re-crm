@@ -9,11 +9,34 @@
           </h1>
         </div>
         <router-link
-          v-if="auth.user?.user_type === 'employee'"
+          v-if="false"
           to="/properties/new"
           class="btn btn--accent">
           + Добавить объект
         </router-link>
+        <div v-if="auth.isStaff" class="row properties-hero__actions" style="gap: 8px; flex-wrap: wrap">
+          <input
+            ref="importInput"
+            type="file"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            class="properties-import__input"
+            @change="handleImportFile" />
+          <button class="btn btn--sm" :disabled="loading" @click="openImportDialog">
+            Импорт CSV/XLSX
+          </button>
+          <button class="btn btn--sm" :disabled="loading" @click="exportProperties('csv')">
+            Экспорт CSV
+          </button>
+          <button class="btn btn--sm" :disabled="loading" @click="exportProperties('xlsx')">
+            Экспорт XLSX
+          </button>
+          <button class="btn btn--sm" :disabled="loading" @click="exportProperties('json')">
+            Экспорт JSON
+          </button>
+          <router-link to="/properties/new" class="btn btn--accent">
+            + Добавить объект
+          </router-link>
+        </div>
       </div>
     </div>
 
@@ -90,11 +113,49 @@
           </div>
         </div>
 
+        <div v-if="auth.isStaff && items.length" class="properties-selection">
+          <label class="bulk-toggle">
+            <input
+              type="checkbox"
+              :checked="allPropertiesOnPageSelected"
+              @change="togglePropertiesPageSelection($event.target.checked)" />
+            <span>Выбрать все карточки на странице</span>
+          </label>
+        </div>
+
         <div class="panel panel--light properties-results">
+          <BulkActionBar
+            v-if="auth.isStaff"
+            :count="selectedPropertyCount"
+            label="объектов"
+            @clear="clearPropertySelection"
+          >
+            <button
+              class="btn btn--sm btn--primary"
+              :disabled="loading"
+              type="button"
+              @click="archiveSelectedProperties"
+            >
+              В архив
+            </button>
+          </BulkActionBar>
           <div class="properties-results__body">
             <div v-if="loading" class="empty properties-empty">Загрузка…</div>
             <div v-else-if="items.length" class="properties-grid">
-              <PropertyCard v-for="p in items" :key="p.id" :property="p" />
+              <div
+                v-for="p in items"
+                :key="p.id"
+                class="properties-grid__item"
+                :class="{ 'is-selected': isPropertySelected(p) }"
+              >
+                <label v-if="auth.isStaff" class="properties-grid__check" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="isPropertySelected(p)"
+                    @change="togglePropertySelection(p, $event.target.checked)" />
+                </label>
+                <PropertyCard :property="p" />
+              </div>
             </div>
             <div v-else class="empty properties-empty">
               Ничего не найдено по выбранным фильтрам.
@@ -105,10 +166,11 @@
             :count="propertyCount"
             :page="propertyPage"
             :visible-count="items.length"
-            :page-size="PROPERTY_PAGE_SIZE"
+            :page-size="propertyPageSize"
             label="объектов"
             :disabled="loading"
             @change="setPropertyPage"
+            @change-page-size="setPropertyPageSize"
           />
         </div>
       </section>
@@ -119,13 +181,20 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
+import { bulkArchiveProperties } from '../api/bulk'
+import { exportEntityData } from '../api/exports'
+import BulkActionBar from '../components/BulkActionBar.vue'
 import ListPagination from '../components/ListPagination.vue'
 import PropertyCard from '../components/PropertyCard.vue'
+import { useBulkSelection } from '../composables/useBulkSelection'
 import { useAuthStore } from '../store/auth'
-import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { useConfirmStore } from '../store/confirm'
+import { extractError, useToastsStore } from '../store/toasts'
+import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
-const PROPERTY_PAGE_SIZE = 12
+const confirm = useConfirmStore()
+const toasts = useToastsStore()
 
 const filters = reactive({
   operation_type: '',
@@ -139,15 +208,26 @@ const filters = reactive({
 const dict = reactive({ operations: [], statuses: [] })
 const items = ref([])
 const loading = ref(false)
+const importInput = ref(null)
 const propertyPage = ref(1)
+const propertyPageSize = ref(DEFAULT_PAGE_SIZE)
 const propertyCount = ref(0)
+const {
+  selectedIds: selectedPropertyIds,
+  selectedCount: selectedPropertyCount,
+  allOnPageSelected: allPropertiesOnPageSelected,
+  isSelected: isPropertySelected,
+  toggleSelection: togglePropertySelection,
+  togglePageSelection: togglePropertiesPageSelection,
+  clearSelection: clearPropertySelection,
+} = useBulkSelection(items)
 
 async function load () {
   loading.value = true
   try {
     const params = {
       page: propertyPage.value,
-      page_size: PROPERTY_PAGE_SIZE,
+      page_size: propertyPageSize.value,
     }
     for (const [k, v] of Object.entries(filters)) {
       if (v !== '' && v !== null) params[k] = v
@@ -159,6 +239,14 @@ async function load () {
   } finally {
     loading.value = false
   }
+}
+
+function exportParams () {
+  const params = {}
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== '' && v !== null) params[k] = v
+  }
+  return params
 }
 
 async function applyFilters () {
@@ -190,7 +278,94 @@ function setPropertyPage (page) {
   propertyPage.value = page
 }
 
+function setPropertyPageSize (size) {
+  if (!size || size === propertyPageSize.value) return
+  propertyPageSize.value = size
+}
+
+function openImportDialog () {
+  importInput.value?.click()
+}
+
+async function handleImportFile (event) {
+  const file = event.target?.files?.[0]
+  if (!file) return
+  const formData = new FormData()
+  formData.append('file', file)
+  loading.value = true
+  try {
+    const { data } = await api.post('/properties/import-csv/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    toasts.success(`Импорт завершён: создано ${data.created}, обновлено ${data.updated}.`)
+    if (propertyPage.value !== 1) {
+      propertyPage.value = 1
+    } else {
+      await load()
+    }
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось импортировать файл'))
+  } finally {
+    loading.value = false
+    if (event.target) event.target.value = ''
+  }
+}
+
+async function exportProperties (format) {
+  loading.value = true
+  try {
+    await exportEntityData(
+      '/properties/export/',
+      format,
+      exportParams(),
+      `properties.${format}`,
+    )
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось выгрузить каталог объектов'))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function archiveSelectedProperties () {
+  if (!selectedPropertyIds.value.length) return
+  const approved = await confirm.ask({
+    title: 'Архивирование объектов',
+    message: `Архивировать выбранные объекты (${selectedPropertyIds.value.length})?`,
+    confirmLabel: 'В архив',
+    danger: true,
+  })
+  if (!approved) return
+
+  loading.value = true
+  const result = await bulkArchiveProperties([...selectedPropertyIds.value])
+  loading.value = false
+  if (!result.ok) {
+    toasts.error(result.error || 'Не удалось архивировать выбранные объекты')
+    return
+  }
+
+  clearPropertySelection()
+  const { archived, errors, not_found_ids: notFoundIds = [] } = result.data
+  await load()
+  if (errors?.length || notFoundIds.length) {
+    toasts.warn(
+      `Архивировано: ${archived}. Пропущено: ${errors.length + notFoundIds.length}.`,
+    )
+    return
+  }
+  toasts.success(`В архив переведено объектов: ${archived}.`)
+}
+
 watch(propertyPage, async () => {
+  await load()
+})
+
+watch(propertyPageSize, async () => {
+  if (propertyPage.value !== 1) {
+    propertyPage.value = 1
+    return
+  }
   await load()
 })
 
@@ -208,6 +383,10 @@ onMounted(async () => {
 <style scoped>
 .properties-page {
   min-height: 0;
+}
+
+.properties-import__input {
+  display: none;
 }
 
 .properties-shell {
@@ -303,6 +482,11 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.properties-selection {
+  display: flex;
+  align-items: center;
+}
+
 .properties-main__head {
   display: flex;
   align-items: flex-end;
@@ -340,6 +524,52 @@ onMounted(async () => {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 18px;
   align-content: start;
+}
+
+.properties-grid__item {
+  position: relative;
+}
+
+.properties-grid__item.is-selected {
+  transform: translateY(-2px);
+}
+
+.properties-grid__item.is-selected :deep(.property-card) {
+  box-shadow: 0 16px 28px rgba(16, 55, 52, 0.16);
+  border-color: rgba(21, 56, 57, 0.28);
+}
+
+.properties-grid__check {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 18px rgba(16, 55, 52, 0.12);
+}
+
+.properties-grid__check input {
+  width: 16px;
+  height: 16px;
+}
+
+.bulk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--c-page-text);
+}
+
+.bulk-toggle input {
+  width: 16px;
+  height: 16px;
 }
 
 .properties-empty {

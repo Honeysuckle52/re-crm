@@ -6,6 +6,7 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from . import audit as audit_service
 from . import models
 from . import task_workflow
 
@@ -84,6 +85,25 @@ def complete_task(
         'status', 'completed_at', 'result', 'steps_log',
         'is_auto_closed', 'updated_at',
     ])
+    audit_service.log_event(
+        entity=task,
+        action_code='completed',
+        action_label='Завершение задачи',
+        actor=actor,
+        message=(
+            'Задача автоматически закрыта системой.'
+            if auto_closed else
+            'Задача завершена.'
+        ),
+        metadata={
+            'auto_closed': auto_closed,
+            'result': summary_text or task.result or '',
+            'task_type': task.task_type,
+        },
+        property_obj=task.property,
+        request_obj=task.request,
+        deal_obj=task.deal,
+    )
     return task, True
 
 
@@ -122,4 +142,36 @@ def record_step(
     task.steps_log = steps
 
     task.save(update_fields=['steps_log', 'updated_at'])
+    workflow_steps = {
+        workflow_step.get('id'): workflow_step
+        for workflow_step in task_workflow.workflow_payload(task)
+    }
+    step_payload = workflow_steps.get(normalized_step, {})
+    step_label = step_payload.get('label', normalized_step)
+    outcome_label = next(
+        (
+            outcome_item.get('label') or normalized_outcome
+            for outcome_item in step_payload.get('outcomes') or []
+            if outcome_item.get('code') == normalized_outcome
+        ),
+        normalized_outcome,
+    )
+    audit_service.log_event(
+        entity=task,
+        action_code='workflow_step',
+        action_label='Шаг workflow',
+        actor=actor,
+        message=(
+            f'Зафиксирован этап «{step_label}»'
+            + (f' с результатом «{outcome_label}».' if outcome_label else '.')
+        ),
+        metadata={
+            'step': normalized_step,
+            'outcome': normalized_outcome,
+            'note': entry['note'],
+        },
+        property_obj=task.property,
+        request_obj=task.request,
+        deal_obj=task.deal,
+    )
     return task

@@ -1,11 +1,24 @@
-from unittest.mock import patch
+import io
+import json
+import shutil
+import sys
+from datetime import timedelta
+from decimal import Decimal
+from pathlib import Path
+from unittest.mock import Mock, patch
+from uuid import uuid4
 
+from django.conf import settings
+from django.core.management import call_command
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.utils import timezone
+from reportlab.pdfbase import pdfmetrics
 from rest_framework.test import APIClient
 
-from . import deals_service, mailing, models
+from . import deals_service, documents, mailing, models
+from .xlsx_utils import WorkbookSheet, build_xlsx_bytes, load_xlsx_rows
 
 
 class AuthLogoutTests(TestCase):
@@ -108,6 +121,60 @@ class OutgoingEmailHtmlDeliveryTests(TestCase):
             '<strong>Legacy HTML body</strong>', 'text/html',
         )
 
+    @override_settings(
+        EMAIL_HOST='smtp.yandex.ru',
+        EMAIL_PORT=465,
+        EMAIL_USE_SSL=True,
+        EMAIL_USE_TLS=False,
+        EMAIL_TIMEOUT=30,
+        EMAIL_FALLBACK_ENABLED=True,
+        EMAIL_FALLBACK_HOST='smtp.yandex.ru',
+        EMAIL_FALLBACK_PORT=587,
+        EMAIL_FALLBACK_USE_SSL=False,
+        EMAIL_FALLBACK_USE_TLS=True,
+        EMAIL_FALLBACK_TIMEOUT=30,
+    )
+    @patch('key.mailing.socket.setdefaulttimeout')
+    @patch('key.mailing.socket.getdefaulttimeout', return_value=None)
+    @patch('key.mailing.EmailMultiAlternatives')
+    @patch('key.mailing.get_connection')
+    def test_send_via_smtp_retries_with_fallback_channel_on_timeout(
+        self,
+        connection_mock,
+        email_class_mock,
+        _getdefaulttimeout_mock,
+        _setdefaulttimeout_mock,
+    ):
+        primary_connection = Mock(name='primary_connection')
+        fallback_connection = Mock(name='fallback_connection')
+        connection_mock.side_effect = [primary_connection, fallback_connection]
+
+        primary_message = Mock(name='primary_message')
+        primary_message.send.side_effect = TimeoutError('handshake timed out')
+        fallback_message = Mock(name='fallback_message')
+        email_class_mock.side_effect = [primary_message, fallback_message]
+
+        queued = models.OutgoingEmail.objects.create(
+            recipient=self.user,
+            subject='Fallback HTML message',
+            body='Plain body',
+            html_body='<strong>HTML body</strong>',
+        )
+
+        mailing._send_via_smtp(queued)
+
+        self.assertEqual(connection_mock.call_count, 2)
+        self.assertEqual(connection_mock.call_args_list[0].kwargs['port'], 465)
+        self.assertTrue(connection_mock.call_args_list[0].kwargs['use_ssl'])
+        self.assertFalse(connection_mock.call_args_list[0].kwargs['use_tls'])
+        self.assertEqual(connection_mock.call_args_list[1].kwargs['port'], 587)
+        self.assertFalse(connection_mock.call_args_list[1].kwargs['use_ssl'])
+        self.assertTrue(connection_mock.call_args_list[1].kwargs['use_tls'])
+        primary_message.send.assert_called_once_with(fail_silently=False)
+        fallback_message.send.assert_called_once_with(fail_silently=False)
+        primary_connection.close.assert_called_once()
+        fallback_connection.close.assert_called_once()
+
 
 class OutgoingEmailQueueWorkerTests(TestCase):
     def setUp(self):
@@ -171,6 +238,226 @@ class OutgoingEmailQueueWorkerTests(TestCase):
         self.assertIsNone(queued.processing_started_at)
 
 
+class NotificationTemplateAndDictionaryApiTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
+        self.manager = models.User.objects.create_user(
+            username='template-manager',
+            email='template-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.manager_role,
+        )
+        self.client_user = models.User.objects.create_user(
+            username='template-client',
+            email='template-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.request_status = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+
+    def test_render_prefers_database_notification_template(self):
+        models.NotificationTemplate.objects.create(
+            code='custom_notice',
+            name='Custom notice',
+            subject_template='Здравствуйте, {{ user.username }}',
+            body_template='Текст для {{ user.email }}',
+            html_template='<strong>{{ user.username }}</strong>',
+            is_active=True,
+        )
+
+        subject, text, html = mailing._render('custom_notice', {'user': self.client_user})
+
+        self.assertEqual(subject, f'Здравствуйте, {self.client_user.username}')
+        self.assertEqual(text, f'Текст для {self.client_user.email}')
+        self.assertEqual(html, f'<strong>{self.client_user.username}</strong>')
+
+    def test_manager_can_create_notification_template_via_api(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post('/api/notification-templates/', {
+            'code': 'manager_custom',
+            'name': 'Manager custom',
+            'subject_template': 'Subject {{ value }}',
+            'body_template': 'Body {{ value }}',
+            'html_template': '<p>{{ value }}</p>',
+            'is_active': True,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            models.NotificationTemplate.objects.filter(code='manager_custom').exists(),
+        )
+
+    def test_manager_can_update_request_status_via_api(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.patch(
+            f'/api/request-statuses/{self.request_status.pk}/',
+            {'name': 'Open updated'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.request_status.refresh_from_db()
+        self.assertEqual(self.request_status.name, 'Open updated')
+
+    def test_request_status_api_rejects_legacy_closed_code(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post('/api/request-statuses/', {
+            'code': 'closed',
+            'name': 'Closed',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('code', response.data)
+
+
+class ProcessVersionWorkflowTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
+        self.manager = models.User.objects.create_user(
+            username='process-manager',
+            email='process-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.manager_role,
+        )
+        self.employee = models.User.objects.create_user(
+            username='process-agent',
+            email='process-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='process-client',
+            email='process-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.request_status = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.task_status = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+
+    def test_request_api_assigns_active_process_version(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post('/api/requests/', {
+            'client': self.client_user.pk,
+            'operation_type': self.operation_type.pk,
+            'status': self.request_status.pk,
+            'description': 'Need a new apartment',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        created = models.Request.objects.get(pk=response.data['id'])
+        self.assertIsNotNone(created.process_version_id)
+        self.assertEqual(created.process_version.process_code, 'request')
+        self.assertEqual(created.process_version.scope_code, 'request')
+
+    def test_task_api_assigns_scope_specific_process_version(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post('/api/tasks/', {
+            'title': 'Search property',
+            'task_type': 'property_search',
+            'status': self.task_status.pk,
+            'assignee': self.employee.pk,
+            'client': self.client_user.pk,
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        task = models.Task.objects.get(pk=response.data['id'])
+        self.assertIsNotNone(task.process_version_id)
+        self.assertEqual(task.process_version.scope_code, 'property_search')
+        self.assertEqual(len(response.data['workflow_steps']), 4)
+
+    def test_activating_new_task_process_version_affects_only_new_tasks(self):
+        self.api.force_authenticate(user=self.manager)
+
+        first_response = self.api.post('/api/tasks/', {
+            'title': 'Initial call',
+            'task_type': 'call',
+            'status': self.task_status.pk,
+            'assignee': self.employee.pk,
+        }, format='json')
+        self.assertEqual(first_response.status_code, 201)
+        first_task = models.Task.objects.get(pk=first_response.data['id'])
+        original_version_id = first_task.process_version_id
+
+        process_version = models.ProcessVersion.objects.create(
+            process_code='task',
+            scope_code='call',
+            version=2,
+            name='Call workflow v2',
+            description='Updated call workflow',
+            schema=[
+                {
+                    'id': 'contact',
+                    'label': 'Первичный контакт v2',
+                    'outcomes': [
+                        {'code': 'called', 'label': 'созвонился'},
+                        {'code': 'messaged', 'label': 'написал'},
+                        {'code': 'missed', 'label': 'не дозвонился'},
+                    ],
+                },
+                {
+                    'id': 'request',
+                    'label': 'Фиксация заявки',
+                    'outcomes': [
+                        {'code': 'created', 'label': 'создал'},
+                        {'code': 'linked', 'label': 'связал'},
+                        {'code': 'exists', 'label': 'использовал'},
+                    ],
+                },
+                {'id': 'complete', 'label': 'Закрытие', 'outcomes': []},
+            ],
+            is_active=False,
+        )
+
+        activate_response = self.api.post(
+            f'/api/process-versions/{process_version.pk}/activate/',
+            format='json',
+        )
+        self.assertEqual(activate_response.status_code, 200)
+
+        second_response = self.api.post('/api/tasks/', {
+            'title': 'Second call',
+            'task_type': 'call',
+            'status': self.task_status.pk,
+            'assignee': self.employee.pk,
+        }, format='json')
+        self.assertEqual(second_response.status_code, 201)
+        second_task = models.Task.objects.get(pk=second_response.data['id'])
+
+        first_task.refresh_from_db()
+        self.assertEqual(first_task.process_version_id, original_version_id)
+        self.assertEqual(second_task.process_version_id, process_version.pk)
+        self.assertEqual(second_response.data['workflow_steps'][0]['label'], 'Первичный контакт v2')
+
+
 class DealContractQueueTests(TestCase):
     def setUp(self):
         self.api = APIClient()
@@ -222,6 +509,130 @@ class DealContractQueueTests(TestCase):
         )
         self.api.force_authenticate(user=self.employee)
 
+    def test_money_words_formats_russian_amounts(self):
+        self.assertEqual(
+            documents._money_words(Decimal('182500.40')),
+            'Сто восемьдесят две тысячи пятьсот рублей 40 копеек',
+        )
+        self.assertEqual(
+            documents._money_words(Decimal('1.01')),
+            'Один рубль 01 копейка',
+        )
+
+    def test_contract_fonts_are_registered_from_local_times_family(self):
+        documents._ensure_fonts_registered()
+
+        self.assertEqual(
+            pdfmetrics.getFont(documents.FONT_REGULAR).fontName,
+            documents.FONT_REGULAR,
+        )
+        self.assertEqual(
+            pdfmetrics.getFont(documents.FONT_BOLD).fontName,
+            documents.FONT_BOLD,
+        )
+        self.assertEqual(
+            pdfmetrics.getFont(documents.FONT_ITALIC).fontName,
+            documents.FONT_ITALIC,
+        )
+        self.assertEqual(
+            pdfmetrics.getFont(documents.FONT_BOLD_ITALIC).fontName,
+            documents.FONT_BOLD_ITALIC,
+        )
+
+    @override_settings(
+        AGENCY_NAME='РИЭЛТ',
+        AGENCY_LEGAL_NAME='ООО «РИЭЛТ»',
+        AGENCY_REPLY_TO='office@rielt.example',
+        AGENCY_PUBLIC_URL='https://rielt.example',
+        AGENCY_PHONE='+7 (3952) 11-22-33',
+        AGENCY_ADDRESS='г. Иркутск, ул. Ленина, д. 1',
+        AGENCY_INN='3808000000',
+        AGENCY_KPP='380801001',
+        AGENCY_OGRN='1023800000000',
+        AGENCY_BANK_DETAILS='р/с 40702810000000000001; БИК 042520607; ПАО Сбербанк',
+        AGENCY_SIGNATORY_NAME='Иванов Иван Иванович',
+        AGENCY_SIGNATORY_TITLE='Генеральный директор',
+        AGENCY_SIGNATORY_BASIS='Устава',
+    )
+    def test_contract_requisites_are_composed_from_settings(self):
+        self.assertEqual(documents._agency_legal_name(), 'ООО «РИЭЛТ»')
+        self.assertEqual(documents._agency_signatory_name(self.employee), 'Иванов Иван Иванович')
+        self.assertEqual(documents._agency_signatory_title(self.employee), 'Генеральный директор')
+        self.assertEqual(documents._agency_signatory_basis(), 'Устава')
+        self.assertEqual(
+            documents._agency_contact_line(),
+            '+7 (3952) 11-22-33 / office@rielt.example / https://rielt.example',
+        )
+        self.assertEqual(
+            documents._agency_requisites_lines(),
+            [
+                'Адрес: г. Иркутск, ул. Ленина, д. 1',
+                'Телефон: +7 (3952) 11-22-33',
+                'Email: office@rielt.example',
+                'ИНН: 3808000000',
+                'КПП: 380801001',
+                'ОГРН: 1023800000000',
+                'р/с 40702810000000000001',
+                'БИК 042520607',
+                'ПАО Сбербанк',
+                'Сайт: https://rielt.example',
+            ],
+        )
+
+    def test_render_contract_pdf_builds_detailed_document_and_escapes_dynamic_text(self):
+        models.EmployeeProfile.objects.create(
+            user=self.employee,
+            first_name='Иван',
+            last_name='Агентов',
+            middle_name='Петрович',
+            position='Агент по недвижимости',
+        )
+        models.ClientProfile.objects.create(
+            user=self.client_user,
+            first_name='Мария',
+            last_name='Клиентова',
+            middle_name='Сергеевна',
+            passport_series='1234',
+            passport_number='567890',
+            passport_issued_by='ОУФМС России по Иркутской области',
+            passport_code='380-001',
+            passport_issued_date=timezone.now().date(),
+            registration_address='г. Иркутск, ул. Тестовая, д. 1, кв. 2',
+            actual_address='г. Иркутск, ул. Тестовая, д. 1, кв. 2',
+            preferred_contact_method='email',
+        )
+        self.property.title = 'Квартира <с отделкой> & мебелью'
+        self.property.area_total = Decimal('48.50')
+        self.property.rooms_count = 2
+        self.property.floor_number = 5
+        self.property.total_floors = 9
+        self.property.save(update_fields=[
+            'title',
+            'area_total',
+            'rooms_count',
+            'floor_number',
+            'total_floors',
+        ])
+        self.deal.commission_percent = Decimal('2.50')
+        self.deal.commission_amount = 182500
+        self.deal.notes = (
+            'Особые условия:\n'
+            '1. Сопровождение <под ключ>.\n'
+            '2. Проверка документов & расчётов.'
+        )
+        self.deal.save(update_fields=[
+            'commission_percent',
+            'commission_amount',
+            'notes',
+        ])
+
+        pdf = documents.render_contract_pdf(self.deal)
+        content = pdf.read()
+
+        self.assertEqual(pdf.name, f'contract-{self.deal.deal_number}.pdf')
+        self.assertTrue(content.startswith(b'%PDF-'))
+        self.assertGreater(len(content), 20_000)
+
     def test_queue_contract_generation_marks_deal_pending(self):
         queued = deals_service.queue_contract_generation(self.deal)
 
@@ -268,6 +679,35 @@ class DealContractQueueTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.data['contract_status'], 'pending')
+        self.assertEqual(response.data['contract_status_display'], 'В очереди')
+        self.assertIsNotNone(response.data['contract_requested_at'])
+
+    def test_contract_endpoint_returns_pdf_when_contract_is_ready(self):
+        self.deal.contract_file.save(
+            'contract-ready.pdf',
+            ContentFile(b'%PDF-1.4 ready test', name='contract-ready.pdf'),
+            save=False,
+        )
+        self.deal.contract_status = 'ready'
+        self.deal.contract_generated_at = timezone.now()
+        self.deal.save(update_fields=[
+            'contract_file',
+            'contract_status',
+            'contract_generated_at',
+        ])
+
+        response = self.api.get(f'/api/deals/{self.deal.pk}/contract/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn(
+            f'contract-{self.deal.deal_number}.pdf',
+            response['Content-Disposition'],
+        )
+        self.assertEqual(
+            b''.join(response.streaming_content),
+            b'%PDF-1.4 ready test',
+        )
 
     def test_regenerate_contract_requeues_and_clears_existing_file(self):
         self.deal.contract_file.save(
@@ -578,6 +1018,63 @@ class RequestClosePermissionTests(TestCase):
         )
 
 
+class RequestEditingRulesTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.status_completed = models.RequestStatus.objects.create(
+            code='completed',
+            name='Completed',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='request-edit-client',
+            email='request-edit-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.employee = models.User.objects.create_user(
+            username='request-edit-agent',
+            email='request-edit-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.status_completed,
+            description='Original description',
+        )
+        self.api.force_authenticate(user=self.employee)
+
+    def test_terminal_request_cannot_be_updated(self):
+        response = self.api.patch(
+            f'/api/requests/{self.request_obj.pk}/',
+            {'description': 'Updated description'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.request_obj.refresh_from_db()
+        self.assertEqual(self.request_obj.description, 'Original description')
+        self.assertIn('Нельзя редактировать закрытую заявку.', str(response.data))
+
+
+    def test_terminal_request_cannot_be_deleted(self):
+        response = self.api.delete(f'/api/requests/{self.request_obj.pk}/')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(models.Request.objects.filter(pk=self.request_obj.pk).exists())
+        self.assertIn('Нельзя удалить закрытую заявку.', str(response.data))
+
+
 class UserAssignRoleTests(TestCase):
     def setUp(self):
         self.api = APIClient()
@@ -845,6 +1342,832 @@ class DashboardStatsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['tasks_open'], 2)
+
+
+class ReportApiTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.property_status = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.deal_status = models.DealStatus.objects.create(
+            code='signed',
+            name='Signed',
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.task_status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=20,
+        )
+        self.manager = models.User.objects.create_user(
+            username='report-manager',
+            email='report-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=models.UserRole.objects.create(code='manager', name='Manager'),
+        )
+        self.employee = models.User.objects.create_user(
+            username='report-agent',
+            email='report-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.other_employee = models.User.objects.create_user(
+            username='report-other-agent',
+            email='report-other-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='report-client',
+            email='report-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='18')
+        address = models.Address.objects.create(
+            house=house,
+            apartment_number='5',
+        )
+        self.property = models.Property.objects.create(
+            title='Report property',
+            operation_type=self.operation_type,
+            status=self.property_status,
+            address=address,
+            price=9_500_000,
+        )
+
+        models.Deal.objects.create(
+            deal_number='REP-001',
+            property=self.property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.deal_status,
+            price_final=9_500_000,
+            commission_percent=3,
+            commission_amount=285_000,
+            deal_date=timezone.localdate(),
+        )
+        models.Deal.objects.create(
+            deal_number='REP-002',
+            property=self.property,
+            agent=self.other_employee,
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.deal_status,
+            price_final=7_200_000,
+            commission_percent=2,
+            commission_amount=144_000,
+            deal_date=timezone.localdate(),
+        )
+
+        models.Task.objects.create(
+            title='Prepare documents',
+            task_type='documents',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.manager,
+            client=self.client_user,
+            property=self.property,
+            due_date=timezone.now() + timedelta(days=1),
+        )
+        models.Task.objects.create(
+            title='Call other client',
+            task_type='call',
+            status=self.task_status_done,
+            assignee=self.other_employee,
+            created_by=self.manager,
+            completed_at=timezone.now(),
+            result='Done',
+        )
+
+    def test_deals_report_returns_filtered_summary(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/deals/', {
+            'agent': self.employee.pk,
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['report_code'], 'deals')
+        self.assertEqual(response.data['summary']['Всего сделок'], 1)
+        self.assertEqual(len(response.data['rows']), 1)
+        self.assertEqual(response.data['rows'][0]['deal_number'], 'REP-001')
+
+    def test_tasks_report_limits_employee_to_own_tasks(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/reports/tasks/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['report_code'], 'tasks')
+        self.assertEqual(response.data['summary']['Всего задач'], 1)
+        self.assertEqual(len(response.data['rows']), 1)
+        self.assertEqual(response.data['rows'][0]['assignee_username'], self.employee.username)
+
+    def test_deals_report_can_export_csv(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/deals/', {'export': 'csv'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('text/csv', response['Content-Type'])
+        self.assertIn('REP-001', response.content.decode('utf-8'))
+
+    def test_tasks_report_can_export_xlsx(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/tasks/', {'export': 'xlsx'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        rows = load_xlsx_rows(response.content, sheet_name='Данные')
+        self.assertEqual(rows[0][1], 'Задача')
+        self.assertTrue(any('Prepare documents' in row for row in rows[1:]))
+
+    def test_tasks_report_can_export_pdf(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/tasks/', {'export': 'pdf'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertTrue(response.content.startswith(b'%PDF'))
+
+    def test_deals_report_supports_user_defined_sorting(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/deals/', {'ordering': 'price_final'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['ordering'], 'price_final')
+        self.assertEqual(response.data['rows'][0]['deal_number'], 'REP-002')
+        self.assertEqual(response.data['rows'][1]['deal_number'], 'REP-001')
+
+    def test_tasks_report_supports_user_defined_sorting(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/tasks/', {'ordering': 'title'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['ordering'], 'title')
+        self.assertEqual(response.data['rows'][0]['title'], 'Call other client')
+        self.assertEqual(response.data['rows'][1]['title'], 'Prepare documents')
+
+    def test_deals_report_can_export_json(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/reports/deals/', {'export': 'json'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/json', response['Content-Type'])
+        self.assertIn('REP-001', response.content.decode('utf-8'))
+
+
+class DataExchangeApiTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_sale = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.operation_rent = models.OperationType.objects.create(
+            code='rent',
+            name='Rent',
+        )
+        self.status_active = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.status_archived = models.PropertyStatus.objects.create(
+            code='archived',
+            name='Archived',
+        )
+        self.role_manager = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
+        self.manager = models.User.objects.create_user(
+            username='exchange-manager',
+            email='exchange-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.role_manager,
+        )
+        self.employee = models.User.objects.create_user(
+            username='exchange-employee',
+            email='exchange-employee@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='exchange-client',
+            email='exchange-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.deal_status_signed = models.DealStatus.objects.create(
+            code='signed',
+            name='Signed',
+            order=10,
+        )
+
+        city = models.City.objects.create(name='Иркутск', region='Иркутская область')
+        street = models.Street.objects.create(city=city, name='Ленина', street_type='ул.')
+        house = models.House.objects.create(street=street, house_number='1', postal_code='664000')
+        address = models.Address.objects.create(house=house, apartment_number='5')
+
+        self.property = models.Property.objects.create(
+            title='Тестовый объект',
+            operation_type=self.operation_sale,
+            status=self.status_active,
+            address=address,
+            price=5_500_000,
+            rooms_count=2,
+        )
+        self.archived_property = models.Property.objects.create(
+            title='Архивный объект',
+            operation_type=self.operation_rent,
+            status=self.status_archived,
+            address=address,
+            price=45_000,
+            rooms_count=1,
+        )
+        self.request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            property=self.property,
+            operation_type=self.operation_sale,
+            status=self.request_status_open,
+            description='Экспортная заявка',
+        )
+        self.task_obj = models.Task.objects.create(
+            title='Экспортная задача',
+            task_type='call',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.manager,
+            client=self.client_user,
+            property=self.property,
+            request=self.request_obj,
+        )
+        self.deal_obj = models.Deal.objects.create(
+            deal_number='EX-001',
+            property=self.property,
+            agent=self.employee,
+            client=self.client_user,
+            request=self.request_obj,
+            operation_type=self.operation_sale,
+            status=self.deal_status_signed,
+            price_final=5_500_000,
+            deal_date=timezone.localdate(),
+        )
+
+    def _csv_upload(self, content: str, name: str = 'properties.csv'):
+        return SimpleUploadedFile(
+            name,
+            content.encode('utf-8'),
+            content_type='text/csv',
+        )
+
+    def _xlsx_upload(self, rows, name: str = 'properties.xlsx'):
+        return SimpleUploadedFile(
+            name,
+            build_xlsx_bytes([WorkbookSheet.from_rows('Объекты', rows)]),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    def test_property_export_csv_respects_filters(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/properties/export/', {
+            'export_format': 'csv',
+            'status': self.status_active.pk,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('text/csv', response['Content-Type'])
+        content = response.content.decode('utf-8')
+        self.assertIn('Тестовый объект', content)
+        self.assertNotIn('Архивный объект', content)
+
+    def test_property_export_json_returns_catalog(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/properties/export/', {'export_format': 'json'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/json', response['Content-Type'])
+        self.assertIn('"items"', response.content.decode('utf-8'))
+        self.assertIn('Тестовый объект', response.content.decode('utf-8'))
+
+    def test_request_export_json_respects_filters(self):
+        models.Request.objects.create(
+            client=self.client_user,
+            agent=self.manager,
+            property=self.property,
+            operation_type=self.operation_sale,
+            status=self.request_status_open,
+            description='Чужая заявка',
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/requests/export/', {
+            'export_format': 'json',
+            'agent': self.employee.pk,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode('utf-8'))
+        self.assertEqual(payload['count'], 1)
+        self.assertEqual(payload['items'][0]['description'], 'Экспортная заявка')
+
+    def test_task_export_xlsx_returns_rows(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/tasks/export/', {'export_format': 'xlsx'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        rows = load_xlsx_rows(response.content, sheet_name='Задачи')
+        self.assertEqual(rows[0][1], 'title')
+        self.assertTrue(any('Экспортная задача' in row for row in rows[1:]))
+
+    def test_deal_export_csv_returns_rows(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/deals/export/', {'export_format': 'csv'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('text/csv', response['Content-Type'])
+        self.assertIn('EX-001', response.content.decode('utf-8'))
+
+    def test_user_export_requires_manager_role(self):
+        self.api.force_authenticate(user=self.employee)
+
+        denied = self.api.get('/api/users/export/', {'export_format': 'json'})
+
+        self.assertEqual(denied.status_code, 403)
+
+        self.api.force_authenticate(user=self.manager)
+        allowed = self.api.get('/api/users/export/', {'export_format': 'json'})
+
+        self.assertEqual(allowed.status_code, 200)
+        body = allowed.content.decode('utf-8')
+        self.assertIn('"items"', body)
+        self.assertIn('exchange-employee', body)
+
+    def test_property_export_xlsx_returns_catalog(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/properties/export/', {'export_format': 'xlsx'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        rows = load_xlsx_rows(response.content)
+        self.assertEqual(rows[0][1], 'title')
+        self.assertTrue(any('Тестовый объект' in row for row in rows[1:]))
+
+    def test_property_import_csv_creates_property(self):
+        self.api.force_authenticate(user=self.manager)
+        upload = self._csv_upload(
+            '\n'.join([
+                'id;title;operation_type_code;status_code;city;region;street;street_type;house;block;flat;postal_code;price;area_total;rooms_count;floor_number;total_floors;description',
+                ';"Новый объект";sale;active;Иркутск;Иркутская область;Советская;ул.;15;;12;664000;6200000;56.4;2;3;9;"Импортирован из CSV"',
+            ]),
+        )
+
+        response = self.api.post(
+            '/api/properties/import-csv/',
+            {'file': upload},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['created'], 1)
+        self.assertEqual(response.data['updated'], 0)
+        created = models.Property.objects.get(title='Новый объект')
+        self.assertEqual(created.status.code, 'active')
+        self.assertEqual(created.operation_type.code, 'sale')
+        self.assertEqual(str(created.address.house.street.city.name), 'Иркутск')
+        self.assertTrue(models.AuditLog.objects.filter(
+            entity_type='property',
+            entity_id=created.pk,
+            action_code='import_created',
+        ).exists())
+
+    def test_property_import_xlsx_creates_property(self):
+        self.api.force_authenticate(user=self.manager)
+        upload = self._xlsx_upload([
+            (
+                'id', 'title', 'operation_type_code', 'status_code', 'city', 'region',
+                'street', 'street_type', 'house', 'block', 'flat', 'postal_code',
+                'price', 'area_total', 'rooms_count', 'floor_number', 'total_floors',
+                'description',
+            ),
+            (
+                '', 'Новый объект XLSX', 'sale', 'active', 'Иркутск', 'Иркутская область',
+                'Советская', 'ул.', '20', '', '14', '664000',
+                '6400000', '58.2', '2', '4', '10', 'Импортирован из XLSX',
+            ),
+        ])
+
+        response = self.api.post(
+            '/api/properties/import-csv/',
+            {'file': upload},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['created'], 1)
+        self.assertEqual(response.data['source'], 'xlsx_import')
+        created = models.Property.objects.get(title='Новый объект XLSX')
+        self.assertEqual(created.status.code, 'active')
+        self.assertEqual(created.operation_type.code, 'sale')
+
+    def test_property_import_csv_updates_existing_property(self):
+        self.api.force_authenticate(user=self.manager)
+        upload = self._csv_upload(
+            '\n'.join([
+                'id;title;operation_type_code;status_code;city;region;street;street_type;house;block;flat;postal_code;price;area_total;rooms_count;floor_number;total_floors;description',
+                f'{self.property.pk};"Объект после импорта";sale;active;Иркутск;Иркутская область;Ленина;ул.;1;;5;664000;7300000;61.0;3;5;10;"Обновлено из CSV"',
+            ]),
+        )
+
+        response = self.api.post(
+            '/api/properties/import-csv/',
+            {'file': upload},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['created'], 0)
+        self.assertEqual(response.data['updated'], 1)
+        self.property.refresh_from_db()
+        self.assertEqual(self.property.title, 'Объект после импорта')
+        self.assertEqual(self.property.price, 7_300_000)
+        self.assertEqual(self.property.rooms_count, 3)
+        self.assertTrue(models.AuditLog.objects.filter(
+            entity_type='property',
+            entity_id=self.property.pk,
+            action_code='import_updated',
+        ).exists())
+
+    def test_property_import_csv_validates_status_and_rolls_back(self):
+        self.api.force_authenticate(user=self.manager)
+        before_count = models.Property.objects.count()
+        upload = self._csv_upload(
+            '\n'.join([
+                'id;title;operation_type_code;status_code;city;region;street;street_type;house;block;flat;postal_code;price',
+                ';"Ошибочный объект";sale;missing_status;Иркутск;Иркутская область;Марата;ул.;8;;;664000;4100000',
+            ]),
+        )
+
+        response = self.api.post(
+            '/api/properties/import-csv/',
+            {'file': upload},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(models.Property.objects.count(), before_count)
+        self.assertIn('status_code', response.data)
+
+    def test_dictionary_export_json_returns_reference_bundle(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/dictionaries/export/', {'export_format': 'json'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/json', response['Content-Type'])
+        body = response.content.decode('utf-8')
+        self.assertIn('"operation_types"', body)
+        self.assertIn('"user_roles"', body)
+
+    def test_dictionary_export_xlsx_returns_reference_bundle(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/dictionaries/export/', {'export_format': 'xlsx'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        rows = load_xlsx_rows(response.content, sheet_name='Типы операций')
+        self.assertEqual(rows[0], ['id', 'code', 'name'])
+        self.assertTrue(any('sale' in row for row in rows[1:]))
+
+
+class AuditLogApiTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.request_status_processing = models.RequestStatus.objects.create(
+            code='processing',
+            name='Processing',
+        )
+        self.property_status_active = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.property_status_archived = models.PropertyStatus.objects.create(
+            code='archived',
+            name='Archived',
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.task_status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=20,
+        )
+        self.deal_status_new = models.DealStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.deal_status_negotiation = models.DealStatus.objects.create(
+            code='negotiation',
+            name='Negotiation',
+            order=20,
+        )
+        self.employee = models.User.objects.create_user(
+            username='audit-agent',
+            email='audit-agent@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='audit-client',
+            email='audit-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.other_client = models.User.objects.create_user(
+            username='audit-other-client',
+            email='audit-other-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='42')
+        address = models.Address.objects.create(
+            house=house,
+            apartment_number='8',
+        )
+        self.property = models.Property.objects.create(
+            title='Audit property',
+            operation_type=self.operation_type,
+            status=self.property_status_active,
+            address=address,
+            price=8_800_000,
+        )
+        self.request_obj = models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+            property=self.property,
+        )
+
+    def test_take_request_creates_request_and_task_audit_entries(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            f'/api/requests/{self.request_obj.pk}/take/',
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(models.AuditLog.objects.filter(
+            request=self.request_obj,
+            action_code='assigned',
+        ).exists())
+        contact_task = models.Task.objects.get(
+            request=self.request_obj,
+            task_type='contact_client',
+        )
+        self.assertTrue(models.AuditLog.objects.filter(
+            task=contact_task,
+            action_code='created',
+        ).exists())
+
+    def test_property_status_change_is_available_in_audit_endpoint(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            f'/api/properties/{self.property.pk}/change_status/',
+            {'status_id': self.property_status_archived.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(models.AuditLog.objects.filter(
+            property=self.property,
+            action_code='status_changed',
+        ).exists())
+
+        logs_response = self.api.get('/api/audit-log/', {
+            'property': self.property.pk,
+            'page_size': 50,
+        })
+
+        self.assertEqual(logs_response.status_code, 200)
+        self.assertTrue(any(
+            item['action_code'] == 'status_changed'
+            for item in logs_response.data['results']
+        ))
+
+    def test_client_sees_only_own_request_audit_logs(self):
+        other_request = models.Request.objects.create(
+            client=self.other_client,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.employee)
+        self.api.post(f'/api/requests/{self.request_obj.pk}/take/', format='json')
+        self.api.post(f'/api/requests/{other_request.pk}/take/', format='json')
+
+        self.api.force_authenticate(user=self.client_user)
+        response = self.api.get('/api/audit-log/', {'page_size': 100})
+
+        self.assertEqual(response.status_code, 200)
+        request_ids = {
+            item['request']
+            for item in response.data['results']
+            if item['request'] is not None
+        }
+        self.assertIn(self.request_obj.pk, request_ids)
+        self.assertNotIn(other_request.pk, request_ids)
+
+    def test_task_completion_creates_audit_entry_and_filter_works(self):
+        task = models.Task.objects.create(
+            title='Audit task',
+            task_type='call',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client=self.client_user,
+            property=self.property,
+            request=self.request_obj,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            f'/api/tasks/{task.pk}/complete/',
+            {'result': 'Completed successfully'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(models.AuditLog.objects.filter(
+            task=task,
+            action_code='completed',
+        ).exists())
+
+        logs_response = self.api.get('/api/audit-log/', {
+            'task': task.pk,
+            'page_size': 50,
+        })
+        self.assertEqual(logs_response.status_code, 200)
+        self.assertTrue(any(
+            item['action_code'] == 'completed'
+            for item in logs_response.data['results']
+        ))
+
+    def test_property_update_audit_contains_old_and_new_values(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.patch(
+            f'/api/properties/{self.property.pk}/',
+            {
+                'title': 'Audit property updated',
+                'price': 9_100_000,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        audit_entry = models.AuditLog.objects.filter(
+            property=self.property,
+            action_code='updated',
+        ).latest('created_at')
+        field_changes = audit_entry.metadata['field_changes']
+        self.assertEqual(field_changes['title']['old'], 'Audit property')
+        self.assertEqual(field_changes['title']['new'], 'Audit property updated')
+        self.assertEqual(field_changes['price']['old'], 8_800_000)
+        self.assertEqual(field_changes['price']['new'], 9_100_000)
+
+    def test_task_update_audit_contains_related_field_diff(self):
+        task = models.Task.objects.create(
+            title='Audit task update',
+            task_type='call',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client=self.client_user,
+            property=self.property,
+            request=self.request_obj,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.patch(
+            f'/api/tasks/{task.pk}/',
+            {
+                'title': 'Audit task changed',
+                'client': self.other_client.pk,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        audit_entry = models.AuditLog.objects.filter(
+            task=task,
+            action_code='updated',
+        ).latest('created_at')
+        field_changes = audit_entry.metadata['field_changes']
+        self.assertEqual(field_changes['title']['old'], 'Audit task update')
+        self.assertEqual(field_changes['title']['new'], 'Audit task changed')
+        self.assertEqual(
+            field_changes['client']['old'],
+            {'id': self.client_user.pk, 'label': self.client_user.username},
+        )
+        self.assertEqual(
+            field_changes['client']['new'],
+            {'id': self.other_client.pk, 'label': self.other_client.username},
+        )
+
+    def test_deal_status_change_creates_audit_entry(self):
+        deal = models.Deal.objects.create(
+            deal_number='AUD-001',
+            property=self.property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.deal_status_new,
+            request=self.request_obj,
+            price_final=8_800_000,
+            deal_date=timezone.localdate(),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            f'/api/deals/{deal.pk}/change_status/',
+            {'status_id': self.deal_status_negotiation.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(models.AuditLog.objects.filter(
+            deal=deal,
+            action_code='status_changed',
+        ).exists())
 
 
 class RoleBasedWorkloadLimitTests(TestCase):
@@ -1673,6 +2996,101 @@ class TaskStatusChangeTests(TestCase):
         self.assertIsNotNone(task.completed_at)
 
 
+class TaskCrudRulesTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=20,
+        )
+        self.role_agent = models.UserRole.objects.create(
+            code='agent',
+            name='Agent',
+            max_active_tasks=1,
+        )
+        self.creator = models.User.objects.create_user(
+            username='task-crud-creator',
+            email='task-crud-creator@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.role_agent,
+        )
+        self.target_assignee = models.User.objects.create_user(
+            username='task-crud-target',
+            email='task-crud-target@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.role_agent,
+        )
+        self.api.force_authenticate(user=self.creator)
+
+    def test_terminal_task_cannot_be_updated(self):
+        task = models.Task.objects.create(
+            title='Completed task',
+            status=self.status_done,
+            assignee=self.creator,
+            created_by=self.creator,
+            completed_at=timezone.now(),
+        )
+
+        response = self.api.patch(
+            f'/api/tasks/{task.pk}/',
+            {'title': 'Updated title'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        task.refresh_from_db()
+        self.assertEqual(task.title, 'Completed task')
+        self.assertIn('Нельзя редактировать завершённую задачу.', str(response.data))
+
+    def test_terminal_task_cannot_be_deleted(self):
+        task = models.Task.objects.create(
+            title='Completed task',
+            status=self.status_done,
+            assignee=self.creator,
+            created_by=self.creator,
+            completed_at=timezone.now(),
+        )
+
+        response = self.api.delete(f'/api/tasks/{task.pk}/')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(models.Task.objects.filter(pk=task.pk).exists())
+        self.assertIn('Нельзя удалить завершённую задачу.', str(response.data))
+
+    def test_patch_task_respects_assignee_active_task_limit(self):
+        models.Task.objects.create(
+            title='Busy task',
+            status=self.status_new,
+            assignee=self.target_assignee,
+            created_by=self.target_assignee,
+        )
+        task = models.Task.objects.create(
+            title='Reassign me',
+            status=self.status_new,
+            assignee=self.creator,
+            created_by=self.creator,
+        )
+
+        response = self.api.patch(
+            f'/api/tasks/{task.pk}/',
+            {'assignee': self.target_assignee.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        task.refresh_from_db()
+        self.assertEqual(task.assignee_id, self.creator.pk)
+        self.assertIn('Нельзя назначить задачу', str(response.data))
+
+
 class TaskWorkflowValidationTests(TestCase):
     def setUp(self):
         self.api = APIClient()
@@ -1738,6 +3156,26 @@ class TaskWorkflowValidationTests(TestCase):
         step_ids = [step['id'] for step in response.data['workflow_steps']]
         self.assertEqual(step_ids, ['contact', 'request', 'match', 'complete'])
         self.assertEqual(response.data['workflow_current_step'], 'contact')
+
+    def test_terminal_task_detail_points_to_complete_step(self):
+        status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=20,
+        )
+        task = models.Task.objects.create(
+            title='Completed search property',
+            task_type='property_search',
+            status=status_done,
+            assignee=self.employee,
+            created_by=self.employee,
+            completed_at=timezone.now(),
+        )
+
+        response = self.api.get(f'/api/tasks/{task.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['workflow_current_step'], 'complete')
 
     def test_record_step_rejects_out_of_order_transition(self):
         task = models.Task.objects.create(
@@ -2418,3 +3856,499 @@ class PropertyPhotoCoverTests(TestCase):
         fallback.refresh_from_db()
         self.assertTrue(fallback.is_cover)
         self.assertFalse(fallback.is_hidden)
+
+
+class BulkOperationsApiTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.employee = models.User.objects.create_user(
+            username='bulk-employee',
+            email='bulk-employee@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.other_employee = models.User.objects.create_user(
+            username='bulk-other',
+            email='bulk-other@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='bulk-client',
+            email='bulk-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.property_status_active = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.property_status_archived = models.PropertyStatus.objects.create(
+            code='archived',
+            name='Archived',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.request_status_cancelled = models.RequestStatus.objects.create(
+            code='cancelled',
+            name='Cancelled',
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.task_status_waiting = models.TaskStatus.objects.create(
+            code='waiting',
+            name='Waiting',
+            order=20,
+        )
+        self.task_status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=30,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+    def _address(self, suffix='1'):
+        city = models.City.objects.create(
+            name=f'City {suffix}',
+            region='Region',
+        )
+        street = models.Street.objects.create(
+            city=city,
+            name=f'Street {suffix}',
+        )
+        house = models.House.objects.create(
+            street=street,
+            house_number=str(suffix),
+        )
+        return models.Address.objects.create(
+            house=house,
+            apartment_number=str(suffix),
+        )
+
+    def test_bulk_archive_properties(self):
+        first = models.Property.objects.create(
+            title='Bulk property 1',
+            operation_type=self.operation_type,
+            status=self.property_status_active,
+            address=self._address('11'),
+            price=4_100_000,
+        )
+        second = models.Property.objects.create(
+            title='Bulk property 2',
+            operation_type=self.operation_type,
+            status=self.property_status_active,
+            address=self._address('12'),
+            price=5_200_000,
+        )
+
+        response = self.api.post(
+            '/api/properties/bulk-archive/',
+            {'ids': [first.pk, second.pk]},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['archived'], 2)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status_id, self.property_status_archived.pk)
+        self.assertEqual(second.status_id, self.property_status_archived.pk)
+        self.assertEqual(
+            models.AuditLog.objects.filter(action_code='bulk_archived').count(),
+            2,
+        )
+
+    def test_bulk_close_requests_respects_scope(self):
+        own_request = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+            description='Own request',
+        )
+        foreign_request = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.other_employee,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+            description='Foreign request',
+        )
+
+        response = self.api.post(
+            '/api/requests/bulk-close/',
+            {'ids': [own_request.pk, foreign_request.pk], 'outcome': 'cancelled'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['closed'], 1)
+        self.assertIn(foreign_request.pk, response.data['not_found_ids'])
+        own_request.refresh_from_db()
+        foreign_request.refresh_from_db()
+        self.assertEqual(own_request.status_id, self.request_status_cancelled.pk)
+        self.assertEqual(foreign_request.status_id, self.request_status_open.pk)
+
+    def test_bulk_complete_tasks(self):
+        first = models.Task.objects.create(
+            title='Bulk task 1',
+            task_type='call',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+        second = models.Task.objects.create(
+            title='Bulk task 2',
+            task_type='documents',
+            status=self.task_status_waiting,
+            assignee=self.employee,
+            created_by=self.employee,
+        )
+
+        response = self.api.post(
+            '/api/tasks/bulk-action/',
+            {
+                'ids': [first.pk, second.pk],
+                'action': 'complete',
+                'result': 'Closed in bulk',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['processed'], 2)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status_id, self.task_status_done.pk)
+        self.assertEqual(second.status_id, self.task_status_done.pk)
+        self.assertTrue(first.completed_at)
+        self.assertTrue(second.completed_at)
+
+
+class DjangoAdminAccessTests(TestCase):
+    def setUp(self):
+        self.admin_role = models.UserRole.objects.create(
+            code='admin',
+            name='Администратор',
+        )
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Менеджер',
+        )
+
+        self.admin_user = models.User.objects.create_user(
+            username='django-admin-role',
+            email='django-admin@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.admin_role,
+            is_staff=True,
+        )
+        self.manager_user = models.User.objects.create_user(
+            username='django-manager-role',
+            email='django-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.manager_role,
+            is_staff=True,
+        )
+
+    def test_admin_role_user_can_open_django_admin_index_and_models(self):
+        self.client.force_login(self.admin_user)
+
+        index_response = self.client.get('/admin/')
+        users_response = self.client.get('/admin/key/user/')
+
+        self.assertEqual(index_response.status_code, 200)
+        self.assertEqual(users_response.status_code, 200)
+
+    def test_manager_role_user_is_blocked_from_django_admin(self):
+        self.client.force_login(self.manager_user)
+
+        index_response = self.client.get('/admin/')
+        users_response = self.client.get('/admin/key/user/')
+
+        self.assertEqual(index_response.status_code, 302)
+        self.assertEqual(users_response.status_code, 302)
+
+
+class SeedDataCommandTests(TestCase):
+    def setUp(self):
+        temp_root = Path(settings.BASE_DIR) / '.tmp-tests'
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_path = temp_root / f'seed-{uuid4().hex}'
+        self.temp_path.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(self.temp_path, ignore_errors=True))
+        self.override = override_settings(
+            MEDIA_ROOT=self.temp_path / 'media',
+            GAR_ROOT=self.temp_path / 'GAR',
+        )
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+
+    def test_seed_data_default_creates_demo_dataset(self):
+        call_command('seed_data', stdout=io.StringIO())
+
+        self.assertTrue(models.User.objects.filter(username='demo_admin').exists())
+        self.assertEqual(
+            models.Property.objects.filter(title__startswith='[DEMO]').count(),
+            5,
+        )
+        self.assertEqual(models.Request.objects.count(), 5)
+        self.assertEqual(models.Task.objects.count(), 5)
+        self.assertEqual(models.OperationType.objects.count(), 2)
+
+    def test_seed_data_can_import_gar_fixture(self):
+        self._write_gar_fixture()
+
+        call_command(
+            'seed_data',
+            '--only',
+            'gar',
+            '--gar-region',
+            '38',
+            '--gar-limit',
+            '1',
+            stdout=io.StringIO(),
+        )
+
+        property_obj = models.Property.objects.get(title__startswith='[GAR]')
+        address = property_obj.address
+        self.assertEqual(address.house.street.city.name, 'Иркутск')
+        self.assertEqual(address.house.street.name, 'Ленина')
+        self.assertEqual(address.house.house_number, '10')
+        self.assertEqual(address.apartment_number, '5')
+        self.assertEqual(property_obj.operation_type.code, 'sale')
+
+    def test_seed_data_can_import_gar_fixture_from_multiple_regions(self):
+        self._write_gar_fixture(
+            region_code='76',
+            city_name='Ярославль',
+            street_name='Свободы',
+        )
+
+        call_command(
+            'seed_data',
+            '--only',
+            'gar',
+            '--gar-region',
+            '38,76',
+            '--gar-limit',
+            '1',
+            stdout=io.StringIO(),
+        )
+
+        property_obj = models.Property.objects.get(title__startswith='[GAR]')
+        address = property_obj.address
+        self.assertEqual(address.house.street.city.name, 'Ярославль')
+        self.assertEqual(address.house.street.name, 'Свободы')
+        self.assertEqual(address.house.house_number, '10')
+        self.assertEqual(address.apartment_number, '5')
+
+    def test_seed_data_without_region_uses_available_regions(self):
+        self._write_gar_fixture(
+            region_code='76',
+            city_name='Ярославль',
+            street_name='Свободы',
+        )
+
+        stdout = io.StringIO()
+        call_command(
+            'seed_data',
+            '--only',
+            'gar',
+            '--gar-limit',
+            '1',
+            stdout=stdout,
+        )
+
+        property_obj = models.Property.objects.get(title__startswith='[GAR]')
+        address = property_obj.address
+        self.assertEqual(address.house.street.city.name, 'Ярославль')
+        self.assertEqual(address.house.street.name, 'Свободы')
+        self.assertIn('GAR: регионы 76', stdout.getvalue())
+
+    def _write_gar_fixture_legacy(
+        self,
+        *,
+        region_code='38',
+        city_name='РСЂРєСѓС‚СЃРє',
+        street_name='Р›РµРЅРёРЅР°',
+    ):
+        region_dir = self.temp_path / 'GAR' / '38'
+        region_dir.mkdir(parents=True, exist_ok=True)
+
+        city_guid = uuid4()
+        street_guid = uuid4()
+        house_guid = uuid4()
+        apartment_guid = uuid4()
+
+        (region_dir / 'AS_ADDR_OBJ_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<ADDRESSOBJECTS>'
+                f'<OBJECT OBJECTID="100" OBJECTGUID="{city_guid}" NAME="Иркутск" '
+                'TYPENAME="г" LEVEL="6" ISACTUAL="1" ISACTIVE="1" />'
+                f'<OBJECT OBJECTID="200" OBJECTGUID="{street_guid}" NAME="Ленина" '
+                'TYPENAME="ул" LEVEL="8" ISACTUAL="1" ISACTIVE="1" />'
+                '</ADDRESSOBJECTS>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_ADM_HIERARCHY_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<ITEMS>'
+                '<ITEM OBJECTID="200" PARENTOBJID="100" ISACTIVE="1" />'
+                '<ITEM OBJECTID="300" PARENTOBJID="200" ISACTIVE="1" />'
+                '<ITEM OBJECTID="400" PARENTOBJID="300" ISACTIVE="1" />'
+                '</ITEMS>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_HOUSES_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<HOUSES>'
+                f'<HOUSE OBJECTID="300" OBJECTGUID="{house_guid}" HOUSENUM="10" '
+                'ISACTUAL="1" ISACTIVE="1" />'
+                '</HOUSES>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_APARTMENTS_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<APARTMENTS>'
+                f'<APARTMENT OBJECTID="400" OBJECTGUID="{apartment_guid}" NUMBER="5" '
+                'ISACTUAL="1" ISACTIVE="1" />'
+                '</APARTMENTS>'
+            ),
+            encoding='utf-8',
+        )
+
+    def _write_gar_fixture(
+        self,
+        *,
+        region_code='38',
+        city_name='Иркутск',
+        street_name='Ленина',
+    ):
+        region_dir = self.temp_path / 'GAR' / str(region_code)
+        region_dir.mkdir(parents=True, exist_ok=True)
+
+        city_guid = uuid4()
+        street_guid = uuid4()
+        house_guid = uuid4()
+        apartment_guid = uuid4()
+
+        (region_dir / 'AS_ADDR_OBJ_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<ADDRESSOBJECTS>'
+                f'<OBJECT OBJECTID="100" OBJECTGUID="{city_guid}" NAME="{city_name}" '
+                'TYPENAME="г" LEVEL="6" ISACTUAL="1" ISACTIVE="1" />'
+                f'<OBJECT OBJECTID="200" OBJECTGUID="{street_guid}" NAME="{street_name}" '
+                'TYPENAME="ул" LEVEL="8" ISACTUAL="1" ISACTIVE="1" />'
+                '</ADDRESSOBJECTS>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_ADDR_OBJ_PARAMS_fixture.XML').write_text(
+            '<?xml version="1.0" encoding="utf-8"?><PARAMS />',
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_ADM_HIERARCHY_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<ITEMS>'
+                '<ITEM OBJECTID="200" PARENTOBJID="100" ISACTIVE="1" />'
+                '<ITEM OBJECTID="300" PARENTOBJID="200" ISACTIVE="1" />'
+                '<ITEM OBJECTID="400" PARENTOBJID="300" ISACTIVE="1" />'
+                '</ITEMS>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_HOUSES_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<HOUSES>'
+                f'<HOUSE OBJECTID="300" OBJECTGUID="{house_guid}" HOUSENUM="10" '
+                'ISACTUAL="1" ISACTIVE="1" />'
+                '</HOUSES>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_HOUSES_PARAMS_fixture.XML').write_text(
+            '<?xml version="1.0" encoding="utf-8"?><PARAMS />',
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_APARTMENTS_fixture.XML').write_text(
+            (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<APARTMENTS>'
+                f'<APARTMENT OBJECTID="400" OBJECTGUID="{apartment_guid}" NUMBER="5" '
+                'ISACTUAL="1" ISACTIVE="1" />'
+                '</APARTMENTS>'
+            ),
+            encoding='utf-8',
+        )
+        (region_dir / 'AS_APARTMENTS_PARAMS_fixture.XML').write_text(
+            '<?xml version="1.0" encoding="utf-8"?><PARAMS />',
+            encoding='utf-8',
+        )
+
+
+class RunserverWorkerCommandTests(TestCase):
+    @patch('key.management.commands.runserver.subprocess.Popen')
+    def test_start_background_worker_uses_process_background_jobs_command(self, popen_mock):
+        from .management.commands.runserver import Command as RunserverCommand
+
+        process = Mock(pid=321)
+        process.poll.return_value = None
+        popen_mock.return_value = process
+
+        command = RunserverCommand()
+        worker = command._start_background_worker({
+            'worker_limit': 7,
+            'worker_sleep': 1.5,
+        })
+
+        self.assertIs(worker, process)
+        started_command = popen_mock.call_args.args[0]
+        self.assertEqual(started_command[0], sys.executable)
+        self.assertEqual(started_command[2], 'process_background_jobs')
+        self.assertIn('--loop', started_command)
+        self.assertIn('7', started_command)
+        self.assertIn('1.5', started_command)
+
+    def test_should_start_worker_only_in_reloader_main_process(self):
+        from .management.commands.runserver import Command as RunserverCommand
+
+        command = RunserverCommand()
+        with patch.dict('os.environ', {'RUN_MAIN': 'true'}, clear=False):
+            self.assertTrue(command._should_start_worker({
+                'without_worker': False,
+                'use_reloader': True,
+            }))
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertFalse(command._should_start_worker({
+                'without_worker': False,
+                'use_reloader': True,
+            }))
+        self.assertTrue(command._should_start_worker({
+            'without_worker': False,
+            'use_reloader': False,
+        }))
+        self.assertFalse(command._should_start_worker({
+            'without_worker': True,
+            'use_reloader': False,
+        }))

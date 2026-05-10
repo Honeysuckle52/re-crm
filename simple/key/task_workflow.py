@@ -6,39 +6,15 @@ from dataclasses import dataclass
 from rest_framework.exceptions import ValidationError
 
 from . import models
+from . import process_versions
 
-MATCH_TASK_TYPES = {'property_search', 'showing'}
+MATCH_TASK_TYPES = process_versions.MATCH_TASK_TYPES
 
 CONTACT_STEP = 'contact'
 REQUEST_STEP = 'request'
 MATCH_STEP = 'match'
 COMPLETE_STEP = 'complete'
 COMPLETED_LOG_STEP = 'completed'
-
-STEP_LABELS = {
-    CONTACT_STEP: 'Контакт с клиентом',
-    REQUEST_STEP: 'Заявка',
-    MATCH_STEP: 'Подбор/выполнение',
-    COMPLETE_STEP: 'Завершение',
-}
-
-STEP_OUTCOMES = {
-    CONTACT_STEP: {
-        'called': 'позвонил',
-        'messaged': 'написал',
-        'missed': 'не дозвонился',
-    },
-    REQUEST_STEP: {
-        'created': 'создана новая заявка',
-        'linked': 'связана с существующей заявкой',
-        'exists': 'использована активная заявка клиента',
-    },
-    MATCH_STEP: {
-        'proposed': 'предложил варианты',
-        'showing_scheduled': 'назначил показ',
-        'confirmed': 'клиент подтвердил вариант',
-    },
-}
 
 
 @dataclass(frozen=True)
@@ -48,40 +24,32 @@ class WorkflowStepSpec:
     outcome_labels: dict[str, str]
 
 
-CONTACT_SPEC = WorkflowStepSpec(
-    id=CONTACT_STEP,
-    label=STEP_LABELS[CONTACT_STEP],
-    outcome_labels=STEP_OUTCOMES[CONTACT_STEP],
-)
-REQUEST_SPEC = WorkflowStepSpec(
-    id=REQUEST_STEP,
-    label=STEP_LABELS[REQUEST_STEP],
-    outcome_labels=STEP_OUTCOMES[REQUEST_STEP],
-)
-MATCH_SPEC = WorkflowStepSpec(
-    id=MATCH_STEP,
-    label=STEP_LABELS[MATCH_STEP],
-    outcome_labels=STEP_OUTCOMES[MATCH_STEP],
-)
-COMPLETE_SPEC = WorkflowStepSpec(
-    id=COMPLETE_STEP,
-    label=STEP_LABELS[COMPLETE_STEP],
-    outcome_labels={},
-)
-
-
 def _normalize_step_id(step: str | None) -> str:
     if step == COMPLETED_LOG_STEP:
         return COMPLETE_STEP
     return (step or '').strip()
 
 
+def _schema_step_to_spec(step: dict) -> WorkflowStepSpec:
+    outcomes = {}
+    for outcome in step.get('outcomes') or []:
+        code = (outcome.get('code') or '').strip()
+        if not code:
+            continue
+        outcomes[code] = outcome.get('label') or code
+    return WorkflowStepSpec(
+        id=step.get('id') or '',
+        label=step.get('label') or step.get('id') or 'Шаг',
+        outcome_labels=outcomes,
+    )
+
+
 def _step_specs_for_task(task: models.Task) -> tuple[WorkflowStepSpec, ...]:
-    specs = [CONTACT_SPEC, REQUEST_SPEC]
-    if task.task_type in MATCH_TASK_TYPES:
-        specs.append(MATCH_SPEC)
-    specs.append(COMPLETE_SPEC)
-    return tuple(specs)
+    return tuple(
+        _schema_step_to_spec(step)
+        for step in process_versions.task_schema(task)
+        if step.get('id')
+    )
 
 
 def _recordable_step_specs(task: models.Task) -> tuple[WorkflowStepSpec, ...]:
@@ -95,7 +63,7 @@ def recorded_step_ids(task: models.Task) -> set[str]:
     step_ids: set[str] = set()
     for entry in task.steps_log or []:
         normalized = _normalize_step_id(entry.get('step'))
-        if normalized in STEP_LABELS:
+        if any(spec.id == normalized for spec in _step_specs_for_task(task)):
             step_ids.add(normalized)
     if task.is_terminal:
         step_ids.add(COMPLETE_STEP)
@@ -103,6 +71,8 @@ def recorded_step_ids(task: models.Task) -> set[str]:
 
 
 def current_step_id(task: models.Task) -> str:
+    if task.is_terminal:
+        return COMPLETE_STEP
     done_ids = recorded_step_ids(task)
     for spec in _step_specs_for_task(task):
         if spec.id not in done_ids:

@@ -6,6 +6,12 @@ import time
 from django.core.management.base import BaseCommand
 
 from ... import deals_service, mailing
+from ..background_worker import (
+    DEFAULT_WORKER_LIMIT,
+    DEFAULT_WORKER_SLEEP,
+    normalize_worker_limit,
+    normalize_worker_sleep,
+)
 
 
 class Command(BaseCommand):
@@ -15,7 +21,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--limit',
             type=int,
-            default=10,
+            default=DEFAULT_WORKER_LIMIT,
             help='Сколько писем и договоров забирать за один цикл.',
         )
         parser.add_argument(
@@ -26,14 +32,14 @@ class Command(BaseCommand):
         parser.add_argument(
             '--sleep',
             type=float,
-            default=2.0,
+            default=DEFAULT_WORKER_SLEEP,
             help='Пауза между циклами в режиме --loop, если очередь пуста.',
         )
 
     def handle(self, *args, **options):
-        limit = max(int(options['limit'] or 0), 1)
+        limit = normalize_worker_limit(options['limit'])
         loop = bool(options['loop'])
-        sleep_seconds = max(float(options['sleep'] or 0), 0.1)
+        sleep_seconds = normalize_worker_sleep(options['sleep'])
 
         while True:
             email_summary = mailing.process_email_queue(limit=limit)
@@ -58,4 +64,3 @@ class Command(BaseCommand):
                 break
             if processed_total == 0:
                 time.sleep(sleep_seconds)
-

@@ -24,6 +24,15 @@ export const requestCloseOutcomes = [
 export const activeRequestStatusCodes = ['open', 'processing']
 export const terminalRequestStatusCodes = ['completed', 'cancelled', 'rejected', 'lost']
 
+export function isTerminalRequestStatus (statusCode) {
+  return terminalRequestStatusCodes.includes(statusCode)
+}
+
+export function canTakeRequest (request) {
+  if (!request) return false
+  return !request.agent && !isTerminalRequestStatus(request.status_code)
+}
+
 export function getRequestCloseSuccessMessage ({ outcome, data, requestId = null }) {
   const requestLabel = requestId ? ` #${requestId}` : ''
   if (outcome === 'completed' && data?.deal?.deal_number) {

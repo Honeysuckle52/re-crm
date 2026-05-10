@@ -4,6 +4,19 @@
       Показано {{ rangeStart }}–{{ rangeEnd }} из {{ count }} {{ label }}
     </div>
     <div class="list-pagination__controls">
+      <label class="list-pagination__size">
+        <span>На странице</span>
+        <select
+          class="select select--sm"
+          :value="pageSize"
+          :disabled="disabled"
+          @change="$emit('change-page-size', Number($event.target.value))"
+        >
+          <option v-for="size in pageSizeOptions" :key="size" :value="size">
+            {{ size }}
+          </option>
+        </select>
+      </label>
       <button
         type="button"
         class="btn btn--sm"
@@ -29,7 +42,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { DEFAULT_PAGE_SIZE } from '@/utils/paginated'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/utils/paginated'
 
 const props = defineProps({
   count: {
@@ -56,9 +69,13 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  pageSizeOptions: {
+    type: Array,
+    default: () => PAGE_SIZE_OPTIONS,
+  },
 })
 
-defineEmits(['change'])
+defineEmits(['change', 'change-page-size'])
 
 const totalPages = computed(() => Math.max(1, Math.ceil(props.count / props.pageSize)))
 const rangeStart = computed(() => (
@@ -88,6 +105,19 @@ const rangeEnd = computed(() => (
   flex-wrap: wrap;
 }
 
+.list-pagination__size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.list-pagination__size .select {
+  min-width: 92px;
+}
+
 .list-pagination__page {
   min-width: 132px;
   text-align: center;
@@ -102,6 +132,11 @@ const rangeEnd = computed(() => (
   }
 
   .list-pagination__controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .list-pagination__size {
     width: 100%;
     justify-content: space-between;
   }

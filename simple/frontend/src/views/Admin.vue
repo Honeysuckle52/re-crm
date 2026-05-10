@@ -1,15 +1,14 @@
 <template>
-  <section v-if="auth.isManager" class="stack">
+  <section v-if="isManagerPanel" class="stack">
     <div class="hero admin-hero">
       <div class="row row--between admin-hero__row" style="flex-wrap: wrap; gap: 12px">
         <div>
-          <div class="hero__eyebrow">АДМИНИСТРИРОВАНИЕ</div>
-          <h1 class="h2" style="color: #fff; margin-top: 8px">
-            Панель администратора
-          </h1>
-          <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
-            Управление сотрудниками, ролями и справочниками системы.
-            Доступ разрешён только администраторам и менеджерам.
+          <div class="hero__eyebrow">МОДЕРАТОРСКАЯ ПАНЕЛЬ</div>
+          <h1 class="h2 admin-hero__title">Панель управления</h1>
+          <div class="admin-hero__text">
+            Для менеджера здесь оставлен быстрый доступ к пользователям и отчётам.
+            Системные настройки, справочники, шаблоны, версии процессов и аудит
+            перенесены в Django admin для администратора.
           </div>
         </div>
         <div class="admin-role-badge">
@@ -20,39 +19,73 @@
       </div>
     </div>
 
-    <div class="grid grid--2">
+    <div class="grid grid--2 admin-grid">
       <div class="panel panel--light admin-panel">
-        <div class="row row--between">
-          <span class="tag tag--accent">Пользователи</span>
-          <span class="muted">всего: {{ counters.total }}</span>
+        <div class="surface-head admin-section-head">
+          <div>
+            <div class="surface-head__meta">Пользователи</div>
+            <h2 class="h2">Клиенты и сотрудники</h2>
+          </div>
+          <span class="surface-head__caption">всего: {{ counters.total }}</span>
         </div>
-        <h2 class="h2" style="margin-top: 8px">Назначение должностей</h2>
-        <p class="muted" style="margin: 4px 0 12px">
-          Открывает полный список пользователей с возможностью менять тип
-          учётной записи и должность.
+        <p class="muted admin-panel__text">
+          Просмотр списка пользователей, назначение ролей и переход в полную
+          карточку сотрудников и клиентов.
         </p>
-        <div class="row" style="gap: 8px">
-          <button class="btn btn--primary" @click="openAssign()">
-            Назначить должность
-          </button>
+        <div class="admin-stats">
+          <div class="admin-stat">
+            <strong>{{ counters.total }}</strong>
+            <span>в системе</span>
+          </div>
+          <div class="admin-stat">
+            <strong>{{ counters.employees }}</strong>
+            <span>сотрудников</span>
+          </div>
+          <div class="admin-stat">
+            <strong>{{ counters.clients }}</strong>
+            <span>клиентов</span>
+          </div>
+        </div>
+        <div class="row admin-panel__actions" style="gap: 8px; flex-wrap: wrap">
+          <router-link to="/clients" class="btn btn--primary">
+            Открыть пользователей
+          </router-link>
           <router-link to="/clients" class="btn">
-            Открыть список →
+            Роли и назначение
           </router-link>
         </div>
       </div>
 
       <div class="panel admin-panel">
-        <span class="tag tag--panel">Справочник</span>
-        <h2 class="h2" style="color: #fff; margin-top: 8px">
-          Должности сотрудников
-        </h2>
-        <p style="color: rgba(255,255,255,.75); margin: 4px 0 12px">
-          Создавайте и редактируйте роли — администратор, менеджер, агент.
-          Роли управляют правами доступа в системе.
+        <div class="surface-head admin-section-head">
+          <div>
+            <div class="surface-head__meta">Отчёты</div>
+            <h2 class="h2 admin-panel__title">Сводки и выгрузки</h2>
+          </div>
+          <span class="surface-head__caption">CSV / Excel / PDF</span>
+        </div>
+        <p class="admin-panel__text admin-panel__text--light">
+          Отчёты по сделкам и задачам с фильтрами по периоду, статусам и
+          исполнителям. Экспорт доступен прямо из рабочего интерфейса.
         </p>
-        <button class="btn btn--accent" @click="rolesOpen = true">
-          Управлять ролями
-        </button>
+        <div class="admin-report-points">
+          <div class="admin-report-point">
+            <b>Сделки</b>
+            <span>Статусы, суммы, исполнители и итоговые выгрузки.</span>
+          </div>
+          <div class="admin-report-point">
+            <b>Задачи</b>
+            <span>Нагрузка сотрудников, сроки и история исполнения.</span>
+          </div>
+        </div>
+        <div class="row admin-panel__actions" style="gap: 8px; flex-wrap: wrap">
+          <router-link to="/reports" class="btn btn--accent">
+            Открыть отчёты
+          </router-link>
+          <router-link to="/reports" class="btn btn--ghost">
+            Фильтры и экспорт
+          </router-link>
+        </div>
       </div>
     </div>
 
@@ -60,10 +93,12 @@
       <div class="surface-head admin-section-head">
         <div>
           <div class="surface-head__meta">Команда агентства</div>
-          <h2 class="h2">Сотрудники агентства</h2>
+          <h2 class="h2">Сотрудники в системе</h2>
         </div>
         <div class="row" style="gap: 10px; flex-wrap: wrap">
-          <div class="surface-head__caption">Показано: {{ employees.length }} из {{ counters.employees }}</div>
+          <div class="surface-head__caption">
+            показано: {{ employees.length }} из {{ counters.employees }}
+          </div>
           <router-link to="/clients" class="btn btn--sm">Все →</router-link>
         </div>
       </div>
@@ -74,167 +109,78 @@
               <th>Логин</th>
               <th>Почта</th>
               <th>Должность</th>
-              <th></th>
+              <th>Тип</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in employees" :key="u.id">
-              <td><b>{{ u.username }}</b></td>
-              <td>{{ u.email || '—' }}</td>
-              <td>{{ u.role_name || '—' }}</td>
-              <td style="text-align: right">
-                <button class="btn btn--sm" @click="openAssign(u)">
-                  Редактировать
-                </button>
-              </td>
+            <tr v-for="user in employees" :key="user.id">
+              <td><b>{{ user.username }}</b></td>
+              <td>{{ user.email || '—' }}</td>
+              <td>{{ user.role_name || '—' }}</td>
+              <td>{{ user.user_type === 'employee' ? 'Сотрудник' : 'Клиент' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-if="!employees.length" class="empty">Сотрудники ещё не назначены.</div>
+      <div v-if="!employees.length" class="empty">
+        В системе пока нет назначенных сотрудников.
+      </div>
     </div>
+  </section>
 
-    <div v-if="assignOpen" class="modal" @click.self="assignOpen = false">
-      <div class="panel panel--light modal__card stack">
-        <div class="row row--between">
-          <h2 class="h3">Назначение должности</h2>
-          <button class="btn btn--sm" @click="assignOpen = false">×</button>
-        </div>
-        <div v-if="!assignUser" class="field">
-          <label>Поиск пользователя</label>
-          <input
-            class="input"
-            v-model="assignSearch"
-            placeholder="Логин, почта или телефон" />
-        </div>
-        <div v-if="!assignUser" class="field">
-          <label>Пользователь</label>
-          <select class="select" v-model.number="assignUserId">
-            <option :value="null" disabled>— выберите пользователя —</option>
-            <option v-for="u in assignableUsers" :key="u.id" :value="u.id">
-              {{ u.username }} — {{ u.email || 'без почты' }}
-            </option>
-          </select>
-          <div class="muted" style="margin-top: 6px">
-            Найдено: {{ assignableTotal }}
+  <section v-else-if="auth.isAdmin" class="stack">
+    <div class="hero admin-hero">
+      <div class="row row--between admin-hero__row" style="flex-wrap: wrap; gap: 12px">
+        <div>
+          <div class="hero__eyebrow">DJANGO ADMIN</div>
+          <h1 class="h2 admin-hero__title">Системная админ-панель</h1>
+          <div class="admin-hero__text">
+            Для администратора системное управление перенесено в Django admin:
+            справочники, статусы, шаблоны уведомлений, версии процессов,
+            аудит, очередь писем и все ключевые сущности проекта.
           </div>
         </div>
-        <div v-else class="muted">
-          Пользователь <b>{{ assignUser.username }}</b>.
-        </div>
-        <div class="field">
-          <label>Тип учётной записи</label>
-          <select class="select" v-model="assignForm.user_type">
-            <option value="client">Клиент</option>
-            <option value="employee">Сотрудник</option>
-          </select>
-        </div>
-        <div class="field" v-if="assignForm.user_type === 'employee'">
-          <label>Должность</label>
-          <select class="select" v-model.number="assignForm.role_id">
-            <option :value="null">— без должности —</option>
-            <option v-for="r in roles" :key="r.id" :value="r.id">
-              {{ r.name }}
-            </option>
-          </select>
-        </div>
-        <div v-if="assignError" class="error">{{ assignError }}</div>
-        <div class="row" style="justify-content: flex-end; gap: 8px">
-          <button class="btn btn--sm" @click="assignOpen = false">Отмена</button>
-          <button class="btn btn--primary btn--sm"
-                  :disabled="assignLoading || (!assignUser && !assignUserId)"
-                  @click="saveAssign">
-            {{ assignLoading ? 'Сохранение…' : 'Сохранить' }}
-          </button>
+        <div class="admin-role-badge">
+          <span class="tag tag--accent admin-role-pill">
+            {{ auth.roleLabel }}
+          </span>
         </div>
       </div>
     </div>
 
-    <div v-if="rolesOpen" class="modal" @click.self="rolesOpen = false">
-      <div class="panel panel--light modal__card stack">
-        <div class="row row--between">
-          <h2 class="h3">Справочник должностей</h2>
-          <button class="btn btn--sm" @click="rolesOpen = false">×</button>
+    <div class="grid grid--2 admin-grid">
+      <div class="panel panel--light admin-panel">
+        <div class="surface-head admin-section-head">
+          <div>
+            <div class="surface-head__meta">Основная точка входа</div>
+            <h2 class="h2">Открыть Django admin</h2>
+          </div>
         </div>
-        <div class="table-wrap admin-roles-wrap">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Код</th>
-                <th>Название</th>
-                <th>Активные задачи</th>
-                <th>В работе</th>
-                <th>Активные заявки</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in roles" :key="r.id">
-                <td><code>{{ r.code }}</code></td>
-                <td>
-                  <input class="input input--sm"
-                         v-model.trim="r.name"
-                         placeholder="Название роли" />
-                </td>
-                <td>
-                  <input class="input input--sm admin-limit-input"
-                         v-model.number="r.max_active_tasks"
-                         type="number"
-                         min="0" />
-                </td>
-                <td>
-                  <input class="input input--sm admin-limit-input"
-                         v-model.number="r.max_in_progress_tasks"
-                         type="number"
-                         min="0" />
-                </td>
-                <td>
-                  <input class="input input--sm admin-limit-input"
-                         v-model.number="r.max_active_requests"
-                         type="number"
-                         min="0" />
-                </td>
-                <td style="text-align: right">
-                  <button class="btn btn--sm"
-                          :disabled="savingRoleId === r.id"
-                          @click="saveRole(r)">
-                    {{ savingRoleId === r.id ? 'Сохранение…' : 'Сохранить' }}
-                  </button>
-                  <button class="btn btn--sm btn--danger"
-                          @click="removeRole(r)">
-                    Удалить
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <p class="muted admin-panel__text">
+          В системной панели доступны модели, справочники, шаблоны уведомлений,
+          журнал действий, версии процессов и все администраторские операции.
+        </p>
+        <div class="row admin-panel__actions" style="gap: 8px; flex-wrap: wrap">
+          <a href="/admin/" class="btn btn--primary">Перейти в Django admin</a>
+          <router-link to="/reports" class="btn">Открыть отчёты</router-link>
         </div>
-        <form class="row admin-role-form" style="gap: 8px" @submit.prevent="createRole">
-          <input class="input" v-model="newRole.code" placeholder="код (agent)"
-                 style="flex: 0 0 140px" required />
-          <input class="input" v-model="newRole.name" placeholder="название (Агент)"
-                 style="flex: 1" required />
-          <input class="input admin-limit-input"
-                 v-model.number="newRole.max_active_tasks"
-                 type="number"
-                 min="0"
-                 title="Максимум активных задач"
-                 placeholder="акт. задачи" />
-          <input class="input admin-limit-input"
-                 v-model.number="newRole.max_in_progress_tasks"
-                 type="number"
-                 min="0"
-                 title="Максимум задач в работе"
-                 placeholder="в работе" />
-          <input class="input admin-limit-input"
-                 v-model.number="newRole.max_active_requests"
-                 type="number"
-                 min="0"
-                 title="Максимум активных заявок"
-                 placeholder="заявки" />
-          <button class="btn btn--accent btn--sm" type="submit">Добавить</button>
-        </form>
-        <div v-if="rolesError" class="error">{{ rolesError }}</div>
+      </div>
+
+      <div class="panel admin-panel">
+        <div class="surface-head admin-section-head">
+          <div>
+            <div class="surface-head__meta">Операционный контур</div>
+            <h2 class="h2 admin-panel__title">Рабочие страницы</h2>
+          </div>
+        </div>
+        <p class="admin-panel__text admin-panel__text--light">
+          Пользователи и отчёты остаются в основном интерфейсе CRM, чтобы
+          административный и операционный контуры не смешивались.
+        </p>
+        <div class="row admin-panel__actions" style="gap: 8px; flex-wrap: wrap">
+          <router-link to="/clients" class="btn btn--ghost">Пользователи</router-link>
+          <router-link to="/reports" class="btn btn--ghost">Отчёты</router-link>
+        </div>
       </div>
     </div>
   </section>
@@ -242,211 +188,61 @@
   <section v-else class="panel panel--light empty">
     <h2 class="h2">Доступ ограничен</h2>
     <p class="muted">
-      Этот раздел доступен только администраторам и менеджерам агентства.
+      Этот раздел доступен только менеджерам и администраторам агентства.
     </p>
     <router-link to="/" class="btn">На главную</router-link>
   </section>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import api from '../api'
 import { useAuthStore } from '../store/auth'
-import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
 const employees = ref([])
-const assignableUsers = ref([])
-const assignableTotal = ref(0)
-const roles = ref([])
 
 const counters = reactive({
   total: 0,
   employees: 0,
   clients: 0,
-  superusers: 0,
 })
 
-const assignOpen = ref(false)
-const assignUser = ref(null)
-const assignUserId = ref(null)
-const assignLoading = ref(false)
-const assignError = ref('')
-const assignSearch = ref('')
-const assignForm = reactive({ user_type: 'client', role_id: null })
+const isManagerPanel = computed(() => auth.isManager && !auth.isAdmin)
 
-function openAssign (u) {
-  assignUser.value = u || null
-  assignUserId.value = u?.id ?? null
-  assignForm.user_type = u?.user_type || 'client'
-  assignForm.role_id = u?.role ?? null
-  assignSearch.value = ''
-  assignError.value = ''
-  assignOpen.value = true
-  if (!u) {
-    loadAssignableUsers()
-  }
-}
-
-async function saveAssign () {
-  assignLoading.value = true
-  assignError.value = ''
-  try {
-    const id = assignUser.value?.id || assignUserId.value
-    await api.post(`/users/${id}/assign_role/`, {
-      user_type: assignForm.user_type,
-      role_id: assignForm.user_type === 'employee'
-        ? assignForm.role_id : null,
-    })
-    assignOpen.value = false
-    await Promise.all([
-      loadPreviewEmployees(),
-      loadAssignableUsers(),
-      loadCounters(),
-    ])
-  } catch (e) {
-    assignError.value = e.response?.data?.detail
-      || 'Не удалось сохранить. Проверьте права доступа.'
-  } finally {
-    assignLoading.value = false
-  }
-}
-
-const rolesOpen = ref(false)
-const rolesError = ref('')
-const savingRoleId = ref(null)
-const newRole = reactive({
-  code: '',
-  name: '',
-  max_active_tasks: 2,
-  max_in_progress_tasks: 1,
-  max_active_requests: 2,
-})
-
-async function createRole () {
-  rolesError.value = ''
-  try {
-    await api.post('/user-roles/', {
-      code: newRole.code,
-      name: newRole.name,
-      max_active_tasks: newRole.max_active_tasks,
-      max_in_progress_tasks: newRole.max_in_progress_tasks,
-      max_active_requests: newRole.max_active_requests,
-    })
-    newRole.code = ''
-    newRole.name = ''
-    newRole.max_active_tasks = 2
-    newRole.max_in_progress_tasks = 1
-    newRole.max_active_requests = 2
-    await loadRoles()
-  } catch (e) {
-    rolesError.value = e.response?.data
-      ? Object.values(e.response.data).flat().join(' ')
-      : 'Не удалось создать роль.'
-  }
-}
-
-async function saveRole (role) {
-  savingRoleId.value = role.id
-  rolesError.value = ''
-  try {
-    await api.patch(`/user-roles/${role.id}/`, {
-      name: role.name,
-      max_active_tasks: role.max_active_tasks,
-      max_in_progress_tasks: role.max_in_progress_tasks,
-      max_active_requests: role.max_active_requests,
-    })
-    await loadRoles()
-  } catch (e) {
-    rolesError.value = e.response?.data
-      ? Object.values(e.response.data).flat().join(' ')
-      : 'Не удалось сохранить лимиты роли.'
-  } finally {
-    savingRoleId.value = null
-  }
-}
-
-async function removeRole (r) {
-  if (!confirm(`Удалить должность «${r.name}»?`)) return
-  try {
-    await api.delete(`/user-roles/${r.id}/`)
-    await loadRoles()
-  } catch (e) {
-    rolesError.value = e.response?.data?.detail
-      || 'Не удалось удалить.'
-  }
-}
-
-async function fetchUserCount (params = {}) {
+async function fetchUserCount(params = {}) {
   const { data } = await api.get('/users/', {
     params: { page: 1, page_size: 1, ...params },
   })
   return Number(data?.count ?? (data?.results || data || []).length)
 }
 
-async function loadCounters () {
-  const [total, employeesCount, clientsCount, superusersCount] = await Promise.all([
+async function loadCounters() {
+  const [total, employeesCount, clientsCount] = await Promise.all([
     fetchUserCount(),
     fetchUserCount({ user_type: 'employee' }),
     fetchUserCount({ user_type: 'client' }),
-    fetchUserCount({ is_superuser: true }),
   ])
   counters.total = total
   counters.employees = employeesCount
   counters.clients = clientsCount
-  counters.superusers = superusersCount
 }
 
-async function loadPreviewEmployees () {
+async function loadPreviewEmployees() {
   const { data } = await api.get('/users/', {
     params: { user_type: 'employee', page: 1, page_size: 8 },
   })
-  const payload = unpackPaginated(data)
-  employees.value = payload.items
+  employees.value = data?.results || data || []
 }
-
-async function loadAssignableUsers () {
-  const params = { page: 1, page_size: LOOKUP_PAGE_SIZE }
-  if (assignSearch.value.trim()) params.search = assignSearch.value.trim()
-  const { data } = await api.get('/users/', { params })
-  const payload = unpackPaginated(data)
-  assignableUsers.value = payload.items
-  assignableTotal.value = payload.count
-}
-async function loadRoles () {
-  try {
-    const { data } = await api.get('/user-roles/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    })
-    roles.value = unpackPaginated(data).items
-  } catch {
-    roles.value = []
-  }
-}
-
-let assignSearchTimer = null
-
-watch(assignSearch, () => {
-  if (!assignOpen.value || assignUser.value) return
-  if (assignSearchTimer) clearTimeout(assignSearchTimer)
-  assignSearchTimer = setTimeout(() => {
-    loadAssignableUsers()
-  }, 250)
-})
-
-onBeforeUnmount(() => {
-  if (assignSearchTimer) clearTimeout(assignSearchTimer)
-})
 
 onMounted(async () => {
-  await Promise.all([loadPreviewEmployees(), loadRoles(), loadCounters()])
+  if (!isManagerPanel.value) return
+  await Promise.all([loadCounters(), loadPreviewEmployees()])
 })
 </script>
 
 <style scoped>
 .admin-hero {
-  position: relative;
-  overflow: visible;
   background:
     linear-gradient(135deg, rgba(22, 88, 84, 0.92), rgba(18, 56, 53, 0.82)),
     radial-gradient(circle at top right, rgba(99, 208, 197, 0.12), transparent 24%);
@@ -457,12 +253,23 @@ onMounted(async () => {
   align-items: flex-start;
 }
 
+.admin-hero__title {
+  color: #fff;
+  margin-top: 8px;
+}
+
+.admin-hero__text {
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 14px;
+  max-width: 760px;
+  line-height: 1.6;
+}
+
 .admin-role-badge {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
   margin-left: auto;
 }
 
@@ -471,67 +278,93 @@ onMounted(async () => {
   padding: 6px 14px;
 }
 
+.admin-grid {
+  align-items: stretch;
+}
+
 .admin-panel {
-  min-height: 180px;
   display: flex;
   flex-direction: column;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  min-height: 100%;
 }
 
-.admin-panel > .tag {
-  align-self: flex-start;
-  width: fit-content;
-  max-width: 100%;
+.admin-panel__title {
+  color: #fff;
 }
 
-.admin-panel:hover {
-  transform: translateY(-5px);
-  box-shadow: var(--shadow-glow);
+.admin-panel__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
-.modal {
-  z-index: 80;
+.admin-panel__text--light {
+  color: rgba(255, 255, 255, 0.82);
 }
 
-.modal__card {
-  width: 100%;
-  max-width: 560px;
-  max-height: calc(100vh - 32px);
-  overflow: auto;
+.admin-panel__actions {
+  margin-top: auto;
 }
 
 .admin-section-head {
   margin-bottom: 14px;
 }
 
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.admin-stat {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+}
+
+.admin-stat strong {
+  font-size: 24px;
+  line-height: 1;
+  color: var(--c-text-dark);
+}
+
+.admin-stat span {
+  color: rgba(21, 56, 57, 0.78);
+  font-size: 13px;
+}
+
+.admin-report-points {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.admin-report-point {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(120, 216, 206, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.admin-report-point b {
+  color: #fff;
+  font-size: 14px;
+}
+
+.admin-report-point span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .admin-table-wrap .table {
   min-width: 720px;
-}
-
-.admin-roles-wrap .table {
-  min-width: 920px;
-}
-
-.admin-role-form {
-  flex-wrap: wrap;
-}
-
-.admin-limit-input {
-  width: 108px;
-  min-width: 108px;
-  text-align: center;
-}
-
-code {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
-  border: 1px solid rgba(99, 208, 197, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: #effffd;
-  font-size: 12px;
 }
 
 @media (max-width: 960px) {
@@ -540,8 +373,8 @@ code {
     margin-left: 0;
   }
 
-  .admin-panel {
-    min-height: auto;
+  .admin-stats {
+    grid-template-columns: 1fr;
   }
 }
 </style>

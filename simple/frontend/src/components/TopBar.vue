@@ -6,10 +6,9 @@
       <router-link to="/requests">Заявки</router-link>
       <router-link v-if="canSeeTasks" to="/tasks">Задачи</router-link>
       <router-link v-if="canSeeDeals" to="/deals">Сделки</router-link>
-      <router-link v-if="canSeeClients" to="/clients">Пользователи</router-link>
-      <router-link v-if="canSeeAdmin" to="/admin" class="topbar__nav-admin">
+      <a v-if="canSeeAdmin" :href="adminPanelHref" class="topbar__nav-admin">
         Админ-панель
-      </router-link>
+      </a>
       <router-link to="/account">Аккаунт</router-link>
     </nav>
     <div class="topbar__user">
@@ -32,10 +31,10 @@ const auth = useAuthStore()
 const router = useRouter()
 const initial = computed(() => (auth.displayName?.[0] || '?').toUpperCase())
 
-const canSeeClients = computed(() => auth.isStaff)
-const canSeeDeals   = computed(() => auth.isStaff)
-const canSeeTasks   = computed(() => auth.isStaff)
-const canSeeAdmin   = computed(() => auth.isManager)
+const canSeeDeals = computed(() => auth.isStaff)
+const canSeeTasks = computed(() => auth.isStaff)
+const canSeeAdmin = computed(() => auth.isManager)
+const adminPanelHref = computed(() => (auth.isAdmin ? '/admin/' : '/admin'))
 
 async function logout() {
   await auth.logout()

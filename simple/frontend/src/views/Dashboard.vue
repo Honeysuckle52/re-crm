@@ -16,9 +16,9 @@
         <router-link to="/properties" class="btn btn--ghost">
           Каталог объектов
         </router-link>
-        <router-link v-if="auth.isManager" to="/admin" class="btn btn--primary">
+        <a v-if="auth.isManager" :href="adminPanelHref" class="btn btn--primary">
           Админ-панель
-        </router-link>
+        </a>
       </div>
       <div class="hero__callout">
         <h3>Текущий рабочий фокус</h3>
@@ -105,6 +105,7 @@ import { computed } from 'vue'
 import { useAuthStore } from '../store/auth'
 
 const auth = useAuthStore()
+const adminPanelHref = computed(() => (auth.isAdmin ? '/admin/' : '/admin'))
 
 const showcaseCards = [
   {

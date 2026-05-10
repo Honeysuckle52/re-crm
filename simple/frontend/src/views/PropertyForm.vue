@@ -140,7 +140,7 @@
         </label>
         <span v-if="!dict.features.length" class="muted">
           Справочник характеристик пуст. Запустите команду
-          <code>seed_dictionaries</code>.
+          <code>seed_data --only dictionaries</code>.
         </span>
       </div>
 
@@ -221,21 +221,29 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
+import { useDraftPersistence } from '../composables/useDraftPersistence'
+import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
+import { extractError, useToastsStore } from '../store/toasts'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const route = useRoute()
 const router = useRouter()
+const toasts = useToastsStore()
 const isEdit = computed(() => !!route.params.id)
 
-const form = reactive({
-  title: '', operation_type: 1, status: 1,
-  address: null,
-  price: null, price_per_sqm: null,
-  area_total: null, area_living: null, area_kitchen: null,
-  rooms_count: null, floor_number: null, total_floors: null,
-  description: '',
-  feature_ids: [],
-})
+function defaultForm() {
+  return {
+    title: '', operation_type: 1, status: 1,
+    address: null,
+    price: null, price_per_sqm: null,
+    area_total: null, area_living: null, area_kitchen: null,
+    rooms_count: null, floor_number: null, total_floors: null,
+    description: '',
+    feature_ids: [],
+  }
+}
+
+const form = reactive(defaultForm())
 
 const dict = reactive({ operations: [], features: [] })
 const addressQuery = ref('')
@@ -247,6 +255,8 @@ const removedPhotoIds = ref([])
 const newPhotoUrl = ref('')
 const loading = ref(false)
 const error = ref('')
+const propertyBaseline = ref('')
+const propertyDraftRestored = ref(false)
 
 const formModeLabel = computed(() => (
   isEdit.value ? 'Редактирование' : 'Создание'
@@ -259,6 +269,8 @@ const addressStateLabel = computed(() => {
 const selectedFeaturesCount = computed(() => form.feature_ids.length)
 const photoCount = computed(() => photos.value.length)
 const coverCount = computed(() => photos.value.filter((photo) => photo.is_cover).length)
+const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
+const isPropertyDirty = computed(() => propertyDirtySnapshot.value !== propertyBaseline.value)
 
 function onAddressPick(r) {
   addressPicked.value = r
@@ -298,6 +310,93 @@ function removePhoto(p, index) {
   revokePreview(p)
   photos.value.splice(index, 1)
 }
+
+function buildPropertyDraftData() {
+  return {
+    form: { ...form },
+    addressQuery: addressQuery.value,
+    addressPicked: addressPicked.value,
+    newPhotoUrl: newPhotoUrl.value,
+    photoUrls: photos.value
+      .filter((photo) => photo._new && photo._fromUrl && photo.url)
+      .map((photo) => ({
+        url: photo.url,
+        is_cover: !!photo.is_cover,
+      })),
+  }
+}
+
+function buildPropertyDirtyState() {
+  return {
+    ...buildPropertyDraftData(),
+    photos: photos.value.map((photo) => ({
+      id: photo.id ?? null,
+      url: photo.url || photo.image_url || null,
+      is_cover: !!photo.is_cover,
+      is_new: !!photo._new,
+      file_name: photo.file?.name || null,
+      file_size: photo.file?.size || null,
+    })),
+    removedPhotoIds: [...removedPhotoIds.value],
+  }
+}
+
+function isPropertyDraftEmpty(draft) {
+  const formData = draft?.form || {}
+  const hasFormValue = Object.entries(formData)
+    .filter(([key]) => !['operation_type', 'status', 'address'].includes(key))
+    .some(([, value]) => {
+      if (Array.isArray(value)) return value.length > 0
+      return value !== '' && value !== null && value !== undefined
+    })
+
+  return !(
+    hasFormValue
+    || !!draft?.addressQuery
+    || !!draft?.addressPicked
+    || !!draft?.newPhotoUrl
+    || (draft?.photoUrls || []).length
+  )
+}
+
+function applyPropertyDraft(draft) {
+  Object.assign(form, defaultForm(), draft?.form || {})
+  addressQuery.value = draft?.addressQuery || ''
+  addressPicked.value = draft?.addressPicked || null
+  newPhotoUrl.value = draft?.newPhotoUrl || ''
+  photos.value.forEach(revokePreview)
+  photos.value = (draft?.photoUrls || []).map((photo) => ({
+    url: photo.url,
+    image_url: photo.url,
+    is_cover: !!photo.is_cover,
+    _new: true,
+    _fromUrl: true,
+  }))
+  pendingFiles.value = []
+  removedPhotoIds.value = []
+}
+
+function syncPropertyBaseline() {
+  propertyBaseline.value = propertyDirtySnapshot.value
+}
+
+const { clearDraft: clearPropertyDraft } = useDraftPersistence({
+  key: 'property-form:create',
+  enabled: () => !isEdit.value,
+  getData: buildPropertyDraftData,
+  applyData: (draft) => {
+    propertyDraftRestored.value = true
+    applyPropertyDraft(draft)
+    toasts.info('Черновик объекта восстановлен')
+  },
+  isEmpty: isPropertyDraftEmpty,
+})
+
+useUnsavedChangesGuard({
+  enabled: () => isPropertyDirty.value,
+  isDirty: () => isPropertyDirty.value,
+  message: 'Есть несохранённые изменения в карточке объекта. Покинуть страницу?',
+})
 
 async function uploadPhotos(propertyId) {
   for (const p of pendingFiles.value) {
@@ -361,9 +460,11 @@ async function submit() {
     const { data } = await api[method](url, payload)
 
     await uploadPhotos(data.id)
-
+    clearPropertyDraft()
+    syncPropertyBaseline()
     router.push(`/properties/${data.id}`)
   } catch (e) {
+    error.value = extractError(e, 'Не удалось сохранить объект.')
     const data = e.response?.data
     if (typeof data === 'object' && data) {
       error.value = Object.entries(data)
@@ -409,6 +510,9 @@ onMounted(async () => {
     })
     existingAddress.value = data.full_address || ''
     photos.value = (data.photos || []).map(p => ({ ...p }))
+    syncPropertyBaseline()
+  } else if (!propertyDraftRestored.value) {
+    syncPropertyBaseline()
   }
 })
 

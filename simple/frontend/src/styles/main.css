@@ -840,6 +840,14 @@ input[type='datetime-local'] {
   border-radius: var(--r-md);
 }
 
+.table-state {
+  margin-bottom: 14px;
+}
+
+.data-fetch-panel + .empty {
+  display: none;
+}
+
 .table-wrap .table {
   min-width: 920px;
 }
@@ -1216,6 +1224,91 @@ input[type='datetime-local'] {
   .table td {
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .table-wrap--cards {
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .table--responsive-cards {
+    display: block;
+    min-width: 0 !important;
+  }
+
+  .table--responsive-cards thead {
+    display: none;
+  }
+
+  .table--responsive-cards tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .table--responsive-cards tbody tr {
+    display: block;
+    overflow: hidden;
+    border-radius: 22px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .table--responsive-cards tbody tr:hover td {
+    background: transparent;
+  }
+
+  .table--responsive-cards td {
+    display: grid;
+    grid-template-columns: minmax(94px, 122px) minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    width: 100%;
+    white-space: normal;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .table--responsive-cards td::before {
+    content: attr(data-label);
+    color: var(--c-text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    line-height: 1.35;
+  }
+
+  .table--responsive-cards td:last-child {
+    border-bottom: none;
+  }
+
+  .table--responsive-cards td.table-actions-cell {
+    grid-template-columns: 1fr;
+  }
+
+  .table--responsive-cards td.table-actions-cell::before {
+    margin-bottom: 2px;
+  }
+
+  .table--responsive-cards td.table-actions-cell > .row,
+  .table--responsive-cards td.table-actions-cell > div,
+  .table--responsive-cards td.table-actions-cell > .btn,
+  .table--responsive-cards td.table-actions-cell > .select {
+    width: 100%;
+  }
+
+  .table--responsive-cards td.table-actions-cell .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .table--responsive-cards td.table-actions-cell .btn,
+  .table--responsive-cards td.table-actions-cell .select {
+    width: 100%;
+  }
+
+  .table--responsive-cards td.table-actions-cell .select {
+    min-width: 0;
   }
 
   .empty {

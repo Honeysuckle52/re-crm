@@ -16,6 +16,8 @@ router.register('property-statuses', views.PropertyStatusViewSet)
 router.register('request-statuses', views.RequestStatusViewSet)
 router.register('deal-statuses', views.DealStatusViewSet)
 router.register('task-statuses', views.TaskStatusViewSet)
+router.register('notification-templates', views.NotificationTemplateViewSet)
+router.register('process-versions', views.ProcessVersionViewSet)
 router.register('user-roles', views.UserRoleViewSet)
 
 router.register('cities', views.CityViewSet)
@@ -39,6 +41,7 @@ router.register('deals', views.DealViewSet)
 router.register('viewings', views.PropertyViewingViewSet)
 router.register('tasks', views.TaskViewSet)
 router.register('outgoing-emails', views.OutgoingEmailViewSet)
+router.register('audit-log', views.AuditLogViewSet, basename='audit-log')
 
 urlpatterns = [
     path('auth/register/', views.RegisterView.as_view(), name='register'),
@@ -54,6 +57,14 @@ urlpatterns = [
 
     path('dashboard/stats/', views.DashboardStatsView.as_view(),
          name='dashboard_stats'),
+    path('properties/export/', views.PropertyExportView.as_view(),
+         name='property_export'),
+    path('dictionaries/export/', views.DictionaryExportView.as_view(),
+         name='dictionary_export'),
+    path('reports/deals/', views.DealsReportView.as_view(),
+         name='deals_report'),
+    path('reports/tasks/', views.TasksReportView.as_view(),
+         name='tasks_report'),
 
     path('', include(router.urls)),
 ]
