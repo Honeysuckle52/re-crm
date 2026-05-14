@@ -112,8 +112,8 @@ class TwoGisClient:
         дом крупно (zoom 18) и схема улицы (zoom 15). Все URL публично
         доступны с тем же API-ключом и не требуют отдельной подписки.
         """
-        # Красный маркер-пин на точных координатах объекта (формат 2GIS Static Maps)
-        marker = f'{lon},{lat},pm2rdm'
+        # Маркер-пин на координатах объекта (формат 2GIS Static Maps: lon,lat)
+        marker = f'{lon},{lat}'
         base = f'center={lon},{lat}&size=600x400&markers={marker}&key={self.api_key}'
         return [
             f'{_STATIC_MAP_URL}?{base}&zoom=18',  # дом крупно — маркер на объекте

@@ -1196,39 +1196,45 @@ class SeedDataService:
             if not info:
                 return False
 
-            # Обновляем описание, если оно не было задано вручную или содержит
-            # только шаблонный текст (начинается с «Тестовый» / «Демонстрационный»).
-            current_desc = (property_obj.description or '').strip()
-            twogis_desc = (info.get('description') or '').strip()
-            is_placeholder = current_desc.startswith(('Тестовый', 'Демонстрационный'))
-            if twogis_desc and (not current_desc or is_placeholder):
-                property_obj.description = twogis_desc
-                property_obj.save(update_fields=['description'])
-
-            # Обновляем координаты, если они ��тсутствуют.
-            if info.get('lat') and info.get('lon') and not property_obj.coordinates_lat:
-                property_obj.coordinates_lat = info['lat']
-                property_obj.coordinates_lon = info['lon']
+            # Координаты
+            lat = info.get('lat')
+            lon = info.get('lon')
+            if lat and lon:
+                property_obj.coordinates_lat = lat
+                property_obj.coordinates_lon = lon
                 property_obj.save(update_fields=['coordinates_lat', 'coordinates_lon'])
 
-            # Добавляем фото из 2GIS как внешние URL.
+            # Описание из 2GIS — обновляем если пришло не пустым
+            twogis_desc = (info.get('description') or '').strip()
+            if twogis_desc:
+                property_obj.description = (
+                    twogis_desc + '\n\n' + (property_obj.description or '')
+                ).strip()
+                property_obj.save(update_fields=['description'])
+
+            # Карты-фото: строятся по координатам через Static Maps API
             photo_urls: list[str] = info.get('photos') or []
             if photo_urls:
+                # Удаляем старые записи (уже удалены перед вызовом, но на всякий случай)
                 PropertyPhoto.objects.filter(property=property_obj).delete()
                 for order, url in enumerate(photo_urls):
                     PropertyPhoto.objects.create(
                         property=property_obj,
                         url=url,
-                        caption='Фото из 2GIS',
+                        caption='Карта 2GIS',
                         is_cover=(order == 0),
                         order=order,
                     )
                 self.log.info(
-                    f'   2GIS: {len(photo_urls)} фото для объекта «{property_obj.title}».',
+                    f'   2GIS: {len(photo_urls)} карты для «{property_obj.title}»'
+                    f' (lat={lat}, lon={lon}).',
                 )
                 return True
 
-            return bool(twogis_desc)
+            self.log.warning(
+                f'   2GIS: нет координат для «{property_obj.title}» (q={address_query!r}).',
+            )
+            return False
 
         except Exception as exc:  # noqa: BLE001
             logger.warning(
