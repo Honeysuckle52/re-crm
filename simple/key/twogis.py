@@ -9,9 +9,10 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# Базовые URL 2GIS Places API
+# Базовые URL 2GIS API
 _PLACES_SEARCH_URL = 'https://catalog.api.2gis.com/3.0/items'
-_PHOTOS_URL = 'https://api.photo.2gis.com/2.0/photo'
+# Static Maps API — доступен с тем же ключом, возвращает спутниковую/схему карты
+_STATIC_MAP_URL = 'https://static.maps.2gis.com/1.0'
 
 
 class TwoGisClient:
@@ -81,14 +82,16 @@ class TwoGisClient:
             or ''
         )
 
-        photos = self._fetch_photos(org_id) if org_id else []
+        lat = point.get('lat')
+        lon = point.get('lon')
+        photos = self._build_static_map_urls(lat=lat, lon=lon) if (lat and lon) else []
 
         return {
             'name': item.get('name') or '',
             'description': description,
             'address_full': address_full,
-            'lat': point.get('lat'),
-            'lon': point.get('lon'),
+            'lat': lat,
+            'lon': lon,
             'org_id': org_id,
             'photos': photos,
         }
@@ -97,33 +100,21 @@ class TwoGisClient:
     # Приватные методы
     # ------------------------------------------------------------------
 
-    def _fetch_photos(self, obj_id: str, *, limit: int = 5) -> list[str]:
-        """Возвращает список URL фотографий для объекта 2GIS."""
-        if not obj_id:
-            return []
-        try:
-            resp = requests.get(
-                _PHOTOS_URL,
-                params={
-                    'object_id': obj_id,
-                    'key': self.api_key,
-                    'page_size': limit,
-                },
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-        except requests.RequestException as exc:
-            logger.debug('2GIS _fetch_photos ошибка (obj_id=%r): %s', obj_id, exc)
-            return []
+    def _build_static_map_urls(
+        self,
+        *,
+        lat: float,
+        lon: float,
+    ) -> list[str]:
+        """Строит набор URL статических карт 2GIS для заданных координат.
 
-        data = resp.json()
-        items = (data.get('result') or {}).get('items') or []
-        urls: list[str] = []
-        for photo in items:
-            previews = photo.get('previews') or []
-            if previews:
-                # Берём наибольший доступный превью
-                biggest = max(previews, key=lambda p: p.get('width', 0), default=None)
-                if biggest and biggest.get('url'):
-                    urls.append(biggest['url'])
-        return urls
+        Возвращает три URL с разными масштабами: обзор квартала (zoom 16),
+        дом крупно (zoom 18) и схема улицы (zoom 15). Все URL публично
+        доступны с тем же API-ключом и не требуют отдельной подписки.
+        """
+        base_params = f'center={lon},{lat}&size=600x400&key={self.api_key}'
+        return [
+            f'{_STATIC_MAP_URL}?{base_params}&zoom=18',  # дом крупно
+            f'{_STATIC_MAP_URL}?{base_params}&zoom=16',  # квартал
+            f'{_STATIC_MAP_URL}?{base_params}&zoom=15',  # улица
+        ]

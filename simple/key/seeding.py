@@ -399,13 +399,13 @@ class SeedDataService:
         task_count = Task.objects.filter(created_by__in=demo_users).count()
         request_count = Request.objects.filter(client__in=demo_users).count()
         deal_count = Deal.objects.filter(client__in=demo_users).count()
-        property_count = Property.objects.filter(title__startswith='[DEMO]').count()
+        property_count = Property.objects.filter(description__contains='__seed_demo__').count()
 
         Task.objects.filter(created_by__in=demo_users).delete()
         Request.objects.filter(client__in=demo_users).delete()
         Deal.objects.filter(client__in=demo_users).delete()
         PropertyPhoto.objects.filter(image__startswith='2026/04/').delete()
-        Property.objects.filter(title__startswith='[DEMO]').delete()
+        Property.objects.filter(description__contains='__seed_demo__').delete()
         demo_users.delete()
         City.objects.filter(name='Демо-город').delete()
         return {
@@ -733,7 +733,7 @@ class SeedDataService:
     # GAR-адреса для дополнительных 15 объектов из 3 регионов
     # ------------------------------------------------------------------
 
-    _GAR_EXTRA_REGIONS = ['02', '50', '66']  # Башкортостан, Московская обл., Свердловская обл.
+    _GAR_EXTRA_REGIONS = ['01', '77', '38']  # Адыгея, Москва, Иркутская обл. (GAR в проекте)
     _GAR_EXTRA_PER_REGION = 5                # 5 объектов × 3 региона = 15
 
     def _seed_gar_extra_addresses(self) -> list[tuple[Address, GarResolvedUnit]]:
@@ -792,7 +792,7 @@ class SeedDataService:
 
     # Спецификации иркутских объектов: (суффикс заголовка, op_code, status_code, price, rooms, area, floor, total_floors)
     _IRKUTSK_SPECS = [
-        ('Студия у набережной',    'sale', 'active',   5_200_000, 1, Decimal('31.50'),  3,  9),
+        ('Студия у на��ережной',    'sale', 'active',   5_200_000, 1, Decimal('31.50'),  3,  9),
         ('2-комн. с ремонтом',     'sale', 'active',   8_700_000, 2, Decimal('52.00'),  6, 16),
         ('3-комн. семейная',       'sale', 'reserved', 12_300_000, 3, Decimal('76.50'), 10, 12),
         ('Студия в аренду',        'rent', 'active',      34_000, 1, Decimal('28.00'),  2,  9),
@@ -820,7 +820,7 @@ class SeedDataService:
             city_name = address.house.street.city.name if (
                 address.house and address.house.street and address.house.street.city
             ) else 'Иркутск'
-            title = f'[DEMO] {city_name} — {suffix}'
+            title = f'{city_name} — {suffix}'
 
             query_address = (
                 f'{city_name}, '
@@ -842,8 +842,8 @@ class SeedDataService:
                     'floor_number': floor,
                     'total_floors': total_floors,
                     'description': (
-                        f'Демонстрационный объект в г. {city_name}. '
-                        'Создан командой seed_data для проверки системы.'
+                        f'Объект в г. {city_name}. '
+                        'Создан командой seed_data. __seed_demo__'
                     ),
                 },
             )
@@ -881,9 +881,7 @@ class SeedDataService:
             price = self._gar_price(index=gar_idx, rooms=rooms, operation_code=operation_type.code)
             street_label = f'{unit.street_type or ""} {unit.street_name}'.strip()
             apt_suffix = f', кв. {unit.apartment_number}' if unit.apartment_number else ''
-            title = (
-                f'[DEMO] {unit.city_name}, {street_label}, д. {unit.house_number}{apt_suffix}'
-            )
+            title = f'{unit.city_name}, {street_label}, д. {unit.house_number}{apt_suffix}'
             property_obj, _ = Property.objects.update_or_create(
                 title=title,
                 defaults={
@@ -897,8 +895,8 @@ class SeedDataService:
                     'floor_number': None,
                     'total_floors': None,
                     'description': (
-                        'Тестовый объект, автоматически созданный на основе '
-                        f'локальной выгрузки GAR/FIAS по региону {unit.region_name}.'
+                        f'Объект по данным GAR/FIAS, регион: {unit.region_name}. '
+                        '__seed_demo__'
                     ),
                 },
             )
@@ -1008,7 +1006,7 @@ class SeedDataService:
 
         specs = [
             {
-                'title': '[DEMO] Позвонить клиенту Пётр Клиентов',
+                'title': 'Позвонить клиенту Пётр Клиентов',
                 'description': 'Уточнить требования по студии, предложить варианты.',
                 'task_type': 'call',
                 'priority': 'high',
@@ -1021,7 +1019,7 @@ class SeedDataService:
                 'due_date': now + timedelta(hours=8),
             },
             {
-                'title': '[DEMO] Организовать показ 2-комн. квартиры',
+                'title': 'Организовать показ 2-комн. квартиры',
                 'description': 'Согласовать время показа с клиенткой Ольгой.',
                 'task_type': 'showing',
                 'priority': 'normal',
@@ -1034,7 +1032,7 @@ class SeedDataService:
                 'due_date': now + timedelta(days=1),
             },
             {
-                'title': '[DEMO] Подготовить подборку 3-комн. квартир',
+                'title': 'Подготовить подборку 3-комн. квартир',
                 'description': 'Собрать 3-5 вариантов для клиента Ивана Петрова.',
                 'task_type': 'property_search',
                 'priority': 'normal',
@@ -1047,7 +1045,7 @@ class SeedDataService:
                 'due_date': now + timedelta(days=2),
             },
             {
-                'title': '[DEMO] Оформить договор аренды ст��дии',
+                'title': 'Оформить договор аренды ст��дии',
                 'description': 'Проверить пакет документов и отправить на подпись.',
                 'task_type': 'documents',
                 'priority': 'high',
@@ -1060,7 +1058,7 @@ class SeedDataService:
                 'due_date': now - timedelta(days=1),
             },
             {
-                'title': '[DEMO] Обновить описание объекта на сайте',
+                'title': 'Обновить описание объекта на сайте',
                 'description': 'Добавить фото, уточнить метраж, пересчитать цену за м².',
                 'task_type': 'other',
                 'priority': 'low',
