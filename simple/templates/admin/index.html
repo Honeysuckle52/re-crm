@@ -2,44 +2,134 @@
 {% load i18n %}
 
 {% block content %}
-  <div class="crm-admin-dashboard-layout">
-    <div class="crm-admin-dashboard-main">
-      {{ block.super }}
-    </div>
-    <aside class="crm-admin-dashboard-sidebar">
-      <div class="crm-admin-sidebar-panel">
-        <div class="crm-admin-sidebar-title">Быстрые действия</div>
-        <section class="crm-admin-shortcuts">
-          <a class="crm-admin-shortcut" href="/admin/key/user/">
-            <strong>Пользователи</strong>
-            <span>Сотрудники, клиенты, роли и доступ</span>
-          </a>
-          <a class="crm-admin-shortcut" href="/reports">
-            <strong>Отчёты</strong>
-            <span>Сделки и задачи с фильтрами, сводками и экспортом</span>
-          </a>
-          <a class="crm-admin-shortcut" href="/admin/key/notificationtemplate/">
-            <strong>Email-шаблоны</strong>
-            <span>Редактирование тем, текста и HTML-версий писем</span>
-          </a>
-          <a class="crm-admin-shortcut" href="/admin/key/processversion/">
-            <strong>Версии процессов</strong>
-            <span>Активные схемы заявок и задач</span>
-          </a>
-          <a class="crm-admin-shortcut" href="/admin/key/auditlog/">
-            <strong>Журнал действий</strong>
-            <span>История изменений и событий системы</span>
-          </a>
-          <a class="crm-admin-shortcut" href="/admin/key/outgoingemail/">
-            <strong>Очередь уведомлений</strong>
-            <span>Исходящие письма, ошибки и повторная отправка</span>
-          </a>
-          <a class="crm-admin-shortcut" href="/admin/key/userrole/">
-            <strong>Роли и лимиты</strong>
-            <span>Нагрузка сотрудников и матрица доступа</span>
-          </a>
-        </section>
+<div class="crm-dash">
+
+  {# ── Models grid ── #}
+  <section class="crm-dash__section">
+    <h2 class="crm-dash__section-title">{% trans "Site administration" %}</h2>
+    {% for app in app_list %}
+      <div class="crm-app-block">
+        <div class="crm-app-block__header">
+          <span class="crm-app-block__name">{{ app.name }}</span>
+        </div>
+        <div class="crm-models-grid">
+          {% for model in app.models %}
+          <div class="crm-model-card">
+            <div class="crm-model-card__name">
+              {% if model.admin_url %}
+                <a href="{{ model.admin_url }}">{{ model.name }}</a>
+              {% else %}
+                {{ model.name }}
+              {% endif %}
+            </div>
+            <div class="crm-model-card__actions">
+              {% if model.add_url %}
+                <a class="crm-model-card__btn crm-model-card__btn--add" href="{{ model.add_url }}" title="{% trans 'Add' %}">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6.75 1a.75.75 0 00-1.5 0v4.25H1a.75.75 0 000 1.5h4.25V11a.75.75 0 001.5 0V6.75H11a.75.75 0 000-1.5H6.75V1z"/></svg>
+                  {% trans "Add" %}
+                </a>
+              {% endif %}
+              {% if model.admin_url %}
+                <a class="crm-model-card__btn crm-model-card__btn--view" href="{{ model.admin_url }}" title="{% trans 'Change' %}">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 9.5l2.5-.5 6-6a1.06 1.06 0 00-1.5-1.5l-6 6-.5 2z"/></svg>
+                  {% trans "Change" %}
+                </a>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
-    </aside>
-  </div>
+    {% endfor %}
+  </section>
+
+  {# ── Quick actions ── #}
+  <section class="crm-dash__section">
+    <h2 class="crm-dash__section-title">Быстрые действия</h2>
+    <div class="crm-shortcuts-grid">
+      <a class="crm-shortcut" href="/admin/key/user/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+        </div>
+        <div>
+          <strong>Пользователи</strong>
+          <span>Сотрудники, клиенты, роли и доступ</span>
+        </div>
+      </a>
+      <a class="crm-shortcut" href="/reports/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+        </div>
+        <div>
+          <strong>Отчёты</strong>
+          <span>Сделки и задачи с фильтрами, сводками и экспортом</span>
+        </div>
+      </a>
+      <a class="crm-shortcut" href="/admin/key/notificationtemplate/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 7 10-7"/></svg>
+        </div>
+        <div>
+          <strong>Email-шаблоны</strong>
+          <span>Темы, текст и HTML-версии писем</span>
+        </div>
+      </a>
+      <a class="crm-shortcut" href="/admin/key/processversion/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h6v6H3zM15 3h6v6h-6zM9 15l3-6 3 6"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/></svg>
+        </div>
+        <div>
+          <strong>Версии процессов</strong>
+          <span>Активные схемы заявок и задач</span>
+        </div>
+      </a>
+      <a class="crm-shortcut" href="/admin/key/auditlog/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </div>
+        <div>
+          <strong>Журнал действий</strong>
+          <span>История изменений и событий системы</span>
+        </div>
+      </a>
+      <a class="crm-shortcut" href="/admin/key/outgoingemail/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </div>
+        <div>
+          <strong>Очередь уведомлений</strong>
+          <span>Исходящие письма, ошибки и повторная отправка</span>
+        </div>
+      </a>
+      <a class="crm-shortcut" href="/admin/key/userrole/">
+        <div class="crm-shortcut__icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        </div>
+        <div>
+          <strong>Роли и лимиты</strong>
+          <span>Нагрузка сотрудников и матрица доступа</span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  {# ── Recent actions ── #}
+  {% if recent_actions %}
+  <section class="crm-dash__section crm-dash__section--recent">
+    <h2 class="crm-dash__section-title">{% trans "Recent actions" %}</h2>
+    <div class="crm-recent">
+      {% for action in recent_actions %}
+      <div class="crm-recent__item">
+        <span class="crm-recent__flag crm-recent__flag--{{ action.flag }}"></span>
+        <span class="crm-recent__text">
+          {% if action.get_admin_url %}<a href="{{ action.get_admin_url }}">{{ action.object_repr }}</a>{% else %}{{ action.object_repr }}{% endif %}
+        </span>
+        <span class="crm-recent__model">{{ action.content_type }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+</div>
 {% endblock %}
