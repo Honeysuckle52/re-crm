@@ -607,7 +607,7 @@ class SeedDataService:
     ]
 
     def _seed_demo_addresses(self) -> list[Address]:
-        """Создаёт 5 иркутских адресов через DaData + fallback на синтетику."""
+        """Создаёт 5 иркутских адресов че��ез DaData + fallback на синтетику."""
         dadata = DadataClient()
         addresses: list[Address] = []
 
@@ -736,16 +736,52 @@ class SeedDataService:
     _GAR_EXTRA_REGIONS = ['01', '77', '38']  # Адыгея, Москва, Иркутская обл. (GAR в проекте)
     _GAR_EXTRA_PER_REGION = 5                # 5 объектов × 3 региона = 15
 
+    # Адреса-заглушки для GAR-fallback — по одному городу на регион
+    _GAR_FALLBACK_QUERIES = [
+        # (регион, город, 5 запросов к DaData)
+        ('01', 'Майкоп', [
+            'Майкоп, ул. Ленина, 1',
+            'Майкоп, ул. Пролетарская, 5',
+            'Майкоп, ул. Краснооктябрьская, 15',
+            'Майкоп, пр. Победы, 22',
+            'Майкоп, ул. Советская, 44',
+        ]),
+        ('77', 'Москва', [
+            'Москва, ул. Тверская, 10',
+            'Москва, ул. Арбат, 7',
+            'Москва, пр. Мира, 30',
+            'Москва, ул. Новый Арбат, 20',
+            'Москва, Кутузовский пр., 18',
+        ]),
+        ('38', 'Иркутск', [
+            'Иркутск, ул. Декабрьских Событий, 6',
+            'Иркутск, ул. Фурье, 11',
+            'Иркутск, б-р Гагарина, 3',
+            'Иркутск, ул. Дзержинского, 23',
+            'Иркутск, ул. Горького, 41',
+        ]),
+    ]
+
     def _seed_gar_extra_addresses(self) -> list[tuple[Address, GarResolvedUnit]]:
-        """Сэмплирует по 5 адресов из каждого из трёх GAR-регионов."""
+        """Сэмплирует по 5 адресов из каждого из трёх GAR-регионов.
+
+        Если папка GAR недоступна на текущей машине — создаёт адреса через
+        DaData по реальным городам тех же регионов (01/77/38).
+        """
         sampler = GarSampler()
         available = sampler.available_region_codes()
-        result: list[tuple[Address, GarResolvedUnit]] = []
 
+        gar_missing = [c for c in self._GAR_EXTRA_REGIONS if c not in available]
+        if gar_missing:
+            self.log.warning(
+                f'   GAR не найден по пути {sampler.root} '
+                f'(регионы {", ".join(gar_missing)} отсутствуют). '
+                'Используем DaData-fallback для GAR-объектов.'
+            )
+            return self._seed_gar_fallback_via_dadata()
+
+        result: list[tuple[Address, GarResolvedUnit]] = []
         for region_code in self._GAR_EXTRA_REGIONS:
-            if region_code not in available:
-                self.log.warning(f'   GAR-регион {region_code} не найден — пропускаем.')
-                continue
             try:
                 units = sampler.sample(region_codes=[region_code], limit=self._GAR_EXTRA_PER_REGION)
             except FileNotFoundError as exc:
@@ -786,13 +822,55 @@ class SeedDataService:
 
         return result
 
+    def _seed_gar_fallback_via_dadata(self) -> list[tuple[Address, GarResolvedUnit]]:
+        """DaData-fallback: создаёт GAR-подобные объекты через реальные адреса."""
+        from uuid import NAMESPACE_URL, uuid5
+        dadata = DadataClient()
+        result: list[tuple[Address, GarResolvedUnit]] = []
+
+        for region_code, city_hint, queries in self._GAR_FALLBACK_QUERIES:
+            region_name = {
+                '01': 'Республика Адыгея',
+                '77': 'Москва',
+                '38': 'Иркутская область',
+            }.get(region_code, f'Регион {region_code}')
+
+            for query in queries:
+                address = self._address_from_dadata(dadata, query)
+                if not address:
+                    continue
+
+                house = address.house
+                street = house.street
+                city = street.city
+
+                # Строим GarResolvedUnit из данных DaData чтобы title/enrichment работали одинаково
+                unit = GarResolvedUnit(
+                    region_code=region_code,
+                    region_name=region_name,
+                    city_guid=city.external_id or uuid5(NAMESPACE_URL, f'dadata-city:{city.name}'),
+                    city_name=city.name,
+                    street_guid=street.external_id or uuid5(NAMESPACE_URL, f'dadata-street:{city.name}:{street.name}'),
+                    street_name=street.name,
+                    street_type=street.street_type or 'ул.',
+                    house_guid=house.external_id or uuid5(NAMESPACE_URL, f'dadata-house:{street.name}:{house.house_number}'),
+                    house_number=house.house_number,
+                    apartment_number=address.apartment_number or None,
+                )
+                result.append((address, unit))
+
+                if len(result) >= len(self._GAR_FALLBACK_QUERIES) * self._GAR_EXTRA_PER_REGION:
+                    return result
+
+        return result
+
     # ------------------------------------------------------------------
     # Создание 20 объектов
     # ------------------------------------------------------------------
 
     # Спецификации иркутских объектов: (суффикс заголовка, op_code, status_code, price, rooms, area, floor, total_floors)
     _IRKUTSK_SPECS = [
-        ('Студия у на��ережной',    'sale', 'active',   5_200_000, 1, Decimal('31.50'),  3,  9),
+        ('Студ��я у на��ережной',    'sale', 'active',   5_200_000, 1, Decimal('31.50'),  3,  9),
         ('2-комн. с ремонтом',     'sale', 'active',   8_700_000, 2, Decimal('52.00'),  6, 16),
         ('3-комн. семейная',       'sale', 'reserved', 12_300_000, 3, Decimal('76.50'), 10, 12),
         ('Студия в аренду',        'rent', 'active',      34_000, 1, Decimal('28.00'),  2,  9),
@@ -1127,7 +1205,7 @@ class SeedDataService:
                 property_obj.description = twogis_desc
                 property_obj.save(update_fields=['description'])
 
-            # Обновляем координаты, если они отсутствуют.
+            # Обновляем координаты, если они ��тсутствуют.
             if info.get('lat') and info.get('lon') and not property_obj.coordinates_lat:
                 property_obj.coordinates_lat = info['lat']
                 property_obj.coordinates_lon = info['lon']
