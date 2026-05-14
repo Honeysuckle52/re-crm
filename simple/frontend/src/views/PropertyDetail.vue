@@ -427,7 +427,7 @@ async function toggleHidden (photo) {
 async function remove() {
   const approved = await confirm.ask({
     title: 'Удаление объекта',
-    message: 'Удалить объект?',
+    message: 'Вы уверены, что хотите удалить этот объект? Удаление невозможно, если к объекту привязаны заявки, сделки или просмотры.',
     confirmLabel: 'Удалить',
     danger: true,
   })

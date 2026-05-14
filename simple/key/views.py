@@ -2,6 +2,7 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Sum, Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
@@ -542,7 +543,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
             actor=self.request.user,
             message='Объект недвижимости удалён.',
         )
-        super().perform_destroy(instance)
+        try:
+            super().perform_destroy(instance)
+        except ProtectedError:
+            raise ValidationError(
+                detail='Невозможно удалить объект: к нему привязаны активные заявки, сделки или просмотры. '
+                       'Сначала удалите или переназначьте связанные записи.'
+            )
 
     @action(
         detail=False,
