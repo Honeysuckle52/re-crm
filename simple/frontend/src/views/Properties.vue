@@ -539,48 +539,82 @@ onMounted(async () => {
   border-color: rgba(21, 56, 57, 0.28);
 }
 
+/* ---- custom checkbox wrapper (card corner) ---- */
 .properties-grid__check {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 10px;
+  left: 10px;
   z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Hide native input, keep it accessible */
+.properties-grid__check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid rgba(21, 56, 57, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+  display: block;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 2px 8px rgba(16, 55, 52, 0.10);
+}
+
+.properties-grid__check input[type="checkbox"]:hover {
+  border-color: rgba(21, 56, 57, 0.42);
   background: rgba(255, 255, 255, 0.96);
-  border: 2px solid rgba(21, 56, 57, 0.08);
-  box-shadow: 0 8px 16px rgba(16, 55, 52, 0.1);
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
 
-.properties-grid__check:hover {
-  background: rgba(255, 255, 255, 0.98);
-  border-color: rgba(21, 56, 57, 0.16);
-  box-shadow: 0 10px 20px rgba(16, 55, 52, 0.14);
+.properties-grid__check input[type="checkbox"]:checked {
+  background: var(--c-accent, #2e9f98);
+  border-color: var(--c-accent, #2e9f98);
+  box-shadow: 0 2px 10px rgba(46, 159, 152, 0.32);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolyline points='1.5,5.5 4.5,8.5 10.5,1.5' fill='none' stroke='%23fff' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
 }
 
-.properties-grid__check input {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-  accent-color: var(--c-accent, #2e9f98);
-}
-
+/* ---- bulk-toggle (select all) ---- */
 .bulk-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--c-page-text);
+  cursor: pointer;
 }
 
-.bulk-toggle input {
+.bulk-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
   width: 16px;
   height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid rgba(21, 56, 57, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  display: block;
+  flex-shrink: 0;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.bulk-toggle input[type="checkbox"]:hover {
+  border-color: rgba(21, 56, 57, 0.42);
+}
+
+.bulk-toggle input[type="checkbox"]:checked {
+  background: var(--c-accent, #2e9f98);
+  border-color: var(--c-accent, #2e9f98);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 12 10' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolyline points='1.5,5.5 4.5,8.5 10.5,1.5' fill='none' stroke='%23fff' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 9px 9px;
 }
 
 .properties-empty {
