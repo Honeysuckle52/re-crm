@@ -1,26 +1,128 @@
 {% extends "admin/index.html" %}
 {% load i18n %}
 
+{% block content_title %}{% endblock %}
+
 {% block content %}
+  <section class="crm-admin-hero" aria-labelledby="crm-admin-hero-title">
+    <div>
+      <span class="crm-admin-hero__eyebrow">CRM агентства недвижимости</span>
+      <h1 id="crm-admin-hero-title" class="crm-admin-hero__title">РИЭЛТ · Админ</h1>
+      <p class="crm-admin-hero__subtitle">
+        Управление сущностями, справочниками и фоновыми очередями в одном контуре
+      </p>
+      <div class="crm-admin-hero__actions">
+        <a href="/admin/key/user/add/" class="is-primary">+ Новый пользователь</a>
+        <a href="/admin/key/property/">Каталог объектов</a>
+        <a href="/admin/key/request/">Заявки клиентов</a>
+        <a href="/">CRM-кабинет</a>
+      </div>
+    </div>
+    <aside class="crm-admin-hero__callout">
+      <h3>Текущий рабочий фокус</h3>
+      <p>
+        Поддерживайте справочники, отслеживайте журнал действий, управляйте
+        шаблонами писем и версиями процессов без переключения между
+        разрозненными инструментами.
+      </p>
+    </aside>
+  </section>
+
+  <section class="crm-admin-bento" aria-label="{% trans 'Быстрые разделы' %}">
+    <a class="crm-admin-bento__card" href="/admin/key/user/">
+      <span class="crm-admin-bento__tag">Каталог</span>
+      <h2 class="crm-admin-bento__title">Пользователи</h2>
+      <p class="crm-admin-bento__text">
+        Сотрудники, клиенты, роли и матрица доступа в едином списке с поиском.
+      </p>
+      <span class="crm-admin-bento__cta">Открыть пользователей</span>
+    </a>
+
+    <a class="crm-admin-bento__card" href="/admin/key/property/">
+      <span class="crm-admin-bento__tag">База</span>
+      <h2 class="crm-admin-bento__title">Объекты</h2>
+      <p class="crm-admin-bento__text">
+        Полный каталог недвижимости, фильтры по типу и быстрый доступ к карточке.
+      </p>
+      <span class="crm-admin-bento__cta">К объектам</span>
+    </a>
+
+    <a class="crm-admin-bento__card" href="/admin/key/clientrequest/">
+      <span class="crm-admin-bento__tag">Воронка</span>
+      <h2 class="crm-admin-bento__title">Заявки</h2>
+      <p class="crm-admin-bento__text">
+        Входящие обращения с распределением менеджеров и статусами обработки.
+      </p>
+      <span class="crm-admin-bento__cta">Перейти к заявкам</span>
+    </a>
+
+    <a class="crm-admin-bento__card" href="/admin/key/deal/">
+      <span class="crm-admin-bento__tag">Финализация</span>
+      <h2 class="crm-admin-bento__title">Сделки</h2>
+      <p class="crm-admin-bento__text">
+        Этапы закрытия, договоры и финальная стоимость сделки в одном журнале.
+      </p>
+      <span class="crm-admin-bento__cta">Смотреть сделки</span>
+    </a>
+  </section>
+
+  <section class="crm-admin-rowgrid">
+    <div class="crm-admin-panel">
+      <div class="crm-admin-panel__eyebrow">Быстрые действия</div>
+      <h2 class="crm-admin-panel__title">Работа со справочниками</h2>
+      <p class="crm-admin-panel__text">
+        Поддерживайте актуальность статусов, ролей и шаблонов писем —
+        изменения сразу отражаются в рабочем кабинете команды.
+      </p>
+      <div class="crm-admin-panel__actions">
+        <a href="/admin/key/userrole/" class="is-primary">Роли и лимиты</a>
+        <a href="/admin/key/notificationtemplate/">Шаблоны писем</a>
+        <a href="/admin/key/processversion/">Версии процессов</a>
+      </div>
+    </div>
+
+    <div class="crm-admin-panel">
+      <div class="crm-admin-panel__eyebrow">Система и данные</div>
+      <h2 class="crm-admin-panel__title">Подсказки по работе</h2>
+      <div class="crm-admin-tips">
+        <div class="crm-admin-tip">
+          <b>Аудит и события</b>
+          Следите за журналом изменений и системными событиями, чтобы быстро
+          восстанавливать историю действий пользователей.
+        </div>
+        <div class="crm-admin-tip">
+          <b>Очередь уведомлений</b>
+          Контролируйте исходящие письма, обрабатывайте ошибки и повторно
+          отправляйте сообщения прямо из админ-панели.
+        </div>
+        <div class="crm-admin-tip">
+          <b>Отчёты и выгрузки</b>
+          Откройте раздел «Отчёты», чтобы построить выборку по сделкам и
+          задачам с экспортом в CSV, Excel или PDF.
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="crm-admin-dashboard-layout">
     <div class="crm-admin-dashboard-main">
       {{ block.super }}
     </div>
     <aside class="crm-admin-dashboard-sidebar">
       <div class="crm-admin-sidebar-panel">
-        <div class="crm-admin-sidebar-title">Быстрые действия</div>
-        <section class="crm-admin-shortcuts">
+        <div class="crm-admin-sidebar-title">Ярлыки</div>
+        <nav class="crm-admin-shortcuts" aria-label="{% trans 'Быстрые ярлыки' %}">
           <a class="crm-admin-shortcut" href="/admin/key/user/">
             <strong>Пользователи</strong>
             <span>Сотрудники, клиенты, роли и доступ</span>
           </a>
           <a class="crm-admin-shortcut" href="/reports">
             <strong>Отчёты</strong>
-            <span>Сделки и задачи с фильтрами, сводками и экспортом</span>
+            <span>Сделки и задачи с фильтрами и экспортом</span>
           </a>
           <a class="crm-admin-shortcut" href="/admin/key/notificationtemplate/">
             <strong>Email-шаблоны</strong>
-            <span>Редактирование тем, текста и HTML-версий писем</span>
+            <span>Темы, текст и HTML-версии писем</span>
           </a>
           <a class="crm-admin-shortcut" href="/admin/key/processversion/">
             <strong>Версии процессов</strong>
@@ -32,13 +134,13 @@
           </a>
           <a class="crm-admin-shortcut" href="/admin/key/outgoingemail/">
             <strong>Очередь уведомлений</strong>
-            <span>Исходящие письма, ошибки и повторная отправка</span>
+            <span>Исходящие письма, ошибки и повтор отправки</span>
           </a>
           <a class="crm-admin-shortcut" href="/admin/key/userrole/">
             <strong>Роли и лимиты</strong>
             <span>Нагрузка сотрудников и матрица доступа</span>
           </a>
-        </section>
+        </nav>
       </div>
     </aside>
   </div>

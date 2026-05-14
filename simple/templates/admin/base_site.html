@@ -15,19 +15,20 @@
       <h1 id="site-name">
         <a href="{% url 'admin:index' %}">Системная админ-панель</a>
       </h1>
-      <p>
-        Управление сущностями, справочниками, шаблонами, версиями процессов,
-        аудитом и фоновыми очередями.
-      </p>
+      <p>Сущности, справочники, шаблоны, версии процессов и аудит.</p>
     </div>
   </div>
 {% endblock %}
 
 {% block nav-global %}
-  <div class="crm-admin-links">
-    <a href="/">Сайт</a>
+  <nav class="crm-admin-links" aria-label="{% trans 'Основная навигация' %}">
+    <a href="{% url 'admin:index' %}"
+       class="{% if request.resolver_match.url_name == 'index' %}is-active{% endif %}">
+      Дашборд
+    </a>
+    <a href="/">CRM-кабинет</a>
     <a href="/reports">Отчёты</a>
     <a href="/clients">Пользователи</a>
-    <a href="/api/docs/">API Docs</a>
-  </div>
+    <a href="/api/docs/">API</a>
+  </nav>
 {% endblock %}
