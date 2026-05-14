@@ -93,34 +93,82 @@
         </label>
       </div>
       <div v-if="property.photos?.length" class="gallery">
-        <div v-for="ph in property.photos" :key="ph.id"
+        <div v-for="(ph, idx) in property.photos" :key="ph.id"
              class="gallery__item"
              :class="{ 'is-hidden': ph.is_hidden, 'is-cover': ph.is_cover }">
-          <img :src="ph.image_url" :alt="property.title || 'Фото объекта'" />
+          <img :src="ph.image_url" :alt="property.title || 'Фото объекта'"
+               class="gallery__img"
+               @click="openLightbox(idx)" />
           <div class="gallery__badges">
             <span v-if="ph.is_cover" class="gallery__badge is-cover">Обложка</span>
             <span v-if="ph.is_hidden" class="gallery__badge is-hidden">Скрыто</span>
           </div>
           <div v-if="auth.isStaff" class="gallery__toolbar">
+            <!-- Обложка -->
             <button class="gallery__btn"
+                    :class="{ 'gallery__btn--active': ph.is_cover }"
                     :disabled="ph.is_cover"
                     :title="ph.is_cover ? 'Это текущая обложка' : 'Сделать обложкой'"
-                    @click="setCover(ph)">★</button>
+                    @click.stop="setCover(ph)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l2.9 6.26 6.77.54-5.19 4.4 1.71 6.63L12 16.5l-6.19 3.33 1.71-6.63L2.33 8.8l6.77-.54z"/>
+              </svg>
+            </button>
+            <!-- Видимость -->
             <button class="gallery__btn"
                     :disabled="ph.is_cover"
                     :title="ph.is_hidden ? 'Показать клиенту' : 'Скрыть от клиента'"
-                    @click="toggleHidden(ph)">
-              {{ ph.is_hidden ? '◐' : '●' }}
+                    @click.stop="toggleHidden(ph)">
+              <svg v-if="!ph.is_hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
             </button>
+            <!-- Удалить -->
             <button class="gallery__btn gallery__btn--danger"
-                    title="Удалить фото" @click="removePhoto(ph)">×</button>
+                    title="Удалить фото"
+                    @click.stop="removePhoto(ph)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
-      <div v-else class="muted" style="margin-top: 8px">
+      <div v-if="!property.photos?.length" class="muted" style="margin-top: 8px">
         Фотографии ещё не загружены.
       </div>
     </div>
+
+    <!-- Lightbox -->
+    <Teleport to="body">
+      <Transition name="lb">
+        <div v-if="lightbox.open"
+             class="lb-backdrop"
+             @click.self="closeLightbox"
+             tabindex="-1"
+             ref="lbEl">
+          <div class="lb-modal">
+            <div class="lb-modal__header">
+              <span class="lb-modal__counter">{{ lightbox.index + 1 }} / {{ property.photos.length }}</span>
+              <button class="lb-close" @click="closeLightbox" title="Закрыть">✕</button>
+            </div>
+            <div class="lb-modal__body">
+              <img :src="property.photos[lightbox.index]?.image_url"
+                   :alt="property.title || 'Фото объекта'"
+                   class="lb-img"
+                   draggable="false" />
+            </div>
+            <div v-if="property.photos.length > 1" class="lb-modal__footer">
+              <button class="lb-nav" @click="lightboxPrev" title="Предыдущее">&#8592;</button>
+              <button class="lb-nav" @click="lightboxNext" title="Следующее">&#8594;</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <div class="grid grid--2">
       <div class="panel panel--light">
@@ -212,7 +260,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
@@ -230,6 +278,31 @@ const toasts = useToastsStore()
 const property = ref(null)
 const statuses = ref([])
 const history = ref([])
+
+// Lightbox
+const lbEl = ref(null)
+const lightbox = reactive({ open: false, index: 0 })
+
+function openLightbox (idx) {
+  lightbox.index = idx
+  lightbox.open = true
+  nextTick(() => lbEl.value?.focus())
+}
+function closeLightbox () { lightbox.open = false }
+function lightboxPrev () {
+  lightbox.index = (lightbox.index - 1 + (property.value?.photos?.length || 1)) % (property.value?.photos?.length || 1)
+}
+function lightboxNext () {
+  lightbox.index = (lightbox.index + 1) % (property.value?.photos?.length || 1)
+}
+function onKeydown (e) {
+  if (!lightbox.open) return
+  if (e.key === 'ArrowLeft') lightboxPrev()
+  else if (e.key === 'ArrowRight') lightboxNext()
+  else if (e.key === 'Escape') closeLightbox()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 const showRequestForm = ref(false)
 const requestError = ref('')
@@ -354,7 +427,7 @@ async function toggleHidden (photo) {
 async function remove() {
   const approved = await confirm.ask({
     title: 'Удаление объекта',
-    message: 'Удалить объект?',
+    message: 'Вы уверены, что хотите удалить этот объект? Удаление невозможно, если к объекту привязаны заявки, сделки или просмотры.',
     confirmLabel: 'Удалить',
     danger: true,
   })
@@ -407,6 +480,144 @@ onMounted(load)
   display: block;
 }
 
+.gallery__img {
+  cursor: zoom-in;
+  transition: transform 0.25s ease;
+}
+
+.gallery__item:hover .gallery__img {
+  transform: scale(1.04);
+}
+
+/* ---- Lightbox ---- */
+.lb-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(4, 12, 20, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+
+.lb-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(80vw, 960px);
+  max-height: 85vh;
+  background: rgba(10, 24, 38, 0.88);
+  border: 1px solid var(--c-border-strong, rgba(255,255,255,0.12));
+  border-radius: 24px;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+
+.lb-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.lb-modal__counter {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+}
+
+.lb-modal__body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+}
+
+.lb-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  user-select: none;
+}
+
+.lb-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.lb-close:hover {
+  background: rgba(255, 111, 134, 0.22);
+  color: #fff;
+  transform: rotate(90deg);
+}
+
+.lb-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.lb-nav {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.lb-nav:hover {
+  background: rgba(31, 163, 154, 0.22);
+  color: #fff;
+}
+
+/* Transition */
+.lb-enter-active,
+.lb-leave-active {
+  transition: opacity 0.2s ease;
+}
+.lb-enter-active .lb-modal,
+.lb-leave-active .lb-modal {
+  transition: transform 0.2s ease;
+}
+.lb-enter-from,
+.lb-leave-to {
+  opacity: 0;
+}
+.lb-enter-from .lb-modal {
+  transform: scale(0.95) translateY(8px);
+}
+.lb-leave-to .lb-modal {
+  transform: scale(0.95) translateY(8px);
+}
+
 .gallery__item.is-hidden img {
   filter: grayscale(0.85) opacity(0.42);
 }
@@ -453,43 +664,56 @@ onMounted(load)
 
 .gallery__toolbar {
   position: absolute;
-  top: 10px;
+  bottom: 10px;
   right: 10px;
   display: flex;
-  gap: 6px;
+  gap: 5px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.gallery__item:hover .gallery__toolbar {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .gallery__btn {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(7, 19, 29, 0.64);
-  color: #fff;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(7, 19, 29, 0.72);
+  color: rgba(255, 255, 255, 0.75);
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  transition: transform 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 
 .gallery__btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  background: rgba(31, 163, 154, 0.24);
-  box-shadow: 0 0 18px rgba(31, 163, 154, 0.16);
+  background: rgba(31, 163, 154, 0.28);
+  border-color: rgba(31, 163, 154, 0.3);
+  color: #fff;
+}
+
+.gallery__btn--active {
+  background: rgba(99, 208, 197, 0.2);
+  border-color: rgba(99, 208, 197, 0.3);
+  color: #63d0c5;
 }
 
 .gallery__btn:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
 }
 
 .gallery__btn--danger:hover:not(:disabled) {
-  background: rgba(255, 111, 134, 0.24);
-  box-shadow: 0 0 18px rgba(255, 111, 134, 0.18);
+  background: rgba(255, 111, 134, 0.28);
+  border-color: rgba(255, 111, 134, 0.3);
+  color: #fff;
 }
 
 .modal {
