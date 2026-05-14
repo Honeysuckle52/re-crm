@@ -236,7 +236,7 @@ body {
 /* ─────────────────────────────────────────
    Главный контейнер на всю ширину
    Прячем нативный сайдбар «Recent actions»
-   ────────────────────��──────────────────── */
+   ────────────────────���──────────────────── */
 #content {
   padding: 28px 0 64px !important;
   display: block !important;
@@ -504,12 +504,150 @@ div.form-row,
   border-radius: var(--crm-r-lg) var(--crm-r-lg) 0 0;
 }
 
-/* Левый nav-sidebar Django: убираем float, делаем флекс-колонкой */
+/* ─────────────────────────────────────────
+   Полностью убираем нативную кнопку-стрелку
+   переключения сайдбара (Django toggle-nav-sidebar)
+   ───────────────────────────────────────── */
+#toggle-nav-sidebar,
+button#toggle-nav-sidebar,
+.toggle-nav-sidebar {
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Контейнер .main — обычный блок, чтобы content шёл во всю ширину,
+   а сайдбар «парил» как drawer */
 .main {
-  display: flex !important;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0;
+  display: block !important;
+  position: relative;
+}
+
+/* Узкая зона-триггер у самого левого края: при наведении выдвигает сайдбар */
+.crm-edge-trigger,
+.main::before {
+  content: '';
+  position: fixed;
+  top: 110px;            /* ниже шапки и хлебных крошек */
+  left: 0;
+  width: 8px;
+  height: calc(100vh - 110px);
+  z-index: 49;
+  background: transparent;
+  cursor: e-resize;
+}
+
+/* Тонкий «язычок»-подсказка у левого края */
+.main::after {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 64px;
+  border-radius: 0 4px 4px 0;
+  background: var(--crm-grad-panel);
+  opacity: 0.5;
+  z-index: 48;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Выдвижной сайдбар: по умолчанию полностью спрятан слева,
+   выезжает поверх контента при hover/focus. Контент при этом не смещается. */
+#nav-sidebar {
+  display: block !important;
+  position: fixed !important;
+  top: 110px;
+  left: 0;
+  z-index: 60;
+  width: 288px !important;
+  max-width: 288px;
+  height: calc(100vh - 120px);
+  max-height: calc(100vh - 120px);
+  margin: 8px 0 0 0 !important;
+  padding: 18px 16px !important;
+  border-radius: 0 var(--crm-r-lg) var(--crm-r-lg) 0 !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid var(--crm-border) !important;
+  border-left: 0 !important;
+  box-shadow: var(--crm-shadow-strong) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  overflow-y: auto;
+
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.28s ease, opacity 0.2s ease;
+}
+
+/* Открытие drawer: при наведении на зону-триггер или сам сайдбар */
+.main:hover > #nav-sidebar,
+.main:focus-within > #nav-sidebar,
+#nav-sidebar:hover,
+#nav-sidebar:focus-within {
+  /* По умолчанию hover на .main срабатывает всегда — нужен hover именно на зоне-триггере.
+     Используем :has() для современных браузеров. */
+}
+
+/* Современный способ: открыть drawer, когда курсор над зоной-триггером (::before),
+   либо когда сам сайдбар в фокусе/наведении */
+body:has(.main:hover) #nav-sidebar:hover,
+#nav-sidebar:hover,
+#nav-sidebar:focus-within {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Главный триггер — hover по левой кромке экрана через невидимый
+   фиксированный элемент. Используем :has() чтобы знать, что курсор там. */
+@supports selector(:has(*)) {
+  body:has(.main > #nav-sidebar:hover) .main::after,
+  .main:hover::after {
+    opacity: 0;
+  }
+}
+
+/* Fallback: добавляем хитрый :hover на «расширенную» зону через
+   псевдо-родителя сайдбара. Расширяем хит-зону сайдбара на левый
+   край при помощи его собственного ::before. */
+#nav-sidebar::before {
+  content: '';
+  position: fixed;
+  top: 110px;
+  left: 0;
+  width: 14px;
+  height: calc(100vh - 110px);
+  background: transparent;
+  z-index: -1;
+  pointer-events: auto;
+}
+
+/* Скрываем «язычок» когда drawer открыт */
+.main:has(#nav-sidebar:hover)::after,
+.main:has(#nav-sidebar:focus-within)::after {
+  opacity: 0;
+}
+
+/* Если на странице нет сайдбара (логин, dashboard) — убираем и язычок */
+body:not(.has-nav-sidebar) .main::before,
+body:not(.has-nav-sidebar) .main::after,
+body:not(.has-nav-sidebar) #nav-sidebar {
+  display: none !important;
+}
+
+/* Контент — всегда 100% ширины, drawer выезжает поверх него */
+.main > #content {
+  width: 100%;
+  min-width: 0;
 }
 
 #nav-sidebar {
@@ -557,7 +695,7 @@ body:not(.has-nav-sidebar) #nav-sidebar {
 }
 
 /* Тогл-кнопка сайдбара (стрелка «»») — оставляем в нативном месте,
-   но красиво стилизуем. Django сам располагает её внутри #nav-sidebar
+   но красиво с��илизуем. Django сам располагает её внутри #nav-sidebar
    и (для повторного открытия) добавляет полоску у левого края. */
 #toggle-nav-sidebar {
   position: absolute;
