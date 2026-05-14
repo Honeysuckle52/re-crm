@@ -119,44 +119,44 @@
           </div>
         </div>
       </div>
-
-      <!-- Lightbox -->
-      <Teleport to="body">
-        <Transition name="lb">
-          <div v-if="lightbox.open"
-               class="lb-backdrop"
-               @click.self="closeLightbox"
-               @keydown.esc="closeLightbox"
-               tabindex="-1"
-               ref="lbEl">
-            <button class="lb-close" @click="closeLightbox" title="Закрыть">✕</button>
-
-            <button v-if="property.photos.length > 1"
-                    class="lb-nav lb-nav--prev"
-                    @click="lightboxPrev"
-                    title="Предыдущее">&#8592;</button>
-
-            <div class="lb-img-wrap">
-              <img :src="property.photos[lightbox.index]?.image_url"
-                   :alt="property.title || 'Фото объекта'"
-                   class="lb-img"
-                   draggable="false" />
-              <div class="lb-counter">
-                {{ lightbox.index + 1 }} / {{ property.photos.length }}
-              </div>
-            </div>
-
-            <button v-if="property.photos.length > 1"
-                    class="lb-nav lb-nav--next"
-                    @click="lightboxNext"
-                    title="Следующее">&#8594;</button>
-          </div>
-        </Transition>
-      </Teleport>
-      <div v-else class="muted" style="margin-top: 8px">
+      <div v-if="!property.photos?.length" class="muted" style="margin-top: 8px">
         Фотографии ещё не загружены.
       </div>
     </div>
+
+    <!-- Lightbox -->
+    <Teleport to="body">
+      <Transition name="lb">
+        <div v-if="lightbox.open"
+             class="lb-backdrop"
+             @click.self="closeLightbox"
+             @keydown.esc="closeLightbox"
+             tabindex="-1"
+             ref="lbEl">
+          <button class="lb-close" @click="closeLightbox" title="Закрыть">✕</button>
+
+          <button v-if="property.photos.length > 1"
+                  class="lb-nav lb-nav--prev"
+                  @click="lightboxPrev"
+                  title="Предыдущее">&#8592;</button>
+
+          <div class="lb-img-wrap">
+            <img :src="property.photos[lightbox.index]?.image_url"
+                 :alt="property.title || 'Фото объекта'"
+                 class="lb-img"
+                 draggable="false" />
+            <div class="lb-counter">
+              {{ lightbox.index + 1 }} / {{ property.photos.length }}
+            </div>
+          </div>
+
+          <button v-if="property.photos.length > 1"
+                  class="lb-nav lb-nav--next"
+                  @click="lightboxNext"
+                  title="Следующее">&#8594;</button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <div class="grid grid--2">
       <div class="panel panel--light">
