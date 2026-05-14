@@ -236,7 +236,7 @@ body {
 /* ─────────────────────────────────────────
    Главный контейнер на всю ширину
    Прячем нативный сайдбар «Recent actions»
-   ───────────────────────────────────────── */
+   ────────────────────��──────────────────── */
 #content {
   padding: 28px 0 64px !important;
   display: block !important;
@@ -513,6 +513,7 @@ div.form-row,
 }
 
 #nav-sidebar {
+  display: block !important;
   position: sticky;
   top: 0;
   align-self: stretch;
@@ -529,10 +530,23 @@ div.form-row,
   -webkit-backdrop-filter: blur(14px);
   overflow-y: auto;
   max-height: 100vh;
+  transition: transform 0.25s ease, opacity 0.25s ease, flex-basis 0.25s ease, width 0.25s ease, padding 0.25s ease;
 }
 
-/* Когда сайдбар скрыт — основной контент сам займёт всю ширину */
-.main--nav-sidebar-toggled #nav-sidebar,
+/* Скрытое состояние: Django вешает .toggle-nav-sidebar на <body> при клике на стрелку */
+body.toggle-nav-sidebar #nav-sidebar {
+  flex: 0 0 0 !important;
+  width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-right: 0 !important;
+  opacity: 0;
+  transform: translateX(-12px);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Если страница вообще без сайдбара — отдадим всю ширину контенту */
 body:not(.has-nav-sidebar) #nav-sidebar {
   display: none !important;
 }
@@ -542,21 +556,48 @@ body:not(.has-nav-sidebar) #nav-sidebar {
   min-width: 0;
 }
 
-/* Тогл-кнопка сайдбара («»») */
+/* Тогл-кнопка сайдбара (стрелка «»») — оставляем в нативном месте,
+   но красиво стилизуем. Django сам располагает её внутри #nav-sidebar
+   и (для повторного открытия) добавляет полоску у левого края. */
 #toggle-nav-sidebar {
-  position: fixed;
-  bottom: 18px;
-  left: 18px;
-  z-index: 50;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--crm-r-pill);
+  position: absolute;
+  top: 12px;
+  right: 8px;
+  z-index: 5;
+  width: 30px;
+  height: 30px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  border-radius: 999px !important;
   background: var(--crm-grad-panel) !important;
   color: #f4fbfa !important;
-  border: 1px solid rgba(120, 216, 206, 0.24) !important;
-  box-shadow: var(--crm-shadow);
+  border: 1px solid rgba(120, 216, 206, 0.28) !important;
+  box-shadow: var(--crm-shadow-sm) !important;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+#toggle-nav-sidebar:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--crm-shadow) !important;
+}
+
+/* При свёрнутом сайдбаре Django показывает узкий «обработчик» у левого края.
+   Делаем его видимым и кликабельным, чтобы можно было раскрыть обратно. */
+body.toggle-nav-sidebar #toggle-nav-sidebar {
+  position: fixed !important;
+  top: 96px;
+  left: 0;
+  right: auto;
+  width: 28px;
+  height: 56px;
+  border-radius: 0 var(--crm-r-pill) var(--crm-r-pill) 0 !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
 }
 
 #nav-sidebar .current-app .section:link,
