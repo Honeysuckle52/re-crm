@@ -76,6 +76,7 @@ simple/
 │   │   ├── DejaVuSans.ttf
 │   │   └── DejaVuSans-Bold.ttf
 │   ├── management/
+│   │   ├── background_worker.py
 │   │   └── commands/
 │   │       ├── __init__.py
 │   │       ├── process_background_jobs.py
@@ -414,6 +415,7 @@ python manage.py process_background_jobs --loop
 - **views.py** — DRF ViewSet'ы и API-эндпоинты.
 - **xlsx_utils.py** — минимальный XLSX reader/writer без внешних зависимостей.
 - **fonts/DejaVuSans.ttf**, **DejaVuSans-Bold.ttf** — шрифты с кириллицей для PDF.
+- **management/background_worker.py** — общие helper'ы для dev-запуска background worker (значения по умолчанию и сборка команды `process_background_jobs --loop`); используется `runserver.py` и тестами.
 - **management/commands/__init__.py** — маркер пакета команд.
 - **management/commands/process_background_jobs.py** — воркер очереди писем и PDF.
 - **management/commands/runserver.py** — dev-runserver с автозапуском background worker.
