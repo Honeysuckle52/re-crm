@@ -1,7 +1,15 @@
 {% extends "admin/index.html" %}
-{% load i18n %}
+{% load i18n static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  {# Перезагружаем custom_admin.css ПОСЛЕ Django dashboard.css, #}
+  {# чтобы переопределить тему и фон тела документа. #}
+  <link rel="stylesheet" href="{% static 'admin/css/custom_admin.css' %}">
+{% endblock %}
 
 {% block content_title %}{% endblock %}
+{% block bodyclass %}{{ block.super }} crm-admin-dashboard{% endblock %}
 
 {% block content %}
   <section class="crm-admin-hero" aria-labelledby="crm-admin-hero-title">

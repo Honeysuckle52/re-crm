@@ -85,11 +85,37 @@ html[data-theme="dark"],
 
 /* ---------- Каркас ---------- */
 html,
-body {
-  background: var(--crm-grad-page) fixed;
-  color: var(--crm-ink);
+html[data-theme="auto"],
+html[data-theme="light"],
+html[data-theme="dark"],
+body,
+body.dashboard,
+body.change-list,
+body.change-form,
+body.delete-confirmation,
+body.login {
+  background: var(--crm-grad-page) fixed !important;
+  color: var(--crm-ink) !important;
   font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
+
+/* Принудительно перекрываем встроенную "светлую" тему Django */
+html[data-theme="auto"],
+html[data-theme="light"] {
+  --body-bg:                 #0a2829 !important;
+  --body-fg:                 var(--crm-ink) !important;
+  --body-quiet-color:        var(--crm-ink-soft) !important;
+  --header-bg:               transparent !important;
+  --header-color:            var(--crm-ink) !important;
+  --link-fg:                 var(--crm-accent-2) !important;
+  --link-hover-color:        #b9eee5 !important;
+  --hairline-color:          var(--crm-line) !important;
+  --border-color:            var(--crm-line) !important;
+  --darkened-bg:             rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Прячем стандартный заголовок "Администрирование сайта" — у нас свой hero */
+body.dashboard #content > h1 { display: none; }
 
 a:link,
 a:visited {
