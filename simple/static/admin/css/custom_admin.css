@@ -41,7 +41,27 @@
   --crm-r-lg:   24px;
   --crm-r-pill: 999px;
 
-  --crm-content-width: 1720px;
+  --crm-content-width: 2040px;
+  --crm-content-pad:   48px;
+}
+
+/* ─────────────────────────────────────────
+   Полностью скрываем переключатель темы Django 4.2+
+   (страховка на случай, если он останется в DOM)
+   ───────────────────────────────────────── */
+.theme-toggle,
+button.theme-toggle,
+#user-tools .theme-toggle,
+#user-tools form .theme-toggle,
+.user-tools .theme-toggle,
+[data-theme-toggle],
+.theme-label {
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 html[data-theme="light"],
@@ -184,12 +204,55 @@ div.breadcrumbs {
 }
 
 /* ─────────────────────────────────────────
+   Глобально устраняем горизонтальный overflow
+   (никаких «белых выступов» по правому краю)
+   ───────────────────────────────────────── */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
+#container {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.main {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Скрываем правый сайдбар-плейсхолдер, который Django иногда оставляет пустым */
+.main > .sidebar:empty,
+#nav-sidebar:empty {
+  display: none !important;
+}
+
+/* ─────────────────────────────────────────
    Главный контейнер на всю ширину
    Прячем нативный сайдбар «Recent actions»
    ───────────────────────────────────────── */
 #content {
-  padding: 28px 0 56px !important;
+  padding: 28px 0 64px !important;
   display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+
+/* Django разметка .colMS / .colSM / .colM — сбрасываем правый отступ,
+   именно он создавал белую полосу справа от таблицы */
+#content.colMS,
+#content.colSM,
+#content.colM {
+  margin-right: 0 !important;
+  margin-left: 0 !important;
 }
 
 .dashboard #content {
@@ -200,9 +263,10 @@ div.breadcrumbs {
   width: 100%;
   max-width: var(--crm-content-width);
   margin: 0 auto;
-  padding: 0 40px;
+  padding: 0 var(--crm-content-pad);
   float: none !important;
   display: block !important;
+  box-sizing: border-box;
 }
 
 /* Сайдбар «Recent actions» — переносим в нижнюю часть, не отнимая ширину */
@@ -211,7 +275,147 @@ div.breadcrumbs {
   width: 100% !important;
   max-width: var(--crm-content-width);
   margin: 28px auto 0 !important;
-  padding: 0 40px !important;
+  padding: 0 var(--crm-content-pad) !important;
+  box-sizing: border-box;
+  background: transparent !important;
+}
+
+/* ─────────────────────────────────────────
+   Changelist (список объектов) — на всю ширину
+   ───────────────────────────────────────── */
+#changelist {
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px;
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+#changelist-form {
+  width: 100% !important;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#changelist .results,
+#changelist-form .results {
+  width: 100% !important;
+  overflow-x: auto;
+  border-radius: var(--crm-r-lg);
+  background: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  box-shadow: var(--crm-shadow-sm);
+}
+
+#changelist table {
+  width: 100% !important;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Фильтр-сайдбар: убираем правый float, делаем компактной плашкой сверху */
+#changelist-filter {
+  position: static !important;
+  float: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 0 16px !important;
+  padding: 16px 20px !important;
+  order: -1;
+}
+
+#changelist-filter h2 {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--crm-page-text);
+  padding: 0;
+  margin: 0 0 10px;
+  border-radius: 0;
+}
+
+#changelist-filter ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0 0 10px;
+  list-style: none;
+  border: 0;
+}
+
+#changelist-filter li {
+  padding: 0;
+  margin: 0;
+}
+
+#changelist-filter li a {
+  display: inline-flex;
+  padding: 5px 12px;
+  border-radius: var(--crm-r-pill);
+  font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--crm-border);
+  color: var(--crm-page-text);
+}
+
+#changelist-filter li.selected a {
+  background: rgba(46, 159, 152, 0.14);
+  border-color: var(--crm-border-accent);
+  color: var(--crm-accent);
+}
+
+/* Toolbar (поиск) — на всю ширину */
+#toolbar {
+  width: 100% !important;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+#toolbar form#changelist-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Actions (массовые действия) */
+#changelist-form .actions {
+  width: 100%;
+  padding: 12px 16px;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* Paginator */
+.paginator {
+  width: 100%;
+  padding: 12px 16px;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* Заголовок страницы списка */
+.colM > h1,
+#content-main > h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--crm-page-text);
+  margin: 0 0 18px;
+  letter-spacing: -0.01em;
+}
+
+/* object-tools (кнопка "Добавить") — выравниваем по правому краю */
+.object-tools {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
 }
 
 #content-related .module {
@@ -300,9 +504,59 @@ div.form-row,
   border-radius: var(--crm-r-lg) var(--crm-r-lg) 0 0;
 }
 
+/* Левый nav-sidebar Django: убираем float, делаем флекс-колонкой */
+.main {
+  display: flex !important;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+}
+
 #nav-sidebar {
-  margin-right: 18px;
-  border-radius: var(--crm-r-lg);
+  position: sticky;
+  top: 0;
+  align-self: stretch;
+  flex: 0 0 260px;
+  width: 260px !important;
+  max-width: 260px;
+  margin: 0 !important;
+  padding: 18px 14px !important;
+  border-radius: 0 !important;
+  background: rgba(255, 255, 255, 0.74) !important;
+  border-right: 1px solid var(--crm-border) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+/* Когда сайдбар скрыт — основной контент сам займёт всю ширину */
+.main--nav-sidebar-toggled #nav-sidebar,
+body:not(.has-nav-sidebar) #nav-sidebar {
+  display: none !important;
+}
+
+.main > #content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Тогл-кнопка сайдбара («»») */
+#toggle-nav-sidebar {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  z-index: 50;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--crm-r-pill);
+  background: var(--crm-grad-panel) !important;
+  color: #f4fbfa !important;
+  border: 1px solid rgba(120, 216, 206, 0.24) !important;
+  box-shadow: var(--crm-shadow);
 }
 
 #nav-sidebar .current-app .section:link,
