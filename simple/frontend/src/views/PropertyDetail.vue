@@ -93,10 +93,12 @@
         </label>
       </div>
       <div v-if="property.photos?.length" class="gallery">
-        <div v-for="ph in property.photos" :key="ph.id"
+        <div v-for="(ph, idx) in property.photos" :key="ph.id"
              class="gallery__item"
              :class="{ 'is-hidden': ph.is_hidden, 'is-cover': ph.is_cover }">
-          <img :src="ph.image_url" :alt="property.title || 'Фото объекта'" />
+          <img :src="ph.image_url" :alt="property.title || 'Фото объекта'"
+               class="gallery__img"
+               @click="openLightbox(idx)" />
           <div class="gallery__badges">
             <span v-if="ph.is_cover" class="gallery__badge is-cover">Обложка</span>
             <span v-if="ph.is_hidden" class="gallery__badge is-hidden">Скрыто</span>
@@ -117,6 +119,40 @@
           </div>
         </div>
       </div>
+
+      <!-- Lightbox -->
+      <Teleport to="body">
+        <Transition name="lb">
+          <div v-if="lightbox.open"
+               class="lb-backdrop"
+               @click.self="closeLightbox"
+               @keydown.esc="closeLightbox"
+               tabindex="-1"
+               ref="lbEl">
+            <button class="lb-close" @click="closeLightbox" title="Закрыть">✕</button>
+
+            <button v-if="property.photos.length > 1"
+                    class="lb-nav lb-nav--prev"
+                    @click="lightboxPrev"
+                    title="Предыдущее">&#8592;</button>
+
+            <div class="lb-img-wrap">
+              <img :src="property.photos[lightbox.index]?.image_url"
+                   :alt="property.title || 'Фото объекта'"
+                   class="lb-img"
+                   draggable="false" />
+              <div class="lb-counter">
+                {{ lightbox.index + 1 }} / {{ property.photos.length }}
+              </div>
+            </div>
+
+            <button v-if="property.photos.length > 1"
+                    class="lb-nav lb-nav--next"
+                    @click="lightboxNext"
+                    title="Следующее">&#8594;</button>
+          </div>
+        </Transition>
+      </Teleport>
       <div v-else class="muted" style="margin-top: 8px">
         Фотографии ещё не загружены.
       </div>
@@ -212,7 +248,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
@@ -230,6 +266,31 @@ const toasts = useToastsStore()
 const property = ref(null)
 const statuses = ref([])
 const history = ref([])
+
+// Lightbox
+const lbEl = ref(null)
+const lightbox = reactive({ open: false, index: 0 })
+
+function openLightbox (idx) {
+  lightbox.index = idx
+  lightbox.open = true
+  nextTick(() => lbEl.value?.focus())
+}
+function closeLightbox () { lightbox.open = false }
+function lightboxPrev () {
+  lightbox.index = (lightbox.index - 1 + (property.value?.photos?.length || 1)) % (property.value?.photos?.length || 1)
+}
+function lightboxNext () {
+  lightbox.index = (lightbox.index + 1) % (property.value?.photos?.length || 1)
+}
+function onKeydown (e) {
+  if (!lightbox.open) return
+  if (e.key === 'ArrowLeft') lightboxPrev()
+  else if (e.key === 'ArrowRight') lightboxNext()
+  else if (e.key === 'Escape') closeLightbox()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 const showRequestForm = ref(false)
 const requestError = ref('')
@@ -405,6 +466,135 @@ onMounted(load)
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.gallery__img {
+  cursor: zoom-in;
+  transition: transform 0.25s ease;
+}
+
+.gallery__item:hover .gallery__img {
+  transform: scale(1.04);
+}
+
+/* ---- Lightbox ---- */
+.lb-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(4, 12, 20, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+
+.lb-img-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: calc(100vw - 140px);
+  max-height: calc(100vh - 60px);
+}
+
+.lb-img {
+  max-width: 100%;
+  max-height: calc(100vh - 80px);
+  object-fit: contain;
+  border-radius: 16px;
+  box-shadow: 0 32px 96px rgba(0, 0, 0, 0.72);
+  user-select: none;
+}
+
+.lb-counter {
+  position: absolute;
+  bottom: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.lb-close {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+  z-index: 201;
+}
+
+.lb-close:hover {
+  background: rgba(255, 111, 134, 0.28);
+  transform: rotate(90deg);
+}
+
+.lb-nav {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+  z-index: 201;
+}
+
+.lb-nav:hover {
+  background: rgba(31, 163, 154, 0.28);
+  box-shadow: 0 0 24px rgba(31, 163, 154, 0.22);
+}
+
+.lb-nav--prev {
+  left: 20px;
+}
+.lb-nav--prev:hover { transform: translateY(-50%) translateX(-2px); }
+
+.lb-nav--next {
+  right: 20px;
+}
+.lb-nav--next:hover { transform: translateY(-50%) translateX(2px); }
+
+/* Transition */
+.lb-enter-active,
+.lb-leave-active {
+  transition: opacity 0.22s ease;
+}
+.lb-enter-active .lb-img-wrap,
+.lb-leave-active .lb-img-wrap {
+  transition: transform 0.22s ease;
+}
+.lb-enter-from,
+.lb-leave-to {
+  opacity: 0;
+}
+.lb-enter-from .lb-img-wrap {
+  transform: scale(0.93);
+}
+.lb-leave-to .lb-img-wrap {
+  transform: scale(0.93);
 }
 
 .gallery__item.is-hidden img {
