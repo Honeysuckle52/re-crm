@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from .gar_seed import GarSampler
+from .gar_seed import GarResolvedUnit, GarSampler
 from .twogis import TwoGisClient
 from .dadata import DadataClient
 from .models import (
@@ -417,7 +417,7 @@ class SeedDataService:
 
     @transaction.atomic
     def flush_gar(self) -> dict:
-        self.log.warning('-> Удаляем GAR-данные...')
+        self.log.warning('-> Уда��яем GAR-данные...')
         property_qs = Property.objects.filter(title__startswith='[GAR]')
         property_count = property_qs.count()
         property_qs.delete()
@@ -593,14 +593,124 @@ class SeedDataService:
             users[username] = user
         return users
 
+    # ------------------------------------------------------------------
+    # Иркутские адреса через DaData (5 шт.)
+    # ------------------------------------------------------------------
+
+    # 5 реальных адресов Иркутска для поиска через DaData
+    _IRKUTSK_QUERIES = [
+        'Иркутск, ул. Ленина, 1',
+        'Иркутск, ул. Карла Маркса, 23',
+        'Иркутск, ул. Байкальская, 12',
+        'Иркутск, ул. Советская, 55',
+        'Иркутск, ул. Лермонтова, 79',
+    ]
+
     def _seed_demo_addresses(self) -> list[Address]:
+        """Создаёт 5 иркутских адресов через DaData + fallback на синтетику."""
+        dadata = DadataClient()
+        addresses: list[Address] = []
+
+        for raw_query in self._IRKUTSK_QUERIES:
+            address = self._address_from_dadata(dadata, raw_query)
+            if address:
+                addresses.append(address)
+
+        # Если DaData недоступна — создаём синтетические адреса как раньше
+        if not addresses:
+            self.log.warning('   DaData недоступна — создаём синтетические иркутские адреса.')
+            addresses = self._seed_synthetic_addresses()
+
+        # Если частично получили адреса — добиваем синтетикой до 5
+        if len(addresses) < 5:
+            synthetic = self._seed_synthetic_addresses()
+            addresses += synthetic[:5 - len(addresses)]
+
+        return addresses
+
+    def _address_from_dadata(self, dadata: DadataClient, query: str) -> Address | None:
+        """Запрашивает один адрес из DaData и создаёт запись Address в БД."""
+        try:
+            suggestions = dadata.suggest_address(query, count=1)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('DaData: не удалось получить адрес для %r: %s', query, exc)
+            return None
+
+        if not suggestions:
+            return None
+
+        s = suggestions[0]
+        city_name = (s.get('city') or '').strip()
+        # DaData возвращает «г Иркутск» — убираем префикс типа
+        for prefix in ('г ', 'г. ', 'город '):
+            if city_name.lower().startswith(prefix):
+                city_name = city_name[len(prefix):]
+                break
+        if not city_name:
+            city_name = 'Иркутск'
+
+        city, _ = City.objects.update_or_create(
+            external_id=s.get('city_external_id') or None,
+            defaults={
+                'name': city_name,
+                'region': (s.get('region') or 'Иркутская область').strip(),
+            },
+        ) if s.get('city_external_id') else City.objects.get_or_create(
+            name=city_name,
+            defaults={'region': (s.get('region') or 'Иркутская область').strip()},
+        )
+
+        street_name = (s.get('street') or '').strip()
+        street_type = (s.get('street_type') or 'ул.').strip()
+        if not street_name:
+            return None
+
+        street, _ = Street.objects.update_or_create(
+            external_id=s.get('street_external_id') or None,
+            defaults={
+                'city': city,
+                'name': street_name,
+                'street_type': street_type,
+            },
+        ) if s.get('street_external_id') else Street.objects.get_or_create(
+            city=city,
+            name=street_name,
+            defaults={'street_type': street_type},
+        )
+
+        house_number = (s.get('house') or '1').strip()
+        house, _ = House.objects.update_or_create(
+            external_id=s.get('house_external_id') or None,
+            defaults={
+                'street': street,
+                'house_number': house_number,
+                'building': None,
+                'postal_code': s.get('postal_code') or None,
+            },
+        ) if s.get('house_external_id') else House.objects.get_or_create(
+            street=street,
+            house_number=house_number,
+            building=None,
+            defaults={'postal_code': s.get('postal_code') or None},
+        )
+
+        flat = (s.get('flat') or '').strip() or None
+        address, _ = Address.objects.get_or_create(
+            house=house,
+            apartment_number=flat,
+            defaults={'floor': None, 'entrance': None},
+        )
+        return address
+
+    def _seed_synthetic_addresses(self) -> list[Address]:
+        """Синтетические иркутские адреса — fallback при отсутствии DaData."""
         city, _ = City.objects.get_or_create(
-            name='Демо-город',
-            defaults={'region': 'Демо-область'},
+            name='Иркутск',
+            defaults={'region': 'Иркутская область'},
         )
         street, _ = Street.objects.get_or_create(
             city=city,
-            name='Центральная',
+            name='Ленина',
             defaults={'street_type': 'ул.'},
         )
         addresses: list[Address] = []
@@ -609,7 +719,7 @@ class SeedDataService:
                 street=street,
                 house_number=str(index),
                 building=None,
-                defaults={'postal_code': '100000'},
+                defaults={'postal_code': '664000'},
             )
             address, _ = Address.objects.get_or_create(
                 house=house,
@@ -619,30 +729,112 @@ class SeedDataService:
             addresses.append(address)
         return addresses
 
+    # ------------------------------------------------------------------
+    # GAR-адреса для дополнительных 15 объектов из 3 регионов
+    # ------------------------------------------------------------------
+
+    _GAR_EXTRA_REGIONS = ['02', '50', '66']  # Башкортостан, Московская обл., Свердловская обл.
+    _GAR_EXTRA_PER_REGION = 5                # 5 объектов × 3 региона = 15
+
+    def _seed_gar_extra_addresses(self) -> list[tuple[Address, GarResolvedUnit]]:
+        """Сэмплирует по 5 адресов из каждого из трёх GAR-регионов."""
+        sampler = GarSampler()
+        available = sampler.available_region_codes()
+        result: list[tuple[Address, GarResolvedUnit]] = []
+
+        for region_code in self._GAR_EXTRA_REGIONS:
+            if region_code not in available:
+                self.log.warning(f'   GAR-регион {region_code} не найден — пропускаем.')
+                continue
+            try:
+                units = sampler.sample(region_codes=[region_code], limit=self._GAR_EXTRA_PER_REGION)
+            except FileNotFoundError as exc:
+                self.log.warning(f'   GAR-регион {region_code}: {exc}')
+                continue
+
+            for unit in units:
+                city, _ = City.objects.update_or_create(
+                    external_id=unit.city_guid,
+                    defaults={
+                        'name': unit.city_name,
+                        'region': unit.region_name,
+                    },
+                )
+                street, _ = Street.objects.update_or_create(
+                    external_id=unit.street_guid,
+                    defaults={
+                        'city': city,
+                        'name': unit.street_name,
+                        'street_type': unit.street_type,
+                    },
+                )
+                house, _ = House.objects.update_or_create(
+                    external_id=unit.house_guid,
+                    defaults={
+                        'street': street,
+                        'house_number': unit.house_number,
+                        'building': None,
+                        'postal_code': None,
+                    },
+                )
+                address, _ = Address.objects.get_or_create(
+                    house=house,
+                    apartment_number=unit.apartment_number or None,
+                    defaults={'floor': None, 'entrance': None},
+                )
+                result.append((address, unit))
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Создание 20 объектов
+    # ------------------------------------------------------------------
+
+    # Спецификации иркутских объектов: (суффикс заголовка, op_code, status_code, price, rooms, area, floor, total_floors)
+    _IRKUTSK_SPECS = [
+        ('Студия у набережной',    'sale', 'active',   5_200_000, 1, Decimal('31.50'),  3,  9),
+        ('2-комн. с ремонтом',     'sale', 'active',   8_700_000, 2, Decimal('52.00'),  6, 16),
+        ('3-комн. семейная',       'sale', 'reserved', 12_300_000, 3, Decimal('76.50'), 10, 12),
+        ('Студия в аренду',        'rent', 'active',      34_000, 1, Decimal('28.00'),  2,  9),
+        ('2-комн. аренда, центр',  'rent', 'active',      56_000, 2, Decimal('47.50'),  5, 10),
+    ]
+
     def _seed_demo_properties(self, addresses: list[Address]) -> list[Property]:
         sale = OperationType.objects.get(code='sale')
         rent = OperationType.objects.get(code='rent')
+        op_map = {'sale': sale, 'rent': rent}
+
         status_active = PropertyStatus.objects.get(code='active')
         status_reserved = PropertyStatus.objects.get(code='reserved')
+        status_map = {'active': status_active, 'reserved': status_reserved}
+
         features = list(PropertyFeature.objects.order_by('name')[:8])
-
-        specs = [
-            ('[DEMO] Светлая студия у парка', sale, status_active, 5_400_000, 1, Decimal('32.50'), 4, 9),
-            ('[DEMO] 2-комн. квартира с ремонтом', sale, status_active, 8_900_000, 2, Decimal('54.00'), 6, 16),
-            ('[DEMO] 3-комн. семейная квартира', sale, status_reserved, 12_500_000, 3, Decimal('78.30'), 10, 12),
-            ('[DEMO] Уютная студия в аренду', rent, status_active, 35_000, 1, Decimal('29.00'), 2, 9),
-            ('[DEMO] 2-комн. для аренды, центр', rent, status_active, 58_000, 2, Decimal('48.50'), 5, 10),
-        ]
-
         created: list[Property] = []
-        for index, spec in enumerate(specs, start=1):
-            title, operation_type, status, price, rooms, area, floor, total_floors = spec
+
+        # ── 5 иркутских объектов ─────────────────────────────────────
+        self.log.info('   Создаём 5 иркутских объектов...')
+        for idx, (suffix, op_code, st_code, price, rooms, area, floor, total_floors) in enumerate(
+            self._IRKUTSK_SPECS, start=1
+        ):
+            address = addresses[idx - 1] if idx - 1 < len(addresses) else addresses[-1]
+            city_name = address.house.street.city.name if (
+                address.house and address.house.street and address.house.street.city
+            ) else 'Иркутск'
+            title = f'[DEMO] {city_name} — {suffix}'
+
+            query_address = (
+                f'{city_name}, '
+                f'{address.house.street.street_type or ""} '
+                f'{address.house.street.name}, '
+                f'{address.house.house_number}'
+            ).strip()
+
             property_obj, _ = Property.objects.update_or_create(
                 title=title,
                 defaults={
-                    'operation_type': operation_type,
-                    'status': status,
-                    'address': addresses[index - 1],
+                    'operation_type': op_map[op_code],
+                    'status': status_map[st_code],
+                    'address': address,
                     'price': float(price),
                     'price_per_sqm': round(float(price) / float(area), 2),
                     'area_total': area,
@@ -650,36 +842,88 @@ class SeedDataService:
                     'floor_number': floor,
                     'total_floors': total_floors,
                     'description': (
-                        f'Демонстрационный объект №{index}. Создан командой seed_data '
-                        'и используется для проверки работы системы.'
+                        f'Демонстрационный объект в г. {city_name}. '
+                        'Создан командой seed_data для проверки системы.'
                     ),
                 },
             )
-
             PropertyFeatureValue.objects.filter(property=property_obj).delete()
-            for feature in features[index - 1: index + 2]:
-                PropertyFeatureValue.objects.create(
-                    property=property_obj,
-                    feature=feature,
-                    value='да',
-                )
+            for feature in features[idx - 1: idx + 2]:
+                PropertyFeatureValue.objects.create(property=property_obj, feature=feature, value='да')
 
             PropertyPhoto.objects.filter(property=property_obj).delete()
-            # Пробуем обогатить объект данными из 2GIS; если API недоступен —
-            # падаем к локальному заглушке-изображению.
             enriched = self._enrich_property_from_twogis(
                 property_obj,
-                address_query=f'Демо-город, ул. Центральная, {index}',
+                address_query=query_address,
+                city=city_name,
             )
             if not enriched:
                 PropertyPhoto.objects.create(
                     property=property_obj,
-                    image=f'2026/04/{index}.jpg',
-                    caption=f'Фото объекта №{index}',
+                    image=f'2026/04/{((idx - 1) % 5) + 1}.jpg',
+                    caption=f'Фото объекта №{idx}',
                     is_cover=True,
                     order=0,
                 )
             created.append(property_obj)
+            self.log.info(f'   [{idx}/20] {title}')
+
+        # ── 15 GAR-объектов из 3 регионов ────────────────────────────
+        self.log.info('   Загружаем 15 GAR-объектов из регионов 02/50/66...')
+        gar_pairs = self._seed_gar_extra_addresses()
+
+        for gar_idx, (address, unit) in enumerate(gar_pairs, start=1):
+            global_idx = 5 + gar_idx
+            rooms = 1 + ((gar_idx - 1) % 3)
+            area = Decimal('28.00') + Decimal((gar_idx - 1) * 7)
+            operation_type = sale if gar_idx % 3 else rent
+            status = status_reserved if gar_idx % 5 == 0 else status_active
+            price = self._gar_price(index=gar_idx, rooms=rooms, operation_code=operation_type.code)
+            street_label = f'{unit.street_type or ""} {unit.street_name}'.strip()
+            apt_suffix = f', кв. {unit.apartment_number}' if unit.apartment_number else ''
+            title = (
+                f'[DEMO] {unit.city_name}, {street_label}, д. {unit.house_number}{apt_suffix}'
+            )
+            property_obj, _ = Property.objects.update_or_create(
+                title=title,
+                defaults={
+                    'operation_type': operation_type,
+                    'status': status,
+                    'address': address,
+                    'price': price,
+                    'price_per_sqm': round(price / float(area), 2),
+                    'area_total': area,
+                    'rooms_count': rooms,
+                    'floor_number': None,
+                    'total_floors': None,
+                    'description': (
+                        'Тестовый объект, автоматически созданный на основе '
+                        f'локальной выгрузки GAR/FIAS по региону {unit.region_name}.'
+                    ),
+                },
+            )
+            PropertyFeatureValue.objects.filter(property=property_obj).delete()
+            for feature in features[(gar_idx - 1) % max(len(features), 1): (gar_idx - 1) % max(len(features), 1) + 3]:
+                PropertyFeatureValue.objects.create(property=property_obj, feature=feature, value='да')
+
+            PropertyPhoto.objects.filter(property=property_obj).delete()
+            gar_query = f'{unit.city_name}, {street_label}, д. {unit.house_number}'
+            enriched = self._enrich_property_from_twogis(
+                property_obj,
+                address_query=gar_query,
+                city=unit.city_name,
+            )
+            if not enriched:
+                PropertyPhoto.objects.create(
+                    property=property_obj,
+                    image=f'2026/04/{((gar_idx - 1) % 5) + 1}.jpg',
+                    caption=f'Фото объекта (GAR) №{gar_idx}',
+                    is_cover=True,
+                    order=0,
+                )
+            created.append(property_obj)
+            self.log.info(f'   [{global_idx}/20] {title}')
+
         return created
 
     def _seed_demo_requests(
