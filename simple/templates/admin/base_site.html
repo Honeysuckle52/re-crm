@@ -25,9 +25,30 @@
 
 {% block nav-global %}
   <div class="crm-admin-links">
-    <a href="/">Сайт</a>
-    <a href="/reports/">Отчёты</a>
+    <a href="/">Дашборд</a>
+    <a href="/crm">CRM-кабинет</a>
+    <a href="/reports">Отчёты</a>
     <a href="/clients">Пользователи</a>
-    <a href="/api/docs/">API Docs</a>
+    <a href="/api/docs/">API</a>
   </div>
+{% endblock %}
+
+{# Полностью переопределяем блок userlinks, чтобы убрать переключатель темы Django 4.2+ #}
+{% block userlinks %}
+  {% if site_url %}
+    <a href="{{ site_url }}">{% translate 'View site' %}</a> /
+  {% endif %}
+  {% if user.is_active and user.is_staff %}
+    {% url 'django-admindocs-docroot' as docsroot %}
+    {% if docsroot %}
+      <a href="{{ docsroot }}">{% translate 'Documentation' %}</a> /
+    {% endif %}
+  {% endif %}
+  {% if user.has_usable_password %}
+    <a href="{% url 'admin:password_change' %}">{% translate 'Change password' %}</a> /
+  {% endif %}
+  <form id="logout-form" method="post" action="{% url 'admin:logout' %}">
+    {% csrf_token %}
+    <button type="submit">{% translate 'Log out' %}</button>
+  </form>
 {% endblock %}

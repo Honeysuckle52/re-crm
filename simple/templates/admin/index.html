@@ -5,10 +5,27 @@
 
 {% block breadcrumbs %}{% endblock %}
 
-{% block content_title %}<h1 class="crm-dash__title">Системное администрирование</h1>{% endblock %}
+{% block content_title %}{% endblock %}
 
 {% block content %}
 <div id="content-main" class="crm-dash">
+
+  {# ─────────── Hero / заголовок страницы ─────────── #}
+  <section class="crm-hero">
+    <div class="crm-hero__copy">
+      <span class="crm-hero__eyebrow">Системное администрирование</span>
+      <h1 class="crm-hero__title">РИЭЛТ · Админ</h1>
+      <p class="crm-hero__text">
+        Управление сущностями, справочниками, шаблонами уведомлений, версиями
+        процессов, аудитом и фоновыми очередями — единый контур для администратора.
+      </p>
+    </div>
+    <div class="crm-hero__badge">
+      <span class="crm-hero__badge-label">Уровень доступа</span>
+      <strong>Администратор</strong>
+    </div>
+  </section>
+
 
   {# ─────────── 1. Quick actions (TOP) ─────────── #}
   <section class="crm-dash__section">

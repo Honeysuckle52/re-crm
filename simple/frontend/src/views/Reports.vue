@@ -10,17 +10,23 @@
             с фильтрами, сортировкой и экспортом.
           </div>
         </div>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
+        <div class="reports-switch" role="tablist" aria-label="Тип отчёта">
           <button
-            class="btn btn--sm"
-            :class="{ 'btn--primary': reportType === 'deals' }"
+            type="button"
+            role="tab"
+            class="reports-switch__btn"
+            :class="{ 'is-active': reportType === 'deals' }"
+            :aria-selected="reportType === 'deals'"
             @click="switchReport('deals')"
           >
             Сделки
           </button>
           <button
-            class="btn btn--sm"
-            :class="{ 'btn--primary': reportType === 'tasks' }"
+            type="button"
+            role="tab"
+            class="reports-switch__btn"
+            :class="{ 'is-active': reportType === 'tasks' }"
+            :aria-selected="reportType === 'tasks'"
             @click="switchReport('tasks')"
           >
             Задачи
@@ -186,7 +192,10 @@
         @retry="loadCurrentReport"
       />
 
-      <div v-else class="table-wrap table-wrap--cards reports-table-wrap">
+      <div
+        v-else-if="currentReport.rows.length"
+        class="table-wrap table-wrap--cards reports-table-wrap"
+      >
         <table class="table table--responsive-cards">
           <thead>
             <tr>
@@ -207,8 +216,9 @@
         </table>
       </div>
 
-      <div v-if="!currentReport.rows.length && !loading && !reportLoadError" class="empty">
-        По выбранным фильтрам данных нет.
+      <div v-else class="empty reports-empty">
+        По выбранным фильтрам данных нет. Попробуйте изменить период, статус
+        или сбросить фильтры.
       </div>
     </div>
   </section>
@@ -315,9 +325,13 @@ function currentParams() {
 }
 
 function switchReport(type) {
+  if (reportType.value === type) return
   reportType.value = type
+  reportLoadError.value = ''
   const report = type === 'deals' ? dealReport.value : taskReport.value
-  if (!report.rows.length) {
+  // Перезагружаем отчёт, если для выбранного типа ещё нет данных
+  // или предыдущая попытка завершилась ошибкой (rows пустой).
+  if (!report.columns.length || !report.rows.length) {
     loadCurrentReport()
   }
 }
@@ -398,6 +412,46 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.reports-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(120, 216, 206, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.reports-switch__btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgba(234, 245, 243, 0.78);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.reports-switch__btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.reports-switch__btn.is-active {
+  background: linear-gradient(135deg, #2e9f98 0%, #1f7d75 100%);
+  color: #062021;
+  box-shadow: 0 10px 22px rgba(46, 159, 152, 0.32);
+}
+
+.reports-empty {
+  text-align: center;
+  padding: 32px 24px;
+}
+
 .reports-filter-grid {
   align-items: end;
 }
