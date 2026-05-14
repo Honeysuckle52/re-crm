@@ -1,6 +1,7 @@
 """Общий слой заполнения справочников и тестовых данных."""
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -10,6 +11,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from .gar_seed import GarSampler
+from .twogis import TwoGisClient
+from .dadata import DadataClient
 from .models import (
     Address,
     City,
@@ -32,6 +35,9 @@ from .models import (
     UserRole,
     DealStatus,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 OPERATION_TYPES = [
@@ -359,6 +365,17 @@ class SeedDataService:
                 if PropertyFeatureValue.objects.filter(property=property_obj).count() >= 3:
                     break
 
+            # Обогащаем объект данными из 2GIS (описание + фото по адресу).
+            street_label = f'{street.street_type or ""} {street.name}'.strip()
+            gar_address_query = (
+                f'{city.name}, {street_label}, д. {house.house_number}'
+            )
+            self._enrich_property_from_twogis(
+                property_obj,
+                address_query=gar_address_query,
+                city=city.name,
+            )
+
             total += 1
             if was_created:
                 created_count += 1
@@ -648,13 +665,20 @@ class SeedDataService:
                 )
 
             PropertyPhoto.objects.filter(property=property_obj).delete()
-            PropertyPhoto.objects.create(
-                property=property_obj,
-                image=f'2026/04/{index}.jpg',
-                caption=f'Фото объекта №{index}',
-                is_cover=True,
-                order=0,
+            # Пробуем обогатить объект данными из 2GIS; если API недоступен —
+            # падаем к локальному заглушке-изображению.
+            enriched = self._enrich_property_from_twogis(
+                property_obj,
+                address_query=f'Демо-город, ул. Центральная, {index}',
             )
+            if not enriched:
+                PropertyPhoto.objects.create(
+                    property=property_obj,
+                    image=f'2026/04/{index}.jpg',
+                    caption=f'Фото объекта №{index}',
+                    is_cover=True,
+                    order=0,
+                )
             created.append(property_obj)
         return created
 
@@ -779,7 +803,7 @@ class SeedDataService:
                 'due_date': now + timedelta(days=2),
             },
             {
-                'title': '[DEMO] Оформить договор аренды студии',
+                'title': '[DEMO] Оформить договор аренды ст��дии',
                 'description': 'Проверить пакет документов и отправить на подпись.',
                 'task_type': 'documents',
                 'priority': 'high',
@@ -828,6 +852,70 @@ class SeedDataService:
                 task_obj.save(update_fields=['completed_at'])
             tasks.append(task_obj)
         return tasks
+
+    def _enrich_property_from_twogis(
+        self,
+        property_obj: 'Property',
+        *,
+        address_query: str,
+        city: str = '',
+    ) -> bool:
+        """Обогащает объект недвижимости данными из 2GIS.
+
+        Если API возвращает результат — обновляет описание и добавляет фото.
+        Метод никогда не выбрасывает исключений: ошибки логируются и
+        возвращается ``False``, чтобы вызывающий код мог использовать
+        локальную заглушку.
+        """
+        try:
+            client = TwoGisClient()
+            if not client.api_key:
+                return False
+
+            info = client.search_by_address(address_query, city=city)
+            if not info:
+                return False
+
+            # Обновляем описание, если оно не было задано вручную или содержит
+            # только шаблонный текст (начинается с «Тестовый» / «Демонстрационный»).
+            current_desc = (property_obj.description or '').strip()
+            twogis_desc = (info.get('description') or '').strip()
+            is_placeholder = current_desc.startswith(('Тестовый', 'Демонстрационный'))
+            if twogis_desc and (not current_desc or is_placeholder):
+                property_obj.description = twogis_desc
+                property_obj.save(update_fields=['description'])
+
+            # Обновляем координаты, если они отсутствуют.
+            if info.get('lat') and info.get('lon') and not property_obj.coordinates_lat:
+                property_obj.coordinates_lat = info['lat']
+                property_obj.coordinates_lon = info['lon']
+                property_obj.save(update_fields=['coordinates_lat', 'coordinates_lon'])
+
+            # Добавляем фото из 2GIS как внешние URL.
+            photo_urls: list[str] = info.get('photos') or []
+            if photo_urls:
+                PropertyPhoto.objects.filter(property=property_obj).delete()
+                for order, url in enumerate(photo_urls):
+                    PropertyPhoto.objects.create(
+                        property=property_obj,
+                        url=url,
+                        caption='Фото из 2GIS',
+                        is_cover=(order == 0),
+                        order=order,
+                    )
+                self.log.info(
+                    f'   2GIS: {len(photo_urls)} фото для объекта «{property_obj.title}».',
+                )
+                return True
+
+            return bool(twogis_desc)
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                '2GIS обогащение объекта pk=%s (%r) не удалось: %s',
+                property_obj.pk, address_query, exc,
+            )
+            return False
 
     @staticmethod
     def _gar_price(*, index: int, rooms: int, operation_code: str) -> float:

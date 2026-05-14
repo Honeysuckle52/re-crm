@@ -225,3 +225,7 @@ DADATA_API_KEY = os.getenv(
     'DADATA_API_KEY',
     '8ceded5bba84e0bd3f20cd7a36057324dc680563',
 )
+
+# 2GIS Places API — обогащение объектов недвижимости данными и фото.
+# Ключ хранится ТОЛЬКО на сервере и никогда не передаётся в браузер.
+TWOGIS_API_KEY = os.getenv('TWOGIS_API_KEY', '0e9c9bee-64f5-42fa-b8c6-0925a6d20eef')
