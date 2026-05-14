@@ -115,6 +115,7 @@ body {
 .crm-admin-links a {
   color: #f4fbfa;
   opacity: 0.9;
+  transition: opacity 0.3s ease;
 }
 
 .crm-admin-links a:hover {
@@ -191,6 +192,18 @@ input[type=button],
   border-radius: 999px !important;
   border: 1px solid rgba(46, 159, 152, 0.14);
   box-shadow: 0 10px 20px rgba(4, 24, 22, 0.12);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+a.button:hover,
+button:hover,
+input[type=submit]:hover,
+input[type=button]:hover,
+.submit-row input:hover,
+.button:hover,
+.object-tools a:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(4, 24, 22, 0.16);
 }
 
 .button.default,
@@ -251,11 +264,42 @@ select:focus {
   background: rgba(120, 216, 206, 0.12);
 }
 
+.crm-admin-dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 22px;
+  align-items: start;
+  margin-top: 12px;
+}
+
+.crm-admin-dashboard-main {
+  min-width: 0;
+}
+
+.crm-admin-dashboard-sidebar {
+  width: 100%;
+}
+
+.crm-admin-sidebar-panel {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(120, 216, 206, 0.18);
+  border-radius: 26px;
+  padding: 18px;
+  box-shadow: var(--crm-shadow);
+}
+
+.crm-admin-sidebar-title {
+  margin: 0 0 16px;
+  color: var(--crm-page-text);
+  font-size: 16px;
+  font-weight: 700;
+}
+
 .crm-admin-shortcuts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
-  margin-bottom: 22px;
+  margin-bottom: 0;
 }
 
 .crm-admin-shortcut {
@@ -269,10 +313,12 @@ select:focus {
   box-shadow: var(--crm-shadow-strong);
   border: 1px solid rgba(120, 216, 206, 0.16);
   text-decoration: none;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
 }
 
 .crm-admin-shortcut strong {
   font-size: 15px;
+  font-weight: 600;
 }
 
 .crm-admin-shortcut span {
@@ -282,8 +328,14 @@ select:focus {
 }
 
 .crm-admin-shortcut:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 34px 58px rgba(4, 24, 22, 0.22);
+  transform: translateY(-3px);
+  box-shadow: 0 34px 58px rgba(4, 24, 22, 0.28);
+}
+
+@media (max-width: 1200px) {
+  .crm-admin-dashboard-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .messagelist .success,

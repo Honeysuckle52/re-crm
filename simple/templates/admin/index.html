@@ -2,35 +2,44 @@
 {% load i18n %}
 
 {% block content %}
-  <section class="crm-admin-shortcuts">
-    <a class="crm-admin-shortcut" href="{% url 'admin:key_user_changelist' %}">
-      <strong>Пользователи</strong>
-      <span>Сотрудники, клиенты, роли и доступ</span>
-    </a>
-    <a class="crm-admin-shortcut" href="/reports">
-      <strong>Отчёты</strong>
-      <span>Сделки и задачи с фильтрами, сводками и экспортом</span>
-    </a>
-    <a class="crm-admin-shortcut" href="{% url 'admin:key_notificationtemplate_changelist' %}">
-      <strong>Email-шаблоны</strong>
-      <span>Редактирование тем, текста и HTML-версий писем</span>
-    </a>
-    <a class="crm-admin-shortcut" href="{% url 'admin:key_processversion_changelist' %}">
-      <strong>Версии процессов</strong>
-      <span>Активные схемы заявок и задач</span>
-    </a>
-    <a class="crm-admin-shortcut" href="{% url 'admin:key_auditlog_changelist' %}">
-      <strong>Журнал действий</strong>
-      <span>История изменений и событий системы</span>
-    </a>
-    <a class="crm-admin-shortcut" href="{% url 'admin:key_outgoingemail_changelist' %}">
-      <strong>Очередь уведомлений</strong>
-      <span>Исходящие письма, ошибки и повторная отправка</span>
-    </a>
-    <a class="crm-admin-shortcut" href="{% url 'admin:key_userrole_changelist' %}">
-      <strong>Роли и лимиты</strong>
-      <span>Нагрузка сотрудников и матрица доступа</span>
-    </a>
-  </section>
-  {{ block.super }}
+  <div class="crm-admin-dashboard-layout">
+    <div class="crm-admin-dashboard-main">
+      {{ block.super }}
+    </div>
+    <aside class="crm-admin-dashboard-sidebar">
+      <div class="crm-admin-sidebar-panel">
+        <div class="crm-admin-sidebar-title">Быстрые действия</div>
+        <section class="crm-admin-shortcuts">
+          <a class="crm-admin-shortcut" href="/admin/key/user/">
+            <strong>Пользователи</strong>
+            <span>Сотрудники, клиенты, роли и доступ</span>
+          </a>
+          <a class="crm-admin-shortcut" href="/reports">
+            <strong>Отчёты</strong>
+            <span>Сделки и задачи с фильтрами, сводками и экспортом</span>
+          </a>
+          <a class="crm-admin-shortcut" href="/admin/key/notificationtemplate/">
+            <strong>Email-шаблоны</strong>
+            <span>Редактирование тем, текста и HTML-версий писем</span>
+          </a>
+          <a class="crm-admin-shortcut" href="/admin/key/processversion/">
+            <strong>Версии процессов</strong>
+            <span>Активные схемы заявок и задач</span>
+          </a>
+          <a class="crm-admin-shortcut" href="/admin/key/auditlog/">
+            <strong>Журнал действий</strong>
+            <span>История изменений и событий системы</span>
+          </a>
+          <a class="crm-admin-shortcut" href="/admin/key/outgoingemail/">
+            <strong>Очередь уведомлений</strong>
+            <span>Исходящие письма, ошибки и повторная отправка</span>
+          </a>
+          <a class="crm-admin-shortcut" href="/admin/key/userrole/">
+            <strong>Роли и лимиты</strong>
+            <span>Нагрузка сотрудников и матрица доступа</span>
+          </a>
+        </section>
+      </div>
+    </aside>
+  </div>
 {% endblock %}

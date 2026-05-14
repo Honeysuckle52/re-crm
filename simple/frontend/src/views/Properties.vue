@@ -547,16 +547,27 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 10px 18px rgba(16, 55, 52, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  border: 2px solid rgba(21, 56, 57, 0.08);
+  box-shadow: 0 8px 16px rgba(16, 55, 52, 0.1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.properties-grid__check:hover {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(21, 56, 57, 0.16);
+  box-shadow: 0 10px 20px rgba(16, 55, 52, 0.14);
 }
 
 .properties-grid__check input {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--c-accent, #2e9f98);
 }
 
 .bulk-toggle {
