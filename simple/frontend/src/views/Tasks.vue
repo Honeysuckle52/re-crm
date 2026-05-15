@@ -241,8 +241,8 @@
         @retry="reloadTaskBoard"
       />
 
-      <div v-else class="table-wrap task-table-wrap">
-        <table class="table">
+      <div v-else class="table-wrap table-wrap--cards task-table-wrap">
+        <table class="table tasks-table table--responsive-cards">
           <thead>
             <tr>
               <th class="table-check-cell">
@@ -1318,31 +1318,39 @@ onMounted(async () => {
   border-color: rgba(255, 111, 134, 0.22);
 }
 
+/* ── Tags: match deals-table light pill style ───────────────── */
 .task-badge,
 .task-badge.tag--type,
 .task-badge.tag--accent,
 .task-badge.tag--panel,
 .task-badge.tag--cancelled {
-  background: rgba(255, 255, 255, 0.09);
-  color: var(--c-text);
-  border-color: rgba(120, 216, 206, 0.18);
-  box-shadow: none;
-  font-size: 12px;
-  letter-spacing: 0.02em;
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: normal;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
-/* Статус «в работе» — акцентный тег */
-.task-badge.tag--accent {
-  background: rgba(46, 159, 152, 0.18);
-  color: #d4fff9;
-  border-color: rgba(46, 159, 152, 0.28);
+.task-badge.tag--cancelled {
+  border-color: rgba(194, 85, 74, 0.22);
+  color: #7b4741;
 }
 
-/* Тип задачи */
-.task-badge.tag--type {
-  background: rgba(120, 216, 206, 0.1);
-  color: #bffaf4;
-  border-color: rgba(120, 216, 206, 0.16);
+/* Override the dark .tag--type / .tag--accent set globally */
+.tasks-table .tag--type,
+.tasks-table .tag--accent {
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.16);
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
 }
 
 .select--sm {
@@ -1391,28 +1399,28 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 5px 12px;
+  min-height: 34px;
+  padding: 6px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(120, 216, 206, 0.2);
-  background: rgba(120, 216, 206, 0.08);
-  color: var(--c-accent-2);
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
+  color: var(--c-page-text);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
   text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
   transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .task-request-link:hover {
   transform: translateY(-1px);
-  background: rgba(120, 216, 206, 0.14);
-  border-color: rgba(120, 216, 206, 0.32);
-  color: #efffff;
+  border-color: rgba(21, 56, 57, 0.22);
+  box-shadow: 0 10px 20px rgba(16, 55, 52, 0.12);
   text-decoration: none;
 }
 
@@ -1574,54 +1582,43 @@ onMounted(async () => {
   padding-left: 14px !important;
 }
 
-/* ─── Table row refinements ───────────────────────────────────── */
+/* ─── Table row styling: mirrors deals-table ──────────────────── */
 
-/* Разделитель между строками чуть заметнее */
+/* Subtle neutral row separator, same as deals */
 .task-table-wrap .table td {
-  border-bottom: 1px solid rgba(120, 216, 206, 0.09);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-/* Последняя строка — без нижнего бордера */
 .task-table-wrap .table tbody tr:last-child td {
   border-bottom: none;
 }
 
-/* Hover: стеклянное подсвечивание строки */
+/* Row hover */
 .task-table-wrap .table tbody tr {
-  transition: background 0.18s ease, box-shadow 0.18s ease;
+  transition: background 0.15s ease;
 }
 
 .task-table-wrap .table tbody tr:hover td {
-  background: rgba(120, 216, 206, 0.065);
+  background: rgba(255, 255, 255, 0.025);
 }
 
-/* Левый акцентный индикатор: «моя» задача */
+/* Left accent stripe: my task */
 .row--mine > td:first-child {
   box-shadow: inset 3px 0 0 rgba(46, 159, 152, 0.55);
 }
 
-/* Левый акцентный индикатор: задача «в работе» */
+/* Left accent stripe: active/in-progress task */
 .row--active > td:first-child {
-  box-shadow: inset 3px 0 0 rgba(120, 216, 206, 0.8);
+  box-shadow: inset 3px 0 0 rgba(120, 216, 206, 0.75);
 }
 
-/* Строка «в работе» — лёгкое фоновое тонирование */
+/* Active row subtle tint */
 .row--active {
-  background: rgba(99, 208, 197, 0.055);
+  background: rgba(99, 208, 197, 0.04);
 }
 
-/* Hover поверх «в работе» — чуть ярче */
 .row--active:hover td {
-  background: rgba(120, 216, 206, 0.1) !important;
-}
-
-/* Плавное скругление первой и последней ячейки при hover */
-.task-table-wrap .table tbody tr td:first-child {
-  border-radius: 10px 0 0 10px;
-}
-
-.task-table-wrap .table tbody tr td:last-child {
-  border-radius: 0 10px 10px 0;
+  background: rgba(99, 208, 197, 0.065) !important;
 }
 
 .assignee-cell {
