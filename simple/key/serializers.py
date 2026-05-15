@@ -815,6 +815,11 @@ class TaskSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'created_by',
             'is_auto_closed', 'steps_log',
         ]
+        # status назначается бэкендом автоматически при создании (статус «new»),
+        # поэтому делаем поле необязательным — фронт его не передаёт.
+        extra_kwargs = {
+            'status': {'required': False},
+        }
 
     def get_is_overdue(self, obj) -> bool:
         from django.utils import timezone
