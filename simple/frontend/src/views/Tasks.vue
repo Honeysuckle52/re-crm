@@ -1323,36 +1323,48 @@ onMounted(async () => {
 .task-badge.tag--accent,
 .task-badge.tag--panel,
 .task-badge.tag--cancelled {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
   color: var(--c-page-text);
-  border-color: rgba(21, 56, 57, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 8px 18px rgba(16, 55, 52, 0.08);
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
+  white-space: nowrap;
 }
 
 .select--sm {
-  padding: 10px 42px 10px 14px;
+  padding: 8px 42px 8px 14px;
   font-size: 13px;
+  min-height: 38px;
 }
 
 .table-check-cell {
   width: 44px;
+  min-width: 44px;
+  max-width: 44px;
   text-align: center;
+  padding-left: 14px !important;
+  padding-right: 6px !important;
 }
 
 .table-check-cell input {
   width: 16px;
   height: 16px;
+  cursor: pointer;
 }
 
 .task-actions {
   display: flex;
   gap: 6px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
   white-space: nowrap;
+  min-width: 220px;
 }
 
 .task-actions > .btn,
@@ -1362,11 +1374,18 @@ onMounted(async () => {
 
 .task-actions > .select {
   width: auto;
-  min-width: 132px;
+  min-width: 150px;
+}
+
+.task-actions--history {
+  min-width: 100px;
+  flex-wrap: nowrap;
 }
 
 .task-request-cell {
   min-width: 118px;
+  max-width: 140px;
+  width: 140px;
 }
 
 .task-request-cell.is-clickable {
@@ -1378,8 +1397,9 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   width: 100%;
+  max-width: 120px;
   min-height: 38px;
-  padding: 8px 14px;
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid rgba(21, 56, 57, 0.16);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
@@ -1417,7 +1437,26 @@ onMounted(async () => {
 }
 
 .task-history-wrap .table {
-  min-width: 780px;
+  min-width: 820px;
+}
+
+/* Align th/td padding & font-size with global .table rules for uniformity */
+.task-table-wrap .table th,
+.task-history-wrap .table th {
+  padding: 0 16px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.task-table-wrap .table td,
+.task-history-wrap .table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  vertical-align: middle;
 }
 
 .workload-banner {
@@ -1544,8 +1583,22 @@ onMounted(async () => {
 .tag--type {
   background: rgba(99, 208, 197, 0.14);
   color: #effffd;
-  font-size: 11px;
+  font-size: 12px;
   border-color: rgba(99, 208, 197, 0.2);
+}
+
+.task-badge.tag--type {
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  border-color: rgba(99, 208, 197, 0.2);
+  box-shadow: none;
+}
+
+.task-badge.tag--cancelled {
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
+  border-color: rgba(255, 111, 134, 0.22);
+  box-shadow: none;
 }
 
 .auto-closed-badge {
@@ -1562,8 +1615,12 @@ onMounted(async () => {
 }
 
 .mine-cell {
-  width: 18px;
-  padding-left: 14px !important;
+  width: 22px;
+  min-width: 22px;
+  max-width: 22px;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  text-align: center;
 }
 
 .row--mine > td:first-child {
@@ -1586,7 +1643,8 @@ onMounted(async () => {
 }
 
 .history-result {
-  min-width: 160px;
+  min-width: 140px;
+  max-width: 200px;
 }
 
 .modal-overlay {
