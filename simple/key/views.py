@@ -829,7 +829,7 @@ class PropertyFeatureViewSet(viewsets.ModelViewSet):
 
 
 class PropertyPhotoViewSet(viewsets.ModelViewSet):
-    """Фото объекта и действия по альбому."""
+    """Фото объекта �� действия по альбому."""
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
     permission_classes = [IsEmployee]
@@ -1605,7 +1605,19 @@ class TaskViewSet(viewsets.ModelViewSet):
                 business_rules.assert_can_assign_task(assignee)
             except WorkloadLimitExceeded as exc:
                 raise ValidationError({'assignee': [exc.detail]})
-        task = serializer.save(created_by=self.request.user)
+
+        # Статус обязателен в модели, но фронт его не передаёт при создании —
+        # подставляем начальный статус «new» автоматически.
+        save_kwargs = {'created_by': self.request.user}
+        if 'status' not in serializer.validated_data:
+            initial_status = business_rules.status_by_code(models.TaskStatus, 'new')
+            if initial_status is None:
+                raise ValidationError(
+                    {'detail': 'Справочник статусов задач не заполнен. Статус «new» не найден.'}
+                )
+            save_kwargs['status'] = initial_status
+
+        task = serializer.save(**save_kwargs)
         process_versions.assign_task_process_version(task)
         audit_service.log_event(
             entity=task,
