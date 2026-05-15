@@ -33,6 +33,7 @@
                 <span class="ctw__label">
                   <b>Текущая задача</b>
                   <span v-if="task" class="ctw__subtle">{{ task.title }}</span>
+                  <span v-else-if="wl.loading" class="ctw__subtle">загрузка…</span>
                   <span v-else-if="hasCurrentTaskMismatch" class="ctw__subtle">
                     идет обновление карточки
                   </span>
@@ -108,6 +109,10 @@
                     </button>
                   </div>
                 </template>
+
+                <div v-else-if="wl.loading" class="ctw__empty">
+                  <span>Загрузка задач…</span>
+                </div>
 
                 <div v-else-if="hasCurrentTaskMismatch" class="ctw__empty">
                   <span>Есть задача в работе. Обновите виджет.</span>

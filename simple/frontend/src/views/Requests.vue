@@ -290,7 +290,7 @@
                     class="btn btn--sm btn--danger"
                     @click="deleteRequest(requestItem)"
                   >
-                    РЈРґР°Р»РёС‚СЊ
+                    Удалить
                   </button>
                   <button
                     v-if="auth.isStaff && requestItem.can_close"
@@ -684,6 +684,10 @@ async function createRequest() {
   formError.value = ''
   if (auth.isStaff && !form.client) {
     formError.value = 'Выберите клиента для заявки.'
+    return
+  }
+  if (!form.operation_type) {
+    formError.value = 'Выберите тип операции.'
     return
   }
 
