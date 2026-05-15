@@ -96,5 +96,6 @@ function formatMoney (v) { return fmtMoney(v, '0') }
   z-index: 1;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  color: #000 !important;
 }
 </style>

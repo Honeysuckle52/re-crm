@@ -4,19 +4,6 @@
       Показано {{ rangeStart }}–{{ rangeEnd }} из {{ count }} {{ label }}
     </div>
     <div class="list-pagination__controls">
-      <label class="list-pagination__size">
-        <span>На странице</span>
-        <select
-          class="select select--sm"
-          :value="pageSize"
-          :disabled="disabled"
-          @change="$emit('change-page-size', Number($event.target.value))"
-        >
-          <option v-for="size in pageSizeOptions" :key="size" :value="size">
-            {{ size }}
-          </option>
-        </select>
-      </label>
       <button
         type="button"
         class="btn btn--sm"
@@ -105,18 +92,6 @@ const rangeEnd = computed(() => (
   flex-wrap: wrap;
 }
 
-.list-pagination__size {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--c-muted);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.list-pagination__size .select {
-  min-width: 92px;
-}
 
 .list-pagination__page {
   min-width: 132px;
@@ -132,11 +107,6 @@ const rangeEnd = computed(() => (
   }
 
   .list-pagination__controls {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .list-pagination__size {
     width: 100%;
     justify-content: space-between;
   }
