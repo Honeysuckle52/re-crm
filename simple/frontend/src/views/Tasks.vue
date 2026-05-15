@@ -1323,12 +1323,26 @@ onMounted(async () => {
 .task-badge.tag--accent,
 .task-badge.tag--panel,
 .task-badge.tag--cancelled {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
-  color: var(--c-page-text);
-  border-color: rgba(21, 56, 57, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 8px 18px rgba(16, 55, 52, 0.08);
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--c-text);
+  border-color: rgba(120, 216, 206, 0.18);
+  box-shadow: none;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+/* Статус «в работе» — акцентный тег */
+.task-badge.tag--accent {
+  background: rgba(46, 159, 152, 0.18);
+  color: #d4fff9;
+  border-color: rgba(46, 159, 152, 0.28);
+}
+
+/* Тип задачи */
+.task-badge.tag--type {
+  background: rgba(120, 216, 206, 0.1);
+  color: #bffaf4;
+  border-color: rgba(120, 216, 206, 0.16);
 }
 
 .select--sm {
@@ -1377,34 +1391,28 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  min-height: 38px;
-  padding: 8px 14px;
+  min-height: 32px;
+  padding: 5px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(21, 56, 57, 0.16);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
-  color: var(--c-page-text);
+  border: 1px solid rgba(120, 216, 206, 0.2);
+  background: rgba(120, 216, 206, 0.08);
+  color: var(--c-accent-2);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
   text-decoration: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 8px 18px rgba(16, 55, 52, 0.08);
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
+    background 0.2s ease,
     border-color 0.2s ease,
-    color 0.2s ease;
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .task-request-link:hover {
   transform: translateY(-1px);
-  color: var(--c-page-text);
-  border-color: rgba(21, 56, 57, 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.88),
-    0 10px 20px rgba(16, 55, 52, 0.1);
+  background: rgba(120, 216, 206, 0.14);
+  border-color: rgba(120, 216, 206, 0.32);
+  color: #efffff;
   text-decoration: none;
 }
 
@@ -1566,16 +1574,54 @@ onMounted(async () => {
   padding-left: 14px !important;
 }
 
+/* ─── Table row refinements ───────────────────────────────────── */
+
+/* Разделитель между строками чуть заметнее */
+.task-table-wrap .table td {
+  border-bottom: 1px solid rgba(120, 216, 206, 0.09);
+}
+
+/* Последняя строка — без нижнего бордера */
+.task-table-wrap .table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Hover: стеклянное подсвечивание строки */
+.task-table-wrap .table tbody tr {
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.task-table-wrap .table tbody tr:hover td {
+  background: rgba(120, 216, 206, 0.065);
+}
+
+/* Левый акцентный индикатор: «моя» задача */
 .row--mine > td:first-child {
-  box-shadow: inset 3px 0 0 rgba(31, 163, 154, 0.32);
+  box-shadow: inset 3px 0 0 rgba(46, 159, 152, 0.55);
 }
 
+/* Левый акцентный индикатор: задача «в работе» */
 .row--active > td:first-child {
-  box-shadow: inset 3px 0 0 rgba(99, 208, 197, 0.55);
+  box-shadow: inset 3px 0 0 rgba(120, 216, 206, 0.8);
 }
 
+/* Строка «в работе» — лёгкое фоновое тонирование */
 .row--active {
-  background: rgba(99, 208, 197, 0.06);
+  background: rgba(99, 208, 197, 0.055);
+}
+
+/* Hover поверх «в работе» — чуть ярче */
+.row--active:hover td {
+  background: rgba(120, 216, 206, 0.1) !important;
+}
+
+/* Плавное скругление первой и последней ячейки при hover */
+.task-table-wrap .table tbody tr td:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+.task-table-wrap .table tbody tr td:last-child {
+  border-radius: 0 10px 10px 0;
 }
 
 .assignee-cell {
