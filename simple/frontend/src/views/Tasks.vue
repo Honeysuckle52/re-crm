@@ -273,7 +273,7 @@
                   :checked="isTaskSelected(task)"
                   @change="toggleTaskSelection(task, $event.target.checked)" />
               </td>
-              <td
+              <td>
                 <b>{{ task.title }}</b>
                 <div v-if="task.property_title" class="muted" style="font-size: 12px">
                   Объект: {{ task.property_title }}
