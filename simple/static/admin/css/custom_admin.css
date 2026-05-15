@@ -197,6 +197,17 @@ body {
   background: rgba(120, 216, 206, 0.16);
 }
 
+/* Выделяем ссылку «Отчёты» в шапке */
+.crm-admin-link--reports {
+  background: rgba(46, 159, 152, 0.18) !important;
+  border: 1px solid rgba(120, 216, 206, 0.30);
+  opacity: 1 !important;
+}
+
+.crm-admin-link--reports:hover {
+  background: rgba(46, 159, 152, 0.30) !important;
+}
+
 div.breadcrumbs {
   background: linear-gradient(135deg, #2e6663 0%, #285755 100%);
   border-bottom: 1px solid rgba(120, 216, 206, 0.14);
@@ -236,7 +247,7 @@ body {
 /* ─────────────────────────────────────────
    Главный контейнер на всю ширину
    Прячем нативный сайдбар «Recent actions»
-   ────────────────────���──────────────────── */
+   ────────────────────����──────────────────── */
 #content {
   padding: 28px 0 64px !important;
   display: block !important;
@@ -829,12 +840,325 @@ select:focus {
 
 /* ════════════════════════════════════════
    Dashboard — главный экран админ-панели
-   Карточки растянуты на всю ширину
+   Двухколоночный макет: модели + сайдбар
    ════════════════════════════════════════ */
+
+/* Заголовок страницы */
+.crm-dash-title {
+  padding: 18px 0 8px;
+}
+.crm-dash-title__h {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--crm-page-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+/* Основной контейнер */
 .crm-dash {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 0;
+}
+
+/* Двухколоночный layout */
+.crm-dash-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/* Левая колонка — список моделей */
+.crm-dash-models {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Правая колонка — сайдбар */
+.crm-dash-sidebar {
+  flex: 0 0 300px;
+  width: 300px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 20px;
+}
+
+/* ── Блок приложения (замена .crm-app.module) ── */
+.crm-app-block {
+  border: 1px solid var(--crm-border);
+  border-radius: var(--crm-r-lg);
+  background: var(--crm-surface);
+  box-shadow: var(--crm-shadow-sm);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.crm-app-block__head {
+  background: var(--crm-grad-panel);
+  color: #f4fbfa;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  padding: 10px 18px;
+  border-radius: var(--crm-r-lg) var(--crm-r-lg) 0 0;
+}
+
+.crm-app-block__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+/* ── Строка модели — компактная как на скрине ── */
+.crm-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--crm-border);
+  transition: background 0.15s ease;
+  min-height: 36px;
+}
+
+.crm-model-row:last-child {
+  border-bottom: 0;
+}
+
+.crm-model-row:hover {
+  background: rgba(120, 216, 206, 0.08);
+}
+
+.crm-model-row__name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--crm-page-text);
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crm-model-row__name a {
+  color: var(--crm-link-fg, #1b706a);
+  text-decoration: none;
+}
+
+.crm-model-row__name a:hover {
+  color: var(--crm-accent);
+  text-decoration: underline;
+}
+
+.crm-model-row__btns {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* Кнопки "Добавить" и "Изменить/Просмотреть" */
+.crm-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--crm-r-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.crm-row-btn--add {
+  color: var(--crm-accent);
+  background: rgba(46, 159, 152, 0.10);
+  border: 1px solid rgba(46, 159, 152, 0.22);
+}
+
+.crm-row-btn--add:hover {
+  background: rgba(46, 159, 152, 0.20);
+  color: var(--crm-accent);
+}
+
+.crm-row-btn--edit {
+  color: var(--crm-page-muted);
+  background: rgba(21, 56, 57, 0.06);
+  border: 1px solid rgba(21, 56, 57, 0.10);
+}
+
+.crm-row-btn--edit:hover {
+  background: rgba(21, 56, 57, 0.12);
+  color: var(--crm-page-text);
+}
+
+/* ── Правый сайдбар: последние действия ── */
+.crm-recent {
+  background: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  border-radius: var(--crm-r-lg);
+  box-shadow: var(--crm-shadow-sm);
+  overflow: hidden;
+}
+
+.crm-recent__head {
+  background: transparent;
+  color: var(--crm-page-text);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--crm-border);
+}
+
+.crm-recent__section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--crm-page-muted);
+  padding: 10px 18px 4px;
+}
+
+.crm-recent__empty {
+  padding: 12px 18px;
+  font-size: 13px;
+  color: var(--crm-page-muted);
+}
+
+.crm-recent__list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 10px;
+}
+
+.crm-recent__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 18px;
+  transition: background 0.14s ease;
+}
+
+.crm-recent__item:hover {
+  background: rgba(120, 216, 206, 0.06);
+}
+
+.crm-recent__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  background: var(--crm-page-soft);
+}
+
+.crm-recent__item--add .crm-recent__dot {
+  background: var(--crm-accent);
+}
+
+.crm-recent__item--del .crm-recent__dot {
+  background: var(--crm-danger);
+}
+
+.crm-recent__item--change .crm-recent__dot {
+  background: var(--crm-accent-2);
+}
+
+.crm-recent__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.crm-recent__obj {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--crm-page-text);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  display: block;
+}
+
+a.crm-recent__obj:hover {
+  color: var(--crm-accent);
+  text-decoration: underline;
+}
+
+.crm-recent__type {
+  font-size: 11px;
+  color: var(--crm-page-muted);
+  text-transform: capitalize;
+}
+
+/* ── Быстрые ссылки ── */
+.crm-quick {
+  background: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  border-radius: var(--crm-r-lg);
+  box-shadow: var(--crm-shadow-sm);
+  overflow: hidden;
+}
+
+.crm-quick__head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--crm-page-muted);
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--crm-border);
+}
+
+.crm-quick__link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--crm-page-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--crm-border);
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.crm-quick__link:last-child {
+  border-bottom: 0;
+}
+
+.crm-quick__link:hover {
+  background: rgba(120, 216, 206, 0.08);
+  color: var(--crm-accent);
+}
+
+.crm-quick__link svg {
+  flex-shrink: 0;
+  color: var(--crm-accent);
+  opacity: 0.8;
+}
+
+/* Адаптив для нового layout */
+@media (max-width: 900px) {
+  .crm-dash-layout {
+    flex-direction: column;
+  }
+  .crm-dash-sidebar {
+    flex: none;
+    width: 100%;
+    position: static;
+  }
 }
 
 /* ── Hero на всю ширину ── */
@@ -1204,7 +1528,7 @@ select:focus {
   border-radius: var(--crm-r-md);
 }
 
-/* ════════════════════════════════════════
+/* ═════════════════════���══════════════════
    Адаптив
    ════════════════════════════════════════ */
 @media (max-width: 1200px) {
