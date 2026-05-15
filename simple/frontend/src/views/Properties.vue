@@ -524,10 +524,51 @@ onMounted(async () => {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 18px;
   align-content: start;
+  align-items: stretch;
 }
 
 .properties-grid__item {
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Карточка растягивается на всю высоту ячейки грида */
+.properties-grid__item :deep(.card--link) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Название занимает фиксированное пространство (2 строки макс) */
+.properties-grid__item :deep(.card__title) {
+  flex-shrink: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
+}
+
+/* Цена фиксированная */
+.properties-grid__item :deep(.card__price) {
+  flex-shrink: 0;
+}
+
+/* Мета-теги фиксированные */
+.properties-grid__item :deep(.card__meta) {
+  flex-shrink: 0;
+}
+
+/* Адрес внизу карточки — растягивается, чтобы выровнять нижние части */
+.properties-grid__item :deep(.muted) {
+  flex-grow: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  align-self: flex-end;
+  width: 100%;
 }
 
 .properties-grid__item.is-selected {

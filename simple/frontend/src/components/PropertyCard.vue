@@ -41,6 +41,8 @@ function formatMoney (v) { return fmtMoney(v, '0') }
   text-decoration: none;
   color: inherit;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .card--link:hover {
