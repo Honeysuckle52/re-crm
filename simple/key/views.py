@@ -20,6 +20,7 @@ from . import business_rules, data_exchange, deals_service, models, reports, ser
 from . import process_versions
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
+from .twogis import TwoGisClient
 from .mailing import (
     resend as resend_email,
     enqueue_task_assigned,
@@ -498,6 +499,85 @@ class PropertyViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         return _apply_property_filters(qs, self.request.query_params)
 
+    @staticmethod
+    def _fetch_twogis_photos(property_obj) -> int:
+        """Подтягивает фото из 2GIS Static Maps по координатам объекта.
+
+        Вызывается автоматически при создании объекта через UI.
+        Не добавляет фото если у объекта уже есть хотя бы одно.
+        Не выбрасывает исключений — ошибки только логируются.
+        Возвращает количество добавленных фото (0 при неудаче).
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        try:
+            address = property_obj.address
+            if address is None:
+                return 0
+
+            # Строим строку запроса из сохранённого адреса
+            address_str = str(address).strip()
+            if not address_str or address_str == 'None':
+                return 0
+
+            client = TwoGisClient()
+            if not client.api_key:
+                return 0
+
+            city_name = ''
+            try:
+                city_name = address.house.street.city.name
+            except AttributeError:
+                pass
+
+            info = client.search_by_address(address_str, city=city_name)
+            if not info:
+                return 0
+
+            # Координаты — сохраняем если не заданы
+            lat = info.get('lat')
+            lon = info.get('lon')
+            update_coords = []
+            if lat and not property_obj.coordinates_lat:
+                property_obj.coordinates_lat = lat
+                update_coords.append('coordinates_lat')
+            if lon and not property_obj.coordinates_lon:
+                property_obj.coordinates_lon = lon
+                update_coords.append('coordinates_lon')
+            if update_coords:
+                property_obj.save(update_fields=update_coords)
+
+            photo_urls: list[str] = info.get('photos') or []
+            if not photo_urls:
+                return 0
+
+            # Добавляем фото только если у объекта ещё нет ни одного
+            if models.PropertyPhoto.objects.filter(property=property_obj).exists():
+                return 0
+
+            for order, url in enumerate(photo_urls):
+                models.PropertyPhoto.objects.create(
+                    property=property_obj,
+                    url=url,
+                    caption='Карта 2GIS',
+                    is_cover=(order == 0),
+                    order=order,
+                )
+            _log.info(
+                '2GIS: добавлено %d карт для объекта pk=%s',
+                len(photo_urls), property_obj.pk,
+            )
+            return len(photo_urls)
+
+        except Exception as exc:  # noqa: BLE001
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                '2GIS авто-фото для объекта pk=%s не удалось: %s',
+                property_obj.pk, exc,
+            )
+            return 0
+
     def perform_create(self, serializer):
         property_obj = serializer.save()
         audit_service.log_event(
@@ -511,6 +591,8 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 'operation_type_id': property_obj.operation_type_id,
             },
         )
+        # Автоматически подгружаем фото из 2GIS Static Maps при создании
+        self._fetch_twogis_photos(property_obj)
 
     def perform_update(self, serializer):
         changed_fields = sorted(serializer.validated_data.keys())
@@ -834,7 +916,7 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
             property_id=photo.property_id
         ).exclude(pk=photo.pk).update(is_cover=False)
         photo.is_cover = True
-        photo.is_hidden = False  # обложка не может быть скрытой
+        photo.is_hidden = False  # обложка н�� может быть скрытой
         photo.save(update_fields=['is_cover', 'is_hidden'])
         return Response(serializers.PropertyPhotoSerializer(
             photo, context={'request': request}).data)

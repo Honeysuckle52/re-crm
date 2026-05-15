@@ -29,13 +29,11 @@
 </template>
 
 <script setup>
-import {formatMoney as fmtMoney} from '@/utils/formatters'
+import { formatMoney as fmtMoney } from '@/utils/formatters'
 
-defineProps({property: {type: Object, required: true}})
+defineProps({ property: { type: Object, required: true } })
 
-function formatMoney(v) {
-  return fmtMoney(v, '0')
-}
+function formatMoney (v) { return fmtMoney(v, '0') }
 </script>
 
 <style scoped>
@@ -61,8 +59,9 @@ function formatMoney(v) {
   color: rgba(255, 255, 255, 0.88);
   border-radius: 20px;
   border: 1px solid rgba(120, 216, 206, 0.16);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(46, 159, 152, 0.14)),
-  radial-gradient(circle at top right, rgba(120, 216, 206, 0.18), transparent 42%);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(46, 159, 152, 0.14)),
+    radial-gradient(circle at top right, rgba(120, 216, 206, 0.18), transparent 42%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -97,5 +96,6 @@ function formatMoney(v) {
   z-index: 1;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  color: #000 !important;
 }
 </style>

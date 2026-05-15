@@ -511,9 +511,12 @@ onMounted(async () => {
 .properties-results {
   min-height: calc(100vh - 232px);
   padding: 12px;
+  display: flex;
+  flex-direction: column;
 }
 
 .properties-results__body {
+  flex: 1 1 auto;
   max-height: calc(100vh - 256px);
   overflow-y: auto;
   padding-right: 6px;
