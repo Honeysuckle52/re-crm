@@ -649,50 +649,55 @@ class SeedDataService:
         if not city_name:
             city_name = 'Иркутск'
 
-        city, _ = City.objects.update_or_create(
-            external_id=s.get('city_external_id') or None,
-            defaults={
-                'name': city_name,
-                'region': (s.get('region') or 'Иркутская область').strip(),
-            },
-        ) if s.get('city_external_id') else City.objects.get_or_create(
-            name=city_name,
-            defaults={'region': (s.get('region') or 'Иркутская область').strip()},
-        )
+        city_external_id = s.get('city_external_id') or None
+        region = (s.get('region') or 'Иркутская область').strip()
+        if city_external_id:
+            city, _ = City.objects.update_or_create(
+                external_id=city_external_id,
+                defaults={'name': city_name, 'region': region},
+            )
+        else:
+            city = City.objects.filter(name=city_name).first()
+            if city is None:
+                city = City.objects.create(name=city_name, region=region)
 
         street_name = (s.get('street') or '').strip()
         street_type = (s.get('street_type') or 'ул.').strip()
         if not street_name:
             return None
 
-        street, _ = Street.objects.update_or_create(
-            external_id=s.get('street_external_id') or None,
-            defaults={
-                'city': city,
-                'name': street_name,
-                'street_type': street_type,
-            },
-        ) if s.get('street_external_id') else Street.objects.get_or_create(
-            city=city,
-            name=street_name,
-            defaults={'street_type': street_type},
-        )
+        street_external_id = s.get('street_external_id') or None
+        if street_external_id:
+            street, _ = Street.objects.update_or_create(
+                external_id=street_external_id,
+                defaults={'city': city, 'name': street_name, 'street_type': street_type},
+            )
+        else:
+            street = Street.objects.filter(city=city, name=street_name).first()
+            if street is None:
+                street = Street.objects.create(city=city, name=street_name, street_type=street_type)
 
         house_number = (s.get('house') or '1').strip()
-        house, _ = House.objects.update_or_create(
-            external_id=s.get('house_external_id') or None,
-            defaults={
-                'street': street,
-                'house_number': house_number,
-                'building': None,
-                'postal_code': s.get('postal_code') or None,
-            },
-        ) if s.get('house_external_id') else House.objects.get_or_create(
-            street=street,
-            house_number=house_number,
-            building=None,
-            defaults={'postal_code': s.get('postal_code') or None},
-        )
+        house_external_id = s.get('house_external_id') or None
+        if house_external_id:
+            house, _ = House.objects.update_or_create(
+                external_id=house_external_id,
+                defaults={
+                    'street': street,
+                    'house_number': house_number,
+                    'building': None,
+                    'postal_code': s.get('postal_code') or None,
+                },
+            )
+        else:
+            house = House.objects.filter(street=street, house_number=house_number, building=None).first()
+            if house is None:
+                house = House.objects.create(
+                    street=street,
+                    house_number=house_number,
+                    building=None,
+                    postal_code=s.get('postal_code') or None,
+                )
 
         flat = (s.get('flat') or '').strip() or None
         address, _ = Address.objects.get_or_create(
@@ -704,15 +709,13 @@ class SeedDataService:
 
     def _seed_synthetic_addresses(self) -> list[Address]:
         """Синтетические иркутские адреса — fallback при отсутствии DaData."""
-        city, _ = City.objects.get_or_create(
-            name='Иркутск',
-            defaults={'region': 'Иркутская область'},
-        )
-        street, _ = Street.objects.get_or_create(
-            city=city,
-            name='Ленина',
-            defaults={'street_type': 'ул.'},
-        )
+        city = City.objects.filter(name='Иркутск').first()
+        if city is None:
+            city = City.objects.create(name='Иркутск', region='Иркутская область')
+
+        street = Street.objects.filter(city=city, name='Ленина').first()
+        if street is None:
+            street = Street.objects.create(city=city, name='Ленина', street_type='ул.')
         addresses: list[Address] = []
         for index in range(1, 6):
             house, _ = House.objects.get_or_create(
