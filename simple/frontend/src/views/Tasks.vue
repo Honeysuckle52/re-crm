@@ -251,7 +251,6 @@
                   :checked="allTasksOnPageSelected"
                   @change="toggleTasksPageSelection($event.target.checked)" />
               </th>
-              <th></th>
               <th>Заголовок</th>
               <th>Тип</th>
               <th>Исполнитель</th>
@@ -274,10 +273,7 @@
                   :checked="isTaskSelected(task)"
                   @change="toggleTaskSelection(task, $event.target.checked)" />
               </td>
-              <td class="mine-cell">
-                <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="dot" />
-              </td>
-              <td>
+              <td
                 <b>{{ task.title }}</b>
                 <div v-if="task.property_title" class="muted" style="font-size: 12px">
                   Объект: {{ task.property_title }}
@@ -324,20 +320,13 @@
                 </div>
               </td>
               <td class="task-actions">
+                <!-- Primary action -->
                 <button
                   v-if="canViewTask(task)"
                   class="btn btn--sm btn--primary"
                   @click="openWorkflow(task)"
                 >
                   Открыть
-                </button>
-                <button
-                  v-if="canEditTask(task)"
-                  class="btn btn--sm"
-                  :disabled="busyId === task.id"
-                  @click="startEditTask(task)"
-                >
-                  Редактировать
                 </button>
                 <button
                   v-if="canStart(task)"
@@ -364,14 +353,7 @@
                 >
                   Завершить
                 </button>
-                <button
-                  v-if="canDeleteTask(task)"
-                  class="btn btn--sm btn--danger"
-                  :disabled="busyId === task.id"
-                  @click="removeTask(task)"
-                >
-                  Удалить
-                </button>
+                <!-- Status select -->
                 <select
                   class="select select--sm"
                   :value="task.status"
@@ -382,6 +364,39 @@
                     {{ status.name }}
                   </option>
                 </select>
+                <!-- Secondary overflow dropdown -->
+                <div
+                  v-if="canEditTask(task) || canDeleteTask(task)"
+                  class="task-more"
+                  :class="{ 'is-open': moreMenuId === task.id }"
+                >
+                  <button
+                    class="btn btn--sm task-more__trigger"
+                    :disabled="busyId === task.id"
+                    @click.stop="moreMenuId = moreMenuId === task.id ? null : task.id"
+                    aria-label="Ещё действия"
+                  >
+                    ···
+                  </button>
+                  <div class="task-more__menu" @click.stop>
+                    <button
+                      v-if="canEditTask(task)"
+                      class="task-more__item"
+                      :disabled="busyId === task.id"
+                      @click="startEditTask(task); moreMenuId = null"
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      v-if="canDeleteTask(task)"
+                      class="task-more__item task-more__item--danger"
+                      :disabled="busyId === task.id"
+                      @click="removeTask(task); moreMenuId = null"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -560,7 +575,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { bulkTaskAction } from '../api/bulk'
@@ -623,6 +638,18 @@ const taskTypes = [
 ]
 
 const completeModal = reactive({ show: false, task: null, result: '' })
+const moreMenuId = ref(null)
+
+function closeMoreMenu() {
+  moreMenuId.value = null
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeMoreMenu)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', closeMoreMenu)
+})
 
 function openCompleteModal(task) {
   completeModal.task = task
@@ -1360,11 +1387,11 @@ onMounted(async () => {
 .task-actions {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
   white-space: nowrap;
-  min-width: 220px;
+  min-width: 0;
 }
 
 .task-actions > .btn,
@@ -1374,12 +1401,84 @@ onMounted(async () => {
 
 .task-actions > .select {
   width: auto;
-  min-width: 150px;
+  min-width: 130px;
 }
 
 .task-actions--history {
-  min-width: 100px;
+  min-width: 80px;
   flex-wrap: nowrap;
+}
+
+/* Overflow dropdown */
+.task-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.task-more__trigger {
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  padding-left: 10px;
+  padding-right: 10px;
+  min-width: 36px;
+}
+
+.task-more__menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 148px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--grad-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 16px 36px rgba(4, 24, 22, 0.28);
+  overflow: hidden;
+  padding: 4px;
+}
+
+.task-more.is-open .task-more__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-more__item {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.task-more__item:hover:not(:disabled) {
+  background: rgba(99, 208, 197, 0.1);
+  color: #effffd;
+}
+
+.task-more__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.task-more__item--danger {
+  color: #ffd4dc;
+}
+
+.task-more__item--danger:hover:not(:disabled) {
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
 }
 
 .task-request-cell {
@@ -1614,14 +1713,6 @@ onMounted(async () => {
   margin-left: 6px;
 }
 
-.mine-cell {
-  width: 22px;
-  min-width: 22px;
-  max-width: 22px;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  text-align: center;
-}
 
 .row--mine > td:first-child {
   box-shadow: inset 3px 0 0 rgba(31, 163, 154, 0.32);
