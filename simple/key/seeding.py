@@ -607,7 +607,7 @@ class SeedDataService:
     ]
 
     def _seed_demo_addresses(self) -> list[Address]:
-        """Создаёт 5 иркутских адресов че��ез DaData + fallback на синтетику."""
+        """Создаёт 5 иркутских адресов че����ез DaData + fallback на синтетику."""
         dadata = DadataClient()
         addresses: list[Address] = []
 
@@ -652,10 +652,12 @@ class SeedDataService:
         city_external_id = s.get('city_external_id') or None
         region = (s.get('region') or 'Иркутская область').strip()
         if city_external_id:
-            city, _ = City.objects.update_or_create(
-                external_id=city_external_id,
-                defaults={'name': city_name, 'region': region},
-            )
+            city = City.objects.filter(external_id=city_external_id).first()
+            if city is None:
+                city = City.objects.create(external_id=city_external_id, name=city_name, region=region)
+            else:
+                City.objects.filter(pk=city.pk).update(name=city_name, region=region)
+                city.refresh_from_db()
         else:
             city = City.objects.filter(name=city_name).first()
             if city is None:
@@ -668,10 +670,14 @@ class SeedDataService:
 
         street_external_id = s.get('street_external_id') or None
         if street_external_id:
-            street, _ = Street.objects.update_or_create(
-                external_id=street_external_id,
-                defaults={'city': city, 'name': street_name, 'street_type': street_type},
-            )
+            street = Street.objects.filter(external_id=street_external_id).first()
+            if street is None:
+                street = Street.objects.create(
+                    external_id=street_external_id, city=city, name=street_name, street_type=street_type,
+                )
+            else:
+                Street.objects.filter(pk=street.pk).update(city=city, name=street_name, street_type=street_type)
+                street.refresh_from_db()
         else:
             street = Street.objects.filter(city=city, name=street_name).first()
             if street is None:
@@ -680,15 +686,22 @@ class SeedDataService:
         house_number = (s.get('house') or '1').strip()
         house_external_id = s.get('house_external_id') or None
         if house_external_id:
-            house, _ = House.objects.update_or_create(
-                external_id=house_external_id,
-                defaults={
-                    'street': street,
-                    'house_number': house_number,
-                    'building': None,
-                    'postal_code': s.get('postal_code') or None,
-                },
-            )
+            house = House.objects.filter(external_id=house_external_id).first()
+            if house is None:
+                house = House.objects.create(
+                    external_id=house_external_id,
+                    street=street,
+                    house_number=house_number,
+                    building=None,
+                    postal_code=s.get('postal_code') or None,
+                )
+            else:
+                House.objects.filter(pk=house.pk).update(
+                    street=street,
+                    house_number=house_number,
+                    postal_code=s.get('postal_code') or None,
+                )
+                house.refresh_from_db()
         else:
             house = House.objects.filter(street=street, house_number=house_number, building=None).first()
             if house is None:
@@ -700,11 +713,9 @@ class SeedDataService:
                 )
 
         flat = (s.get('flat') or '').strip() or None
-        address, _ = Address.objects.get_or_create(
-            house=house,
-            apartment_number=flat,
-            defaults={'floor': None, 'entrance': None},
-        )
+        address = Address.objects.filter(house=house, apartment_number=flat).first()
+        if address is None:
+            address = Address.objects.create(house=house, apartment_number=flat, floor=None, entrance=None)
         return address
 
     def _seed_synthetic_addresses(self) -> list[Address]:
