@@ -245,13 +245,8 @@
         <table class="table tasks-table table--responsive-cards">
           <thead>
             <tr>
-              <th class="table-check-cell">
-                <input
-                  type="checkbox"
-                  :checked="allTasksOnPageSelected"
-                  @change="toggleTasksPageSelection($event.target.checked)" />
-              </th>
-              <th></th>
+              <th class="tasks-table__check-col"></th>
+              <th class="tasks-table__dot-col"></th>
               <th>Заголовок</th>
               <th>Тип</th>
               <th>Исполнитель</th>
@@ -268,120 +263,120 @@
               :key="task.id"
               :class="{ 'row--mine': isMine(task), 'row--active': isMyActive(task) }"
             >
-              <td class="table-check-cell">
+              <td class="tasks-table__check-col">
                 <input
                   type="checkbox"
                   :checked="isTaskSelected(task)"
                   @change="toggleTaskSelection(task, $event.target.checked)" />
               </td>
-              <td class="mine-cell">
+              <td class="tasks-table__dot-col">
                 <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="dot" />
               </td>
-              <td>
+              <td data-label="Заголовок">
                 <b>{{ task.title }}</b>
-                <div v-if="task.property_title" class="muted" style="font-size: 12px">
+                <div v-if="task.property_title" class="muted tasks-table__sub">
                   Объект: {{ task.property_title }}
                 </div>
               </td>
-              <td>
-                <span class="tag tag--type task-badge">
+              <td data-label="Тип">
+                <span class="tasks-table__tag">
                   {{ task.task_type_display || taskTypeLabel(task.task_type) }}
                 </span>
               </td>
-              <td>
+              <td data-label="Исполнитель">
                 <div class="assignee-cell">
                   <span>{{ task.assignee_username }}</span>
                   <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="full" />
                 </div>
               </td>
-              <td class="task-request-cell" :class="{ 'is-clickable': !!task.request }">
+              <td data-label="Заявка">
                 <router-link
                   v-if="task.request"
                   :to="`/requests/${task.request}`"
-                  class="task-request-link"
+                  class="tasks-table__tag tasks-table__tag--link"
                 >
                   №{{ task.request }}
                 </router-link>
                 <span v-else class="muted">—</span>
               </td>
-              <td>
-                <span class="tag task-badge" :class="priorityClass(task.priority)">
+              <td data-label="Приоритет">
+                <span class="tasks-table__tag" :class="priorityClass(task.priority)">
                   {{ priorityLabel(task.priority) }}
                 </span>
               </td>
-              <td class="muted" style="white-space: nowrap">
+              <td data-label="Срок" class="tasks-table__date">
                 {{ task.due_date ? formatDate(task.due_date) : '—' }}
-                <span v-if="task.is_overdue" class="tag overdue">просрочено</span>
+                <span v-if="task.is_overdue" class="tasks-table__overdue">просрочено</span>
               </td>
-              <td>
-                <span class="tag tag--accent task-badge">{{ task.status_name }}</span>
-                <div
+              <td data-label="Статус">
+                <span class="tasks-table__tag tasks-table__tag--status">{{ task.status_name }}</span>
+                <span
                   v-if="task.is_auto_closed"
                   class="auto-closed-badge"
                   title="Задача закрыта автоматически"
-                >
-                  авто
-                </div>
+                >авто</span>
               </td>
-              <td class="task-actions">
-                <button
-                  v-if="canViewTask(task)"
-                  class="btn btn--sm btn--primary"
-                  @click="openWorkflow(task)"
-                >
-                  Открыть
-                </button>
-                <button
-                  v-if="canEditTask(task)"
-                  class="btn btn--sm"
-                  :disabled="busyId === task.id"
-                  @click="startEditTask(task)"
-                >
-                  Редактировать
-                </button>
-                <button
-                  v-if="canStart(task)"
-                  class="btn btn--sm btn--accent"
-                  :disabled="!canStartBtn(task) || busyId === task.id"
-                  :title="!canStartBtn(task) ? 'У сотрудника уже есть задача в работе' : 'Взять в работу'"
-                  @click="startTask(task)"
-                >
-                  Старт
-                </button>
-                <button
-                  v-if="canPause(task)"
-                  class="btn btn--sm"
-                  :disabled="busyId === task.id"
-                  @click="pauseTask(task)"
-                >
-                  Пауза
-                </button>
-                <button
-                  v-if="canComplete(task)"
-                  class="btn btn--sm btn--ghost"
-                  :disabled="busyId === task.id"
-                  @click="openCompleteModal(task)"
-                >
-                  Завершить
-                </button>
-                <button
-                  v-if="canDeleteTask(task)"
-                  class="btn btn--sm btn--danger"
-                  :disabled="busyId === task.id"
-                  @click="removeTask(task)"
-                >
-                  Удалить
-                </button>
-                <select
-                  class="select select--sm"
-                  :value="task.status"
-                  @change="changeStatus(task, $event.target.value)"
-                >
-                  <option disabled value="">Статус…</option>
-                  <option v-for="status in statuses" :key="status.id" :value="status.id">
-                    {{ status.name }}
-                  </option>
-                </select>
+              <td data-label="Действия" class="table-actions-cell">
+                <div class="tasks-table__actions">
+                  <button
+                    v-if="canViewTask(task)"
+                    class="btn btn--sm btn--primary"
+                    @click="openWorkflow(task)"
+                  >
+                    Открыть
+                  </button>
+                  <button
+                    v-if="canStart(task)"
+                    class="btn btn--sm btn--accent"
+                    :disabled="!canStartBtn(task) || busyId === task.id"
+                    :title="!canStartBtn(task) ? 'У сотрудника уже есть задача в работе' : 'Взять в работу'"
+                    @click="startTask(task)"
+                  >
+                    Старт
+                  </button>
+                  <button
+                    v-if="canPause(task)"
+                    class="btn btn--sm"
+                    :disabled="busyId === task.id"
+                    @click="pauseTask(task)"
+                  >
+                    Пауза
+                  </button>
+                  <button
+                    v-if="canComplete(task)"
+                    class="btn btn--sm btn--ghost"
+                    :disabled="busyId === task.id"
+                    @click="openCompleteModal(task)"
+                  >
+                    Завершить
+                  </button>
+                  <button
+                    v-if="canEditTask(task)"
+                    class="btn btn--sm"
+                    :disabled="busyId === task.id"
+                    @click="startEditTask(task)"
+                  >
+                    Изменить
+                  </button>
+                  <button
+                    v-if="canDeleteTask(task)"
+                    class="btn btn--sm btn--danger"
+                    :disabled="busyId === task.id"
+                    @click="removeTask(task)"
+                  >
+                    Удалить
+                  </button>
+                  <select
+                    class="select select--sm"
+                    :value="task.status"
+                    @change="changeStatus(task, $event.target.value)"
+                  >
+                    <option disabled value="">Статус…</option>
+                    <option v-for="status in statuses" :key="status.id" :value="status.id">
+                      {{ status.name }}
+                    </option>
+                  </select>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -1294,38 +1289,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.link {
-  color: var(--c-accent);
-  font-weight: 600;
-}
-
-.link:hover {
-  color: var(--c-accent-2);
-  text-decoration: underline;
-  text-decoration-color: rgba(99, 208, 197, 0.36);
-}
-
-.overdue {
-  margin-left: 6px;
-  background: rgba(255, 111, 134, 0.14);
-  color: #ffd4dc;
-  border-color: rgba(255, 111, 134, 0.2);
-}
-
-.tag--cancelled {
-  background: rgba(255, 111, 134, 0.14);
-  color: #ffd4dc;
-  border-color: rgba(255, 111, 134, 0.22);
-}
-
-/* ── Tags: match deals-table light pill style ───────────────── */
-.task-badge,
-.task-badge.tag--type,
-.task-badge.tag--accent,
-.task-badge.tag--panel,
-.task-badge.tag--cancelled {
-  min-height: 34px;
-  padding: 6px 14px;
+/* ─── Pill tag — identical to .deals-table .tag ────────────────── */
+.tasks-table__tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid rgba(21, 56, 57, 0.16);
   background: var(--grad-control-light);
@@ -1333,109 +1302,158 @@ onMounted(async () => {
   box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: normal;
-  display: inline-flex;
-  align-items: center;
   white-space: nowrap;
-}
-
-.task-badge.tag--cancelled {
-  border-color: rgba(194, 85, 74, 0.22);
-  color: #7b4741;
-}
-
-/* Override the dark .tag--type / .tag--accent set globally */
-.tasks-table .tag--type,
-.tasks-table .tag--accent {
-  background: var(--grad-control-light);
-  color: var(--c-page-text);
-  border-color: rgba(21, 56, 57, 0.16);
-  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
-}
-
-.select--sm {
-  padding: 10px 42px 10px 14px;
-  font-size: 13px;
-}
-
-.table-check-cell {
-  width: 44px;
-  text-align: center;
-}
-
-.table-check-cell input {
-  width: 16px;
-  height: 16px;
-}
-
-.task-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: flex-start;
-  white-space: nowrap;
-}
-
-.task-actions > .btn,
-.task-actions > .select {
-  flex: 0 0 auto;
-}
-
-.task-actions > .select {
-  width: auto;
-  min-width: 132px;
-}
-
-.task-request-cell {
-  min-width: 118px;
-}
-
-.task-request-cell.is-clickable {
-  cursor: pointer;
-}
-
-.task-request-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(21, 56, 57, 0.16);
-  background: var(--grad-control-light);
-  color: var(--c-page-text);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.2;
+  line-height: 1;
   text-decoration: none;
-  white-space: nowrap;
-  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
+}
+
+/* Status tag — same neutral pill, no colour override */
+.tasks-table__tag--status {
+  min-width: 100px;
+  justify-content: center;
+}
+
+/* Request link pill */
+.tasks-table__tag--link {
+  font-weight: 700;
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
     border-color 0.2s ease;
 }
 
-.task-request-link:hover {
+.tasks-table__tag--link:hover {
   transform: translateY(-1px);
-  border-color: rgba(21, 56, 57, 0.22);
-  box-shadow: 0 10px 20px rgba(16, 55, 52, 0.12);
-  text-decoration: none;
+  border-color: rgba(21, 56, 57, 0.24);
+  box-shadow: 0 10px 22px rgba(16, 55, 52, 0.12);
 }
 
+/* Priority overrides — light tints matching deals accent */
+.tasks-table__tag.priority--high {
+  border-color: rgba(194, 85, 74, 0.22);
+  color: #7b3838;
+}
+
+.tasks-table__tag.priority--low {
+  border-color: rgba(21, 56, 57, 0.1);
+  color: var(--c-page-muted);
+}
+
+/* ─── Table column widths ──────────────────────────────────────── */
+.tasks-table {
+  min-width: 1160px;
+}
+
+.tasks-table__check-col {
+  width: 44px;
+  text-align: center;
+  padding-right: 0 !important;
+}
+
+.tasks-table__check-col input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.tasks-table__dot-col {
+  width: 18px;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.tasks-table__sub {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.tasks-table__date {
+  white-space: nowrap;
+  color: var(--c-text-muted);
+}
+
+/* Overdue inline badge */
+.tasks-table__overdue {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
+  border: 1px solid rgba(255, 111, 134, 0.22);
+}
+
+/* Auto-closed badge */
+.auto-closed-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 208, 197, 0.2);
+}
+
+/* ─── Actions cell — mirrors deals-table__status ──────────────── */
+.tasks-table__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tasks-table__actions .select {
+  width: auto;
+  min-width: 148px;
+}
+
+/* ─── Row highlights ──────────────────────────────────────────── */
+.row--mine > td:first-child {
+  box-shadow: inset 3px 0 0 rgba(46, 159, 152, 0.55);
+}
+
+.row--active > td:first-child {
+  box-shadow: inset 3px 0 0 rgba(120, 216, 206, 0.75);
+}
+
+.row--active {
+  background: rgba(99, 208, 197, 0.04);
+}
+
+.row--active:hover td {
+  background: rgba(99, 208, 197, 0.065) !important;
+}
+
+/* ─── Assignee cell ───────────────────────────────────────────── */
+.assignee-cell {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ─── History table ───────────────────────────────────────────── */
+.task-history-wrap .table {
+  min-width: 820px;
+}
+
+.history-result {
+  min-width: 140px;
+}
+
+/* ─── Section header ──────────────────────────────────────────── */
 .task-section-head {
   margin-bottom: 14px;
 }
 
-.task-table-wrap .table {
-  min-width: 1120px;
-}
-
-.task-history-wrap .table {
-  min-width: 780px;
-}
-
+/* ─── Workload banner ─────────────────────────────────────────── */
 .workload-banner {
   margin-top: 10px;
   display: inline-flex;
@@ -1457,6 +1475,7 @@ onMounted(async () => {
   color: #ffd5de;
 }
 
+/* ─── Tabs ────────────────────────────────────────────────────── */
 .tabs {
   display: flex;
   gap: 4px;
@@ -1482,7 +1501,7 @@ onMounted(async () => {
   color: var(--c-text-muted);
   border-radius: 999px;
   cursor: pointer;
-  transition: color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+  transition: color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
 }
 
 .tab:hover {
@@ -1509,6 +1528,7 @@ onMounted(async () => {
   color: #143634;
 }
 
+/* ─── Filters ─────────────────────────────────────────────────── */
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -1520,7 +1540,6 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  justify-content: flex-end;
   flex-direction: column;
   min-width: 0;
 }
@@ -1557,81 +1576,7 @@ onMounted(async () => {
   color: var(--c-text-muted);
 }
 
-.tag--type {
-  background: rgba(99, 208, 197, 0.14);
-  color: #effffd;
-  font-size: 11px;
-  border-color: rgba(99, 208, 197, 0.2);
-}
-
-.auto-closed-badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  background: rgba(99, 208, 197, 0.16);
-  color: #effffd;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(99, 208, 197, 0.2);
-  margin-left: 6px;
-}
-
-.mine-cell {
-  width: 18px;
-  padding-left: 14px !important;
-}
-
-/* ─── Table row styling: mirrors deals-table ──────────────────── */
-
-/* Subtle neutral row separator, same as deals */
-.task-table-wrap .table td {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.task-table-wrap .table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* Row hover */
-.task-table-wrap .table tbody tr {
-  transition: background 0.15s ease;
-}
-
-.task-table-wrap .table tbody tr:hover td {
-  background: rgba(255, 255, 255, 0.025);
-}
-
-/* Left accent stripe: my task */
-.row--mine > td:first-child {
-  box-shadow: inset 3px 0 0 rgba(46, 159, 152, 0.55);
-}
-
-/* Left accent stripe: active/in-progress task */
-.row--active > td:first-child {
-  box-shadow: inset 3px 0 0 rgba(120, 216, 206, 0.75);
-}
-
-/* Active row subtle tint */
-.row--active {
-  background: rgba(99, 208, 197, 0.04);
-}
-
-.row--active:hover td {
-  background: rgba(99, 208, 197, 0.065) !important;
-}
-
-.assignee-cell {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.history-result {
-  min-width: 160px;
-}
-
+/* ─── Complete modal ──────────────────────────────────────────── */
 .modal-overlay {
   z-index: 100;
 }
@@ -1654,13 +1599,14 @@ onMounted(async () => {
   box-shadow: var(--shadow-glow);
 }
 
+/* ─── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 960px) {
   .tabs {
     width: 100%;
     flex-wrap: wrap;
   }
 
-  .task-actions {
+  .tasks-table__actions {
     justify-content: flex-end;
   }
 }
