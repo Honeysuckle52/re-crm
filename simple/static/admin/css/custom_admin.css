@@ -175,37 +175,45 @@ body {
   line-height: 1.4;
 }
 
+/* crm-admin-links убраны из шапки — ссылки перенесены в sidebar .crm-quick */
 .crm-admin-links {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  display: none;
 }
 
-.crm-admin-links a {
-  color: #f4fbfa;
-  opacity: 0.86;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  padding: 8px 14px;
-  border-radius: var(--crm-r-pill);
-  transition: opacity 0.2s ease, background-color 0.2s ease;
+/* #user-tools — прижать к правому краю шапки */
+#user-tools {
+  margin-left: auto !important;
+  text-align: right;
 }
 
-.crm-admin-links a:hover {
-  opacity: 1;
-  background: rgba(120, 216, 206, 0.16);
+/* Акцентная ссылка «Отчёты» внутри .crm-quick */
+.crm-quick__link--accent {
+  color: var(--crm-accent) !important;
+  font-weight: 700;
+  background: rgba(46, 159, 152, 0.08);
 }
 
-/* Выделяем ссылку «Отчёты» в шапке */
-.crm-admin-link--reports {
-  background: rgba(46, 159, 152, 0.18) !important;
-  border: 1px solid rgba(120, 216, 206, 0.30);
+.crm-quick__link--accent svg {
+  color: var(--crm-accent) !important;
   opacity: 1 !important;
 }
 
-.crm-admin-link--reports:hover {
-  background: rgba(46, 159, 152, 0.30) !important;
+.crm-quick__link--accent:hover {
+  background: rgba(46, 159, 152, 0.16) !important;
+  color: var(--crm-accent) !important;
+}
+
+/* Разделитель внутри .crm-quick */
+.crm-quick__divider {
+  height: 1px;
+  background: var(--crm-border);
+  margin: 2px 0;
+}
+
+/* Sub-head внутри .crm-quick (для второй секции быстрых ссылок) */
+.crm-quick__head--sub {
+  border-top: 0;
+  padding-top: 8px;
 }
 
 div.breadcrumbs {
@@ -298,7 +306,7 @@ body {
   width: 100% !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 16px;
+  gap: 12px;
   background: transparent !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -308,6 +316,9 @@ body {
   width: 100% !important;
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 #changelist .results,
@@ -315,8 +326,8 @@ body {
   width: 100% !important;
   overflow-x: auto;
   border-radius: var(--crm-r-lg);
-  background: var(--crm-surface);
-  border: 1px solid var(--crm-border);
+  background: #fff;
+  border: 1px solid var(--crm-border-strong);
   box-shadow: var(--crm-shadow-sm);
 }
 
@@ -326,34 +337,84 @@ body {
   border-spacing: 0;
 }
 
-/* Фильтр-сайдбар: убираем правый float, делаем компактной плашкой сверху */
+/* Заголовки таблицы — контрастнее */
+#changelist table thead th {
+  background: var(--crm-grad-panel);
+  color: #f4fbfa;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(120, 216, 206, 0.20);
+  white-space: nowrap;
+}
+
+#changelist table thead th a,
+#changelist table thead th a:visited {
+  color: #f4fbfa;
+}
+
+#changelist table thead th a:hover {
+  color: var(--crm-accent-2);
+}
+
+/* Ячейки tbody — чёткие границы */
+#changelist table tbody td {
+  padding: 9px 14px;
+  font-size: 13.5px;
+  color: var(--crm-page-text);
+  border-bottom: 1px solid var(--crm-border);
+  vertical-align: middle;
+}
+
+#changelist table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Фильтр-сайдбар: правая панель */
 #changelist-filter {
   position: static !important;
   float: none !important;
   width: 100% !important;
   max-width: 100% !important;
-  margin: 0 0 16px !important;
+  margin: 0 !important;
   padding: 16px 20px !important;
   order: -1;
+  background: #fff !important;
+  border: 1px solid var(--crm-border-strong) !important;
+  border-radius: var(--crm-r-lg) !important;
 }
 
 #changelist-filter h2 {
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
   background: transparent;
   color: var(--crm-page-text);
   padding: 0;
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   border-radius: 0;
+}
+
+#changelist-filter h3 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--crm-page-muted);
+  margin: 12px 0 6px;
+  padding: 0;
+  background: transparent;
 }
 
 #changelist-filter ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   padding: 0;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   list-style: none;
   border: 0;
 }
@@ -365,26 +426,39 @@ body {
 
 #changelist-filter li a {
   display: inline-flex;
-  padding: 5px 12px;
+  padding: 4px 12px;
   border-radius: var(--crm-r-pill);
-  font-size: 12.5px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--crm-border);
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(21, 56, 57, 0.05);
+  border: 1px solid var(--crm-border-strong);
   color: var(--crm-page-text);
+  text-decoration: none;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+#changelist-filter li a:hover {
+  background: rgba(46, 159, 152, 0.10);
+  border-color: var(--crm-border-accent);
+  color: var(--crm-accent);
 }
 
 #changelist-filter li.selected a {
   background: rgba(46, 159, 152, 0.14);
   border-color: var(--crm-border-accent);
   color: var(--crm-accent);
+  font-weight: 700;
 }
 
-/* Toolbar (поиск) — на всю ширину */
+/* Toolbar (поиск) — контрастный */
 #toolbar {
   width: 100% !important;
   padding: 12px 16px;
   box-sizing: border-box;
   margin: 0;
+  background: #fff !important;
+  border: 1px solid var(--crm-border-strong) !important;
+  border-radius: var(--crm-r-lg) !important;
 }
 
 #toolbar form#changelist-search {
@@ -393,12 +467,27 @@ body {
   align-items: center;
 }
 
+#toolbar #searchbar {
+  background: var(--crm-bg) !important;
+  border: 1px solid var(--crm-border-strong) !important;
+  color: var(--crm-page-text) !important;
+  font-size: 13.5px;
+  padding: 7px 14px;
+}
+
+#toolbar #searchbar::placeholder {
+  color: var(--crm-page-muted);
+}
+
 /* Actions (массовые действия) */
 #changelist-form .actions {
   width: 100%;
   padding: 12px 16px;
   margin: 0;
   box-sizing: border-box;
+  background: #fff !important;
+  border: 1px solid var(--crm-border-strong) !important;
+  border-radius: var(--crm-r-lg) !important;
 }
 
 /* Paginator */
@@ -407,6 +496,10 @@ body {
   padding: 12px 16px;
   margin: 0;
   box-sizing: border-box;
+  background: #fff !important;
+  border: 1px solid var(--crm-border-strong) !important;
+  border-top: 0 !important;
+  border-radius: 0 0 var(--crm-r-lg) var(--crm-r-lg) !important;
 }
 
 /* Заголовок страницы списка */
@@ -424,7 +517,7 @@ body {
   width: 100%;
   display: flex;
   justify-content: flex-end;
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   padding: 0;
   list-style: none;
 }
@@ -869,10 +962,11 @@ select:focus {
   gap: 20px;
 }
 
-/* Левая колонка — список моделей */
+/* Левая колонка — список моделей (компактная) */
 .crm-dash-models {
   flex: 1 1 0;
   min-width: 0;
+  max-width: calc(100% - 320px);
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -888,6 +982,7 @@ select:focus {
   gap: 14px;
   position: sticky;
   top: 20px;
+  margin-left: auto;
 }
 
 /* ── Блок приложения (замена .crm-app.module) ── */
@@ -917,16 +1012,16 @@ select:focus {
   padding: 4px 0;
 }
 
-/* ── Строка модели — компактная как на скрине ── */
+/* ── Строка модели — компактная ── */
 .crm-model-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 14px;
+  padding: 5px 12px;
   border-bottom: 1px solid var(--crm-border);
   transition: background 0.15s ease;
-  min-height: 36px;
+  min-height: 32px;
 }
 
 .crm-model-row:last-child {

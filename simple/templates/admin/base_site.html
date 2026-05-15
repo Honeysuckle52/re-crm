@@ -23,15 +23,7 @@
   </div>
 {% endblock %}
 
-{% block nav-global %}
-  <div class="crm-admin-links">
-    <a href="/">Дашборд</a>
-    <a href="/crm">CRM-кабинет</a>
-    <a href="/reports" class="crm-admin-link--reports">Отчёты</a>
-    <a href="/clients">Пользователи</a>
-    <a href="/api/docs/">API</a>
-  </div>
-{% endblock %}
+{% block nav-global %}{% endblock %}
 
 {# Полностью переопределяем блок userlinks, чтобы убрать переключатель темы Django 4.2+ #}
 {% block userlinks %}
