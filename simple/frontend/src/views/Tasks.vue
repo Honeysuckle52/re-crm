@@ -251,7 +251,6 @@
                   :checked="allTasksOnPageSelected"
                   @change="toggleTasksPageSelection($event.target.checked)" />
               </th>
-              <th></th>
               <th>Заголовок</th>
               <th>Тип</th>
               <th>Исполнитель</th>
@@ -273,9 +272,6 @@
                   type="checkbox"
                   :checked="isTaskSelected(task)"
                   @change="toggleTaskSelection(task, $event.target.checked)" />
-              </td>
-              <td class="mine-cell">
-                <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="dot" />
               </td>
               <td>
                 <b>{{ task.title }}</b>
@@ -324,20 +320,13 @@
                 </div>
               </td>
               <td class="task-actions">
+                <!-- Primary action -->
                 <button
                   v-if="canViewTask(task)"
                   class="btn btn--sm btn--primary"
                   @click="openWorkflow(task)"
                 >
                   Открыть
-                </button>
-                <button
-                  v-if="canEditTask(task)"
-                  class="btn btn--sm"
-                  :disabled="busyId === task.id"
-                  @click="startEditTask(task)"
-                >
-                  Редактировать
                 </button>
                 <button
                   v-if="canStart(task)"
@@ -364,14 +353,7 @@
                 >
                   Завершить
                 </button>
-                <button
-                  v-if="canDeleteTask(task)"
-                  class="btn btn--sm btn--danger"
-                  :disabled="busyId === task.id"
-                  @click="removeTask(task)"
-                >
-                  Удалить
-                </button>
+                <!-- Status select -->
                 <select
                   class="select select--sm"
                   :value="task.status"
@@ -382,6 +364,39 @@
                     {{ status.name }}
                   </option>
                 </select>
+                <!-- Secondary overflow dropdown -->
+                <div
+                  v-if="canEditTask(task) || canDeleteTask(task)"
+                  class="task-more"
+                  :class="{ 'is-open': moreMenuId === task.id }"
+                >
+                  <button
+                    class="btn btn--sm task-more__trigger"
+                    :disabled="busyId === task.id"
+                    @click.stop="moreMenuId = moreMenuId === task.id ? null : task.id"
+                    aria-label="Ещё действия"
+                  >
+                    ···
+                  </button>
+                  <div class="task-more__menu" @click.stop>
+                    <button
+                      v-if="canEditTask(task)"
+                      class="task-more__item"
+                      :disabled="busyId === task.id"
+                      @click="startEditTask(task); moreMenuId = null"
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      v-if="canDeleteTask(task)"
+                      class="task-more__item task-more__item--danger"
+                      :disabled="busyId === task.id"
+                      @click="removeTask(task); moreMenuId = null"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -560,7 +575,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { bulkTaskAction } from '../api/bulk'
@@ -623,6 +638,18 @@ const taskTypes = [
 ]
 
 const completeModal = reactive({ show: false, task: null, result: '' })
+const moreMenuId = ref(null)
+
+function closeMoreMenu() {
+  moreMenuId.value = null
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeMoreMenu)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', closeMoreMenu)
+})
 
 function openCompleteModal(task) {
   completeModal.task = task
@@ -1323,27 +1350,38 @@ onMounted(async () => {
 .task-badge.tag--accent,
 .task-badge.tag--panel,
 .task-badge.tag--cancelled {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 56, 57, 0.16);
+  background: var(--grad-control-light);
   color: var(--c-page-text);
-  border-color: rgba(21, 56, 57, 0.16);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 8px 18px rgba(16, 55, 52, 0.08);
+  box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
+  white-space: nowrap;
 }
 
 .select--sm {
-  padding: 10px 42px 10px 14px;
+  padding: 8px 42px 8px 14px;
   font-size: 13px;
+  min-height: 38px;
 }
 
 .table-check-cell {
   width: 44px;
+  min-width: 44px;
+  max-width: 44px;
   text-align: center;
+  padding-left: 14px !important;
+  padding-right: 6px !important;
 }
 
 .table-check-cell input {
   width: 16px;
   height: 16px;
+  cursor: pointer;
 }
 
 .task-actions {
@@ -1353,6 +1391,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: flex-start;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .task-actions > .btn,
@@ -1362,11 +1401,90 @@ onMounted(async () => {
 
 .task-actions > .select {
   width: auto;
-  min-width: 132px;
+  min-width: 130px;
+}
+
+.task-actions--history {
+  min-width: 80px;
+  flex-wrap: nowrap;
+}
+
+/* Overflow dropdown */
+.task-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.task-more__trigger {
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  padding-left: 10px;
+  padding-right: 10px;
+  min-width: 36px;
+}
+
+.task-more__menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 148px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--grad-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 16px 36px rgba(4, 24, 22, 0.28);
+  overflow: hidden;
+  padding: 4px;
+}
+
+.task-more.is-open .task-more__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-more__item {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.task-more__item:hover:not(:disabled) {
+  background: rgba(99, 208, 197, 0.1);
+  color: #effffd;
+}
+
+.task-more__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.task-more__item--danger {
+  color: #ffd4dc;
+}
+
+.task-more__item--danger:hover:not(:disabled) {
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
 }
 
 .task-request-cell {
   min-width: 118px;
+  max-width: 140px;
+  width: 140px;
 }
 
 .task-request-cell.is-clickable {
@@ -1378,8 +1496,9 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   width: 100%;
+  max-width: 120px;
   min-height: 38px;
-  padding: 8px 14px;
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid rgba(21, 56, 57, 0.16);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
@@ -1417,7 +1536,26 @@ onMounted(async () => {
 }
 
 .task-history-wrap .table {
-  min-width: 780px;
+  min-width: 820px;
+}
+
+/* Align th/td padding & font-size with global .table rules for uniformity */
+.task-table-wrap .table th,
+.task-history-wrap .table th {
+  padding: 0 16px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.task-table-wrap .table td,
+.task-history-wrap .table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  vertical-align: middle;
 }
 
 .workload-banner {
@@ -1544,8 +1682,22 @@ onMounted(async () => {
 .tag--type {
   background: rgba(99, 208, 197, 0.14);
   color: #effffd;
-  font-size: 11px;
+  font-size: 12px;
   border-color: rgba(99, 208, 197, 0.2);
+}
+
+.task-badge.tag--type {
+  background: rgba(99, 208, 197, 0.14);
+  color: #effffd;
+  border-color: rgba(99, 208, 197, 0.2);
+  box-shadow: none;
+}
+
+.task-badge.tag--cancelled {
+  background: rgba(255, 111, 134, 0.14);
+  color: #ffd4dc;
+  border-color: rgba(255, 111, 134, 0.22);
+  box-shadow: none;
 }
 
 .auto-closed-badge {
@@ -1561,10 +1713,6 @@ onMounted(async () => {
   margin-left: 6px;
 }
 
-.mine-cell {
-  width: 18px;
-  padding-left: 14px !important;
-}
 
 .row--mine > td:first-child {
   box-shadow: inset 3px 0 0 rgba(31, 163, 154, 0.32);
@@ -1586,7 +1734,8 @@ onMounted(async () => {
 }
 
 .history-result {
-  min-width: 160px;
+  min-width: 140px;
+  max-width: 200px;
 }
 
 .modal-overlay {

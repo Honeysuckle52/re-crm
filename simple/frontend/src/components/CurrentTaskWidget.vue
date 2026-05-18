@@ -496,8 +496,8 @@ watch(
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   background: transparent;
   color: inherit;
   border: none;
@@ -533,15 +533,15 @@ watch(
 }
 
 .ctw__label b {
-  font-size: 13px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .ctw__subtle {
   overflow: hidden;
   color: var(--c-ink-soft);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -571,24 +571,25 @@ watch(
 .ctw__body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px 14px;
+  gap: 8px;
+  padding: 10px 12px 12px;
 }
 
 .ctw__tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
 }
 
 .ctw__tag {
-  padding: 4px 10px;
+  padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(7, 52, 52, 0.88);
   color: var(--c-ink-soft);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1.4;
 }
 
 .ctw__tag--accent {
@@ -611,9 +612,9 @@ watch(
   margin: 0;
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 2px 10px;
-  font-size: 14px;
-  line-height: 1.35;
+  gap: 1px 8px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .ctw__meta dt {
@@ -630,21 +631,21 @@ watch(
 .ctw__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .ctw__btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
-  padding: 8px 14px;
+  min-height: 32px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--c-border);
   background: linear-gradient(135deg, rgba(27, 77, 62, 0.98), rgba(46, 139, 87, 0.82));
   color: var(--c-text);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   text-align: center;
   text-decoration: none;
@@ -684,12 +685,12 @@ watch(
 }
 
 .ctw__warn {
-  padding: 8px 12px;
-  border-radius: 16px;
+  padding: 7px 11px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 111, 134, 0.22);
   background: rgba(255, 111, 134, 0.12);
   color: #ffd6de;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.45;
 }

@@ -829,7 +829,7 @@ class PropertyFeatureViewSet(viewsets.ModelViewSet):
 
 
 class PropertyPhotoViewSet(viewsets.ModelViewSet):
-    """Фото объекта �� действия по альбому."""
+    """Фото объекта и действия по альбому."""
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
     permission_classes = [IsEmployee]
