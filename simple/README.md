@@ -2,7 +2,7 @@
 
 CRM/ERP-шаблон для агентства недвижимости: Django 6 + DRF на бэкенде,
 Vue 3 + Pinia + Vite на фронтенде, PostgreSQL в качестве хранилища,
-подсказки адресов — DaData (через открытый ключ), авторизация — JWT.
+подсказки адресов — DaData, обогащение объектов — 2GIS, авторизация — JWT.
 
 ## Суть CRM/ERP в этом проекте
 
@@ -56,12 +56,10 @@ simple/
 │   ├── deals_service.py
 │   ├── documents.py
 │   ├── events.py
-│   ├── gar_seed.py
 │   ├── mailing.py
 │   ├── models.py
 │   ├── pagination.py
 │   ├── permissions.py
-│   ├── process_versions.py
 │   ├── reports.py
 │   ├── request_lifecycle.py
 │   ├── seeding.py
@@ -95,18 +93,9 @@ simple/
 │
 ├── static/                              ← Собранные статические ассеты (collectstatic)
 │
-├── templates/                           ← HTML/email-шаблоны
+├── templates/                           ← HTML-шаблоны и переопределения Django-admin
 │   ├── index.html
 │   ├── admin/                           ← переопределения шаблонов Django-admin
-│   └── emails/
-│       ├── _base.html
-│       ├── property_matched/            ← body.html, body.txt, subject.txt
-│       ├── request_closed/              ← body.html, body.txt, subject.txt
-│       ├── request_taken/               ← body.html, body.txt, subject.txt
-│       ├── task_assigned/               ← body.html, body.txt, subject.txt
-│       ├── task_assigned_call/          ← body.html, body.txt, subject.txt
-│       ├── task_assigned_documents/     ← body.html, body.txt, subject.txt
-│       └── task_assigned_showing/       ← body.html, body.txt, subject.txt
 │
 └── frontend/                            ← Vue 3 + Vite SPA
     ├── index.html
@@ -140,8 +129,6 @@ simple/
         │   ├── InfoRow.vue
         │   ├── ListPagination.vue
         │   ├── NetworkBanner.vue
-        │   ├── NotificationTemplateManager.vue
-        │   ├── ProcessVersionManager.vue
         │   ├── PropertyCard.vue
         │   ├── RemoteLookupField.vue
         │   ├── RequestCloseDialog.vue
@@ -200,10 +187,10 @@ simple/
   `is_email_verified`, `role` и т. п.
 - **JWT (`djangorestframework-simplejwt`)** — токен-аутентификация
   с ротацией и чёрным списком refresh-токенов.
-- **Подсказки адресов — DaData.** Ключ хранится только в `.env`
-  на сервере, клиент обращается к прокси-эндпоинту
-  `/api/dadata/suggest-address/`. Изображения и характеристики объектов
-  вводятся сотрудником вручную — DaData даёт только адресные данные.
+- **Подсказки адресов — DaData, обогащение объектов — 2GIS.** Ключ хранится
+  только в `.env` на сервере, клиент обращается к прокси-эндпоинту
+  `/api/dadata/suggest-address/`. При создании объекта сервер может подтянуть
+  из 2GIS координаты, краткое описание и карты.
 - **Регистрация без выбора роли.** `RegisterSerializer` принимает
   `username`, `email`, `phone`, `password`, а также обязательные
   `first_name` и `last_name`; учётная запись всегда создаётся как клиент
@@ -221,14 +208,15 @@ simple/
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
+.venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env                 # заполните креды PostgreSQL и DADATA_API_KEY
 createdb re_crm                      # или через pgAdmin / psql
 
 python manage.py migrate
-python manage.py seed_data --with-gar --gar-limit 20
+python manage.py makemigrations 
+python manage.py seed_data
 python manage.py createsuperuser
 python manage.py runserver           # worker process_background_jobs стартует автоматически
 # если worker нужно отключить:
@@ -238,12 +226,6 @@ python manage.py runserver           # worker process_background_jobs старт
 Для почты можно задать резервный SMTP-канал через `EMAIL_FALLBACK_*`.
 Это полезно, если основной `465/SSL` подвисает на handshake, а
 `587/STARTTLS` работает стабильнее.
-
-Для GAR/FIAS можно указать корневой каталог через `GAR_ROOT`. Если переменная не
-задана, проект ищет данные в соседней папке `../GAR`.
-Если `--gar-region` не указан, `seed_data` сам подбирает до 5 наиболее полных
-регионов из доступной выгрузки. Можно также передать список кодов через запятую,
-например `--gar-region 38,76,24,16,66`.
 
 Для корректного оформления PDF-договоров заполните в `.env` реквизиты
 агентства:
@@ -308,8 +290,6 @@ Vite-dev-сервер уже подняты.
 | CRUD  | `/api/request-statuses/`                    | Справочник статусов заявок                    |
 | CRUD  | `/api/deal-statuses/`                       | Справочник статусов сделок                    |
 | CRUD  | `/api/task-statuses/`                       | Справочник статусов задач                     |
-| CRUD  | `/api/notification-templates/`              | Редактируемые email-шаблоны                   |
-| CRUD  | `/api/process-versions/`                    | Версии схем бизнес-процессов                  |
 | POST  | `/api/users/{id}/assign_role/`              | Назначить тип и должность (админ/менеджер)    |
 | CRUD  | `/api/properties/`                          | Объекты недвижимости                          |
 | POST  | `/api/properties/{id}/change_status/`       | Смена статуса + запись в историю              |
@@ -402,15 +382,13 @@ python manage.py process_background_jobs --loop
 - **deals_service.py** — сервис сделок и очередь генерации PDF-договоров.
 - **documents.py** — генерация PDF-договоров через ReportLab.
 - **events.py** — журнал доменных событий.
-- **gar_seed.py** — выборка адресов и помещений из локального GAR/FIAS.
 - **mailing.py** — очередь и отправка email-уведомлений.
 - **models.py** — ORM-модели (User, Property, Request, Deal, Task и т. д.).
 - **pagination.py** — общий класс DRF-пагинации для списочных эндпоинтов.
 - **permissions.py** — DRF-пермишены по ролям.
-- **process_versions.py** — активные версии процессов и fallback-схемы заявок/задач.
 - **reports.py** — сервисный слой отчётов и экспортов.
 - **request_lifecycle.py** — единый жизненный цикл заявки и побочных эффектов.
-- **seeding.py** — общий слой заполнения справочников, demo-данных и GAR-данных.
+- **seeding.py** — общий слой заполнения справочников, demo-данных и 2GIS-обогащения.
 - **serializers.py** — DRF-сериализаторы.
 - **task_actions.py** — операции над задачами (старт/пауза/завершение).
 - **task_workflow.py** — серверная схема этапов и переходов workflow задач.
@@ -423,7 +401,7 @@ python manage.py process_background_jobs --loop
 - **management/commands/__init__.py** — маркер пакета команд.
 - **management/commands/process_background_jobs.py** — воркер очереди писем и PDF.
 - **management/commands/runserver.py** — dev-runserver с автозапуском background worker.
-- **management/commands/seed_data.py** — единая команда заполнения справочников, demo-данных и выборки из GAR.
+- **management/commands/seed_data.py** — единая команда заполнения справочников и demo-данных.
 - **migrations/0001_initial.py** — начальная миграция схемы БД.
 - **templatetags/vite.py** — теги шаблонов для подключения Vite-бандла.
 
@@ -435,15 +413,7 @@ python manage.py process_background_jobs --loop
 
 - **index.html** — корневой HTML, в который монтируется SPA.
 - **admin/** — переопределения шаблонов Django-admin.
-- **emails/_base.html** — базовый HTML-макет писем.
-- **emails/property_matched/** — письмо клиенту: подобран объект.
-- **emails/request_closed/** — письмо: заявка закрыта.
-- **emails/request_taken/** — письмо: заявку взяли в работу.
-- **emails/task_assigned/** — письмо: назначена задача (общее).
-- **emails/task_assigned_call/** — назначен звонок.
-- **emails/task_assigned_documents/** — назначены документы.
-- **emails/task_assigned_showing/** — назначен показ.
-- В каждой папке: **subject.txt** — тема, **body.txt** — текстовая версия, **body.html** — HTML-версия (если есть).
+- **emails/** — шаблоны системных уведомлений.
 
 ### `frontend/` (корень SPA)
 
@@ -483,8 +453,6 @@ python manage.py process_background_jobs --loop
 - **InfoRow.vue** — строка «label — value» для деталей.
 - **ListPagination.vue** — управление постраничной выдачей списков.
 - **NetworkBanner.vue** — баннер потери сети / офлайн-режима.
-- **NotificationTemplateManager.vue** — редактор email-шаблонов из админки.
-- **ProcessVersionManager.vue** — управление версиями бизнес-процессов.
 - **PropertyCard.vue** — карточка объекта недвижимости.
 - **RemoteLookupField.vue** — поле с серверным поиском по справочнику.
 - **RequestCloseDialog.vue** — диалог закрытия заявки с выбором исхода.

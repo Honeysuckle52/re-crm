@@ -790,9 +790,9 @@ async function deleteRequest(requestItem) {
     }
     requestPage.value = 1
     await Promise.all([load(), loadRequestCounts(), workload.refresh()])
-    toasts.success(`Р—Р°СЏРІРєР° #${requestItem.id} СѓРґР°Р»РµРЅР°`)
+    toasts.success(`Заявка #${requestItem.id} удалена`)
   } catch (err) {
-    toasts.error(extractError(err, 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ Р·Р°СЏРІРєСѓ'))
+    toasts.error(extractError(err, 'Не удалось удалить заявку'))
   }
 }
 

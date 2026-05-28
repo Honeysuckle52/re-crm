@@ -1,11 +1,9 @@
 """Сериализаторы DRF."""
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
-from django.template import Template, TemplateSyntaxError
 from rest_framework import serializers
 
 from . import business_rules, models
-from . import process_versions
 from . import task_workflow
 
 User = get_user_model()
@@ -47,87 +45,6 @@ class TaskStatusSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.TaskStatus
         fields = ['id', 'code', 'name', 'order']
-
-
-class NotificationTemplateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = models.NotificationTemplate
-        fields = [
-            'id', 'code', 'name', 'description',
-            'subject_template', 'body_template', 'html_template',
-            'is_active', 'created_at', 'updated_at',
-        ]
-        read_only_fields = ['created_at', 'updated_at']
-
-    def _validate_template(self, value: str, *, field_name: str) -> str:
-        try:
-            Template(value or '')
-        except TemplateSyntaxError as exc:
-            raise serializers.ValidationError(
-                f'Ошибка шаблона в поле "{field_name}": {exc}',
-            ) from exc
-        return value
-
-    def validate_code(self, value: str) -> str:
-        return value.strip()
-
-    def validate_subject_template(self, value: str) -> str:
-        return self._validate_template(value, field_name='subject_template')
-
-    def validate_body_template(self, value: str) -> str:
-        return self._validate_template(value, field_name='body_template')
-
-    def validate_html_template(self, value: str) -> str:
-        return self._validate_template(value, field_name='html_template')
-
-
-class ProcessVersionSerializer(serializers.ModelSerializer):
-    process_code_display = serializers.CharField(
-        source='get_process_code_display',
-        read_only=True,
-    )
-
-    class Meta:
-        model = models.ProcessVersion
-        fields = [
-            'id', 'process_code', 'process_code_display',
-            'scope_code', 'version', 'name', 'description',
-            'schema', 'is_active', 'created_at', 'updated_at',
-        ]
-        read_only_fields = ['created_at', 'updated_at']
-
-    def validate_schema(self, value):
-        if not isinstance(value, list) or not value:
-            raise serializers.ValidationError('Схема процесса должна быть непустым списком шагов.')
-        for index, step in enumerate(value, start=1):
-            if not isinstance(step, dict):
-                raise serializers.ValidationError(f'Шаг #{index} должен быть объектом.')
-            if not (step.get('id') or '').strip():
-                raise serializers.ValidationError(f'У шага #{index} отсутствует id.')
-            if not (step.get('label') or '').strip():
-                raise serializers.ValidationError(f'У шага #{index} отсутствует label.')
-            outcomes = step.get('outcomes', [])
-            if outcomes is None:
-                continue
-            if not isinstance(outcomes, list):
-                raise serializers.ValidationError(f'У шага #{index} поле outcomes должно быть списком.')
-            for outcome in outcomes:
-                if not isinstance(outcome, dict) or not (outcome.get('code') or '').strip():
-                    raise serializers.ValidationError(
-                        f'У шага #{index} каждый outcome должен содержать code.',
-                    )
-        return value
-
-    def validate(self, attrs):
-        process_code = attrs.get('process_code', getattr(self.instance, 'process_code', None))
-        scope_code = attrs.get('scope_code', getattr(self.instance, 'scope_code', ''))
-        attrs['scope_code'] = (scope_code or '').strip()
-        if not self.instance and not attrs.get('version'):
-            attrs['version'] = process_versions.next_version_number(
-                process_code,
-                scope_code=attrs['scope_code'],
-            )
-        return attrs
 
 
 class UserRoleSerializer(serializers.ModelSerializer):
@@ -416,7 +333,7 @@ class PropertySerializer(serializers.ModelSerializer):
             'address', 'address_data', 'full_address',
             'coordinates_lat', 'coordinates_lon',
             'price', 'price_per_sqm',
-            'area_total', 'area_living', 'area_kitchen',
+            'area_total',
             'rooms_count', 'floor_number', 'total_floors',
             'description', 'photos', 'feature_values', 'feature_ids',
             'created_at', 'updated_at',
@@ -598,16 +515,6 @@ class RequestSerializer(serializers.ModelSerializer):
         source='status_display_name', read_only=True,
     )
     status_code = serializers.CharField(read_only=True)
-    process_version_name = serializers.CharField(
-        source='process_version.name',
-        read_only=True,
-    )
-    process_version_number = serializers.IntegerField(
-        source='process_version.version',
-        read_only=True,
-    )
-    process_version_label = serializers.SerializerMethodField()
-    process_schema = serializers.SerializerMethodField()
     matches = RequestPropertyMatchSerializer(many=True, read_only=True)
     can_close = serializers.SerializerMethodField()
 
@@ -619,27 +526,16 @@ class RequestSerializer(serializers.ModelSerializer):
             'property', 'property_title',
             'operation_type', 'operation_type_name',
             'status', 'status_name', 'status_code',
-            'process_version', 'process_version_name', 'process_version_number',
-            'process_version_label', 'process_schema',
             'property_type', 'min_price', 'max_price',
             'min_area', 'max_area', 'rooms_count',
             'address_preferences', 'description',
             'matches', 'can_close',
             'created_at', 'updated_at', 'closed_at',
         ]
-        read_only_fields = [
-            'process_version',
-            'created_at', 'updated_at', 'closed_at',
-        ]
+        read_only_fields = ['created_at', 'updated_at', 'closed_at']
 
     def get_can_close(self, obj) -> bool:
         return bool(obj.status_id and not obj.is_terminal)
-
-    def get_process_version_label(self, obj) -> str:
-        return process_versions.request_process_label(obj)
-
-    def get_process_schema(self, obj) -> list[dict]:
-        return process_versions.request_schema(obj)
 
 
 class RequestCloseSerializer(serializers.Serializer):
@@ -781,15 +677,6 @@ class TaskSerializer(serializers.ModelSerializer):
     priority_display = serializers.CharField(source='get_priority_display',
                                              read_only=True)
     task_type_display = serializers.CharField(read_only=True)
-    process_version_name = serializers.CharField(
-        source='process_version.name',
-        read_only=True,
-    )
-    process_version_number = serializers.IntegerField(
-        source='process_version.version',
-        read_only=True,
-    )
-    process_version_label = serializers.SerializerMethodField()
     is_overdue = serializers.SerializerMethodField()
     workflow_steps = serializers.SerializerMethodField()
     workflow_current_step = serializers.SerializerMethodField()
@@ -804,17 +691,11 @@ class TaskSerializer(serializers.ModelSerializer):
                   'client', 'client_username',
                   'property', 'property_title',
                   'request', 'request_client_username', 'deal',
-                  'process_version', 'process_version_name',
-                  'process_version_number', 'process_version_label',
                   'due_date', 'completed_at', 'result',
                   'steps_log', 'is_auto_closed',
                   'workflow_steps', 'workflow_current_step',
                   'is_overdue', 'created_at', 'updated_at']
-        read_only_fields = [
-            'process_version',
-            'created_at', 'updated_at', 'created_by',
-            'is_auto_closed', 'steps_log',
-        ]
+        read_only_fields = ['created_at', 'updated_at', 'created_by', 'is_auto_closed', 'steps_log']
         # status назначается бэкендом автоматически при создании (статус «new»),
         # поэтому делаем поле необязательным — фронт его не передаёт.
         extra_kwargs = {
@@ -828,9 +709,6 @@ class TaskSerializer(serializers.ModelSerializer):
         if obj.status and obj.status.code in {'done', 'cancelled'}:
             return False
         return obj.due_date < timezone.now()
-
-    def get_process_version_label(self, obj) -> str:
-        return process_versions.task_process_label(obj)
 
     def get_workflow_steps(self, obj) -> list[dict]:
         return task_workflow.workflow_payload(obj)
@@ -855,7 +733,7 @@ class OutgoingEmailSerializer(serializers.ModelSerializer):
         fields = ['id', 'recipient', 'recipient_username', 'recipient_email',
                   'sender', 'sender_username', 'subject', 'body',
                   'html_body',
-                  'template_code', 'trigger_code', 'context',
+                  'trigger_code', 'context',
                   'status', 'status_display', 'task', 'request', 'property',
                   'error_message', 'processing_started_at',
                   'sent_at', 'created_at']

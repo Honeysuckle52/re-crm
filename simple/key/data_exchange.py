@@ -32,8 +32,6 @@ PROPERTY_EXPORT_COLUMNS = (
     ('postal_code', 'postal_code'),
     ('price', 'price'),
     ('area_total', 'area_total'),
-    ('area_living', 'area_living'),
-    ('area_kitchen', 'area_kitchen'),
     ('rooms_count', 'rooms_count'),
     ('floor_number', 'floor_number'),
     ('total_floors', 'total_floors'),
@@ -162,7 +160,6 @@ REQUEST_EXPORT_COLUMNS = (
     ('operation_type_code', 'operation_type_code'),
     ('status_code', 'status_code'),
     ('status_name', 'status_name'),
-    ('process_version_label', 'process_version_label'),
     ('property_type', 'property_type'),
     ('min_price', 'min_price'),
     ('max_price', 'max_price'),
@@ -198,7 +195,6 @@ TASK_EXPORT_COLUMNS = (
     ('property_title', 'property_title'),
     ('request_id', 'request_id'),
     ('deal_id', 'deal_id'),
-    ('process_version_label', 'process_version_label'),
     ('due_date', 'due_date'),
     ('completed_at', 'completed_at'),
     ('is_auto_closed', 'is_auto_closed'),
@@ -410,16 +406,6 @@ def _property_payload_from_row(
             field='area_total',
             row_number=row_number,
         ),
-        'area_living': _parse_decimal(
-            row.get('area_living', ''),
-            field='area_living',
-            row_number=row_number,
-        ),
-        'area_kitchen': _parse_decimal(
-            row.get('area_kitchen', ''),
-            field='area_kitchen',
-            row_number=row_number,
-        ),
         'rooms_count': _parse_int(
             row.get('rooms_count', ''),
             field='rooms_count',
@@ -613,8 +599,6 @@ def _property_export_rows(queryset) -> list[dict]:
             'postal_code': house.postal_code or '',
             'price': property_obj.price,
             'area_total': str(property_obj.area_total) if property_obj.area_total is not None else '',
-            'area_living': str(property_obj.area_living) if property_obj.area_living is not None else '',
-            'area_kitchen': str(property_obj.area_kitchen) if property_obj.area_kitchen is not None else '',
             'rooms_count': property_obj.rooms_count or '',
             'floor_number': property_obj.floor_number or '',
             'total_floors': property_obj.total_floors or '',
@@ -630,20 +614,6 @@ def _xlsx_response(filename: str, sheets: list[WorkbookSheet]) -> HttpResponse:
     )
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
-
-
-def _version_label(version) -> str:
-    if version is None:
-        return ''
-    name = (getattr(version, 'name', '') or '').strip()
-    number = getattr(version, 'version', None)
-    if name and number:
-        return f'{name} v{number}'
-    if name:
-        return name
-    if number:
-        return f'v{number}'
-    return ''
 
 
 def _export_json_value(value):
@@ -750,7 +720,6 @@ def _request_export_rows(queryset) -> list[dict]:
     rows: list[dict] = []
     for request_obj in queryset.select_related(
         'client', 'agent', 'property', 'operation_type', 'status',
-        'process_version',
     ):
         rows.append({
             'id': request_obj.pk,
@@ -763,7 +732,6 @@ def _request_export_rows(queryset) -> list[dict]:
             'operation_type_code': getattr(request_obj.operation_type, 'code', ''),
             'status_code': request_obj.status_code,
             'status_name': request_obj.status_display_name,
-            'process_version_label': _version_label(request_obj.process_version),
             'property_type': request_obj.property_type or '',
             'min_price': request_obj.min_price,
             'max_price': request_obj.max_price,
@@ -787,7 +755,7 @@ def _task_export_rows(queryset) -> list[dict]:
     rows: list[dict] = []
     for task_obj in queryset.select_related(
         'status', 'assignee', 'created_by', 'client', 'property',
-        'request', 'deal', 'process_version',
+        'request', 'deal',
     ):
         rows.append({
             'id': task_obj.pk,
@@ -805,7 +773,6 @@ def _task_export_rows(queryset) -> list[dict]:
             'property_title': getattr(task_obj.property, 'title', ''),
             'request_id': task_obj.request_id,
             'deal_id': task_obj.deal_id,
-            'process_version_label': _version_label(task_obj.process_version),
             'due_date': task_obj.due_date,
             'completed_at': task_obj.completed_at,
             'is_auto_closed': task_obj.is_auto_closed,

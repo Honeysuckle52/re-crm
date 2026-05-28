@@ -837,10 +837,6 @@ def render_contract_pdf(deal) -> ContentFile:
     ]
     if property_obj.area_total:
         property_rows.append(('Общая площадь', _format_decimal(property_obj.area_total, ' м²')))
-    if property_obj.area_living:
-        property_rows.append(('Жилая площадь', _format_decimal(property_obj.area_living, ' м²')))
-    if property_obj.area_kitchen:
-        property_rows.append(('Площадь кухни', _format_decimal(property_obj.area_kitchen, ' м²')))
     if property_obj.rooms_count:
         property_rows.append(('Количество комнат', property_obj.rooms_count))
     if property_obj.floor_number and property_obj.total_floors:

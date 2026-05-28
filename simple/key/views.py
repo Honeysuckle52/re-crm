@@ -17,10 +17,9 @@ from django.http import FileResponse, Http404
 
 from . import audit as audit_service
 from . import business_rules, data_exchange, deals_service, models, reports, serializers
-from . import process_versions
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
-from .twogis import TwoGisClient
+from .twogis import TwoGisClient, apply_property_enrichment
 from .mailing import (
     resend as resend_email,
     enqueue_task_assigned,
@@ -202,50 +201,6 @@ class TaskStatusViewSet(viewsets.ModelViewSet):
     queryset = models.TaskStatus.objects.all()
     serializer_class = serializers.TaskStatusSerializer
     permission_classes = [IsAdminOrManagerOrReadOnly]
-
-
-class NotificationTemplateViewSet(viewsets.ModelViewSet):
-    queryset = models.NotificationTemplate.objects.all()
-    serializer_class = serializers.NotificationTemplateSerializer
-    permission_classes = [IsAdminOrManagerOrReadOnly]
-
-
-class ProcessVersionViewSet(viewsets.ModelViewSet):
-    queryset = models.ProcessVersion.objects.all()
-    serializer_class = serializers.ProcessVersionSerializer
-    permission_classes = [IsAdminOrManagerOrReadOnly]
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['process_code', 'scope_code', 'version', 'updated_at']
-
-    def perform_create(self, serializer):
-        with transaction.atomic():
-            instance = serializer.save()
-            if instance.is_active:
-                models.ProcessVersion.objects.filter(
-                    process_code=instance.process_code,
-                    scope_code=instance.scope_code,
-                ).exclude(pk=instance.pk).update(is_active=False)
-
-    def perform_update(self, serializer):
-        with transaction.atomic():
-            instance = serializer.save()
-            if instance.is_active:
-                models.ProcessVersion.objects.filter(
-                    process_code=instance.process_code,
-                    scope_code=instance.scope_code,
-                ).exclude(pk=instance.pk).update(is_active=False)
-
-    @action(detail=True, methods=['post'])
-    def activate(self, request, pk=None):
-        instance = self.get_object()
-        with transaction.atomic():
-            models.ProcessVersion.objects.filter(
-                process_code=instance.process_code,
-                scope_code=instance.scope_code,
-            ).exclude(pk=instance.pk).update(is_active=False)
-            instance.is_active = True
-            instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(serializers.ProcessVersionSerializer(instance).data)
 
 
 class UserRoleViewSet(viewsets.ModelViewSet):
@@ -501,14 +456,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     @staticmethod
     def _fetch_twogis_photos(property_obj) -> int:
-        """Подтягивает фото из 2GIS Static Maps по координатам объекта.
-
-        Вызывается автоматически при создании объекта через UI.
-        Не добавляет фото если у объекта уже есть хотя бы одно.
-        Не выбрасывает исключений — ошибки только логируются.
-        Возвращает количество добавленных фото (0 при неудаче).
-        """
+        """Fetch 2GIS enrichment and create photos when the object has none."""
         import logging
+
         _log = logging.getLogger(__name__)
 
         try:
@@ -516,7 +466,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
             if address is None:
                 return 0
 
-            # Строим строку запроса из сохранённого адреса
             address_str = str(address).strip()
             if not address_str or address_str == 'None':
                 return 0
@@ -535,45 +484,18 @@ class PropertyViewSet(viewsets.ModelViewSet):
             if not info:
                 return 0
 
-            # Координаты — сохраняем если не заданы
-            lat = info.get('lat')
-            lon = info.get('lon')
-            update_coords = []
-            if lat and not property_obj.coordinates_lat:
-                property_obj.coordinates_lat = lat
-                update_coords.append('coordinates_lat')
-            if lon and not property_obj.coordinates_lon:
-                property_obj.coordinates_lon = lon
-                update_coords.append('coordinates_lon')
-            if update_coords:
-                property_obj.save(update_fields=update_coords)
-
-            photo_urls: list[str] = info.get('photos') or []
-            if not photo_urls:
-                return 0
-
-            # Добавляем фото только если у объекта ещё нет ни одного
-            if models.PropertyPhoto.objects.filter(property=property_obj).exists():
-                return 0
-
-            for order, url in enumerate(photo_urls):
-                models.PropertyPhoto.objects.create(
-                    property=property_obj,
-                    url=url,
-                    caption='Карта 2GIS',
-                    is_cover=(order == 0),
-                    order=order,
+            created = apply_property_enrichment(property_obj, info)
+            if created:
+                _log.info(
+                    '2GIS: added %d photo cards for property pk=%s',
+                    created, property_obj.pk,
                 )
-            _log.info(
-                '2GIS: добавлено %d карт для объекта pk=%s',
-                len(photo_urls), property_obj.pk,
-            )
-            return len(photo_urls)
+            return created
 
         except Exception as exc:  # noqa: BLE001
             import logging as _logging
             _logging.getLogger(__name__).warning(
-                '2GIS авто-фото для объекта pk=%s не удалось: %s',
+                '2GIS enrichment for property pk=%s failed: %s',
                 property_obj.pk, exc,
             )
             return 0
@@ -916,7 +838,7 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
             property_id=photo.property_id
         ).exclude(pk=photo.pk).update(is_cover=False)
         photo.is_cover = True
-        photo.is_hidden = False  # обложка н�� может быть скрытой
+        photo.is_hidden = False  # обложка не может быть скрытой
         photo.save(update_fields=['is_cover', 'is_hidden'])
         return Response(serializers.PropertyPhotoSerializer(
             photo, context={'request': request}).data)
@@ -981,7 +903,6 @@ class RequestViewSet(viewsets.ModelViewSet):
     """Заявки клиентов."""
     queryset = models.Request.objects.select_related(
         'client', 'agent', 'operation_type', 'status', 'property',
-        'process_version',
     ).prefetch_related(
         'matches__property', 'matches__agent', 'matches__confirmed_by',
     ).all()
@@ -1120,7 +1041,12 @@ class RequestViewSet(viewsets.ModelViewSet):
         )
         super().perform_destroy(instance)
 
-    @action(detail=False, methods=['get'], url_path='export')
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='export',
+        permission_classes=[IsEmployee],
+    )
     def export(self, request):
         """Экспорт списка заявок в CSV, JSON или XLSX."""
         export_format = (
@@ -1199,6 +1125,20 @@ class RequestViewSet(viewsets.ModelViewSet):
             closed_count += 1
             if result.deal is not None:
                 deals_created += 1
+            # Отдельно фиксируем факт массовой операции (помимо обычного "closed").
+            audit_service.log_event(
+                entity=result.request,
+                action_code='bulk_closed',
+                action_label='Массовое закрытие заявки',
+                actor=request.user,
+                message='Заявка закрыта через массовую операцию.',
+                metadata={
+                    'bulk': True,
+                    'outcome': outcome,
+                },
+                property_obj=result.request.property,
+                deal_obj=result.deal,
+            )
 
         not_found_ids = [
             request_id for request_id in requested_ids
@@ -1431,7 +1371,12 @@ class DealViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(agent_id=value)
         return qs
 
-    @action(detail=False, methods=['get'], url_path='export')
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='export',
+        permission_classes=[IsEmployee],
+    )
     def export(self, request):
         """Экспорт списка сделок в CSV, JSON или XLSX."""
         export_format = (
@@ -1551,6 +1496,9 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(client=user)
+        elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+            # Агент видит только свои просмотры, менеджер/админ — все.
+            qs = qs.filter(agent=user)
         return qs
 
 
@@ -1558,7 +1506,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     """Задачи сотрудников агентства."""
     queryset = models.Task.objects.select_related(
         'status', 'assignee', 'created_by', 'client', 'property',
-        'request', 'deal', 'process_version',
+        'request', 'deal',
     ).all()
     serializer_class = serializers.TaskSerializer
     permission_classes = [IsEmployee]
@@ -1618,7 +1566,6 @@ class TaskViewSet(viewsets.ModelViewSet):
             save_kwargs['status'] = initial_status
 
         task = serializer.save(**save_kwargs)
-        process_versions.assign_task_process_version(task)
         audit_service.log_event(
             entity=task,
             action_code='created',
@@ -1628,7 +1575,6 @@ class TaskViewSet(viewsets.ModelViewSet):
             metadata={
                 'task_type': task.task_type,
                 'assignee_id': task.assignee_id,
-                'process_version_id': task.process_version_id,
             },
             property_obj=task.property,
             request_obj=task.request,
@@ -1658,10 +1604,6 @@ class TaskViewSet(viewsets.ModelViewSet):
             except WorkloadLimitExceeded as exc:
                 raise ValidationError({'assignee': [exc.detail]})
         task = serializer.save()
-        process_versions.assign_task_process_version(
-            task,
-            reassign_for_scope_change='task_type' in changed_fields,
-        )
         field_changes = audit_service.diff_field_snapshots(
             before_snapshot,
             audit_service.snapshot_fields(task, changed_fields),
@@ -1737,6 +1679,17 @@ class TaskViewSet(viewsets.ModelViewSet):
                             {'detail': 'Нельзя приостанавливать чужую задачу.'},
                         )
                     _pause_task_instance(task, actor=request.user)
+                    audit_service.log_event(
+                        entity=task,
+                        action_code='bulk_paused',
+                        action_label='Массовая пауза задачи',
+                        actor=request.user,
+                        message='Задача приостановлена через массовую операцию.',
+                        metadata={'bulk': True, 'action': 'pause'},
+                        property_obj=task.property,
+                        request_obj=task.request,
+                        deal_obj=task.deal,
+                    )
                 elif action_code == 'complete':
                     if (
                         not request.user.is_admin_or_manager
@@ -1751,8 +1704,31 @@ class TaskViewSet(viewsets.ModelViewSet):
                         actor=request.user,
                         result=result_text,
                     )
+                    audit_service.log_event(
+                        entity=task,
+                        action_code='bulk_completed',
+                        action_label='Массовое завершение задачи',
+                        actor=request.user,
+                        message='Задача завершена через массовую операцию.',
+                        metadata={'bulk': True, 'action': 'complete'},
+                        property_obj=task.property,
+                        request_obj=task.request,
+                        deal_obj=task.deal,
+                    )
                 elif action_code == 'delete':
-                    self.perform_destroy(task)
+                    with transaction.atomic():
+                        audit_service.log_event(
+                            entity=task,
+                            action_code='bulk_deleted',
+                            action_label='Массовое удаление задачи',
+                            actor=request.user,
+                            message='Задача удалена через массовую операцию.',
+                            metadata={'bulk': True, 'action': 'delete'},
+                            property_obj=task.property,
+                            request_obj=task.request,
+                            deal_obj=task.deal,
+                        )
+                        super().perform_destroy(task)
                 else:
                     raise ValidationError({'detail': 'Неизвестное действие.'})
             except ValidationError as exc:
@@ -1780,6 +1756,12 @@ class TaskViewSet(viewsets.ModelViewSet):
     def change_status(self, request, pk=None):
         """Смена статуса задачи."""
         task = self.get_object()
+        if (task.assignee_id != request.user.id
+                and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя менять статус чужой задачи.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         status_id = request.data.get('status_id')
         if not status_id:
             return Response({'detail': 'Не указан статус.'},
@@ -2051,20 +2033,16 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         'actor', 'property', 'request', 'task', 'deal',
     ).all()
     serializer_class = serializers.AuditLogSerializer
-    permission_classes = [IsAuthenticated]
+    # Клиентам аудит-лог не показываем: даже фильтрация "только своё"
+    # всё равно раскрывает структуру и метаданные внутренних процессов.
+    permission_classes = [IsEmployee]
 
     def get_queryset(self):
         qs = super().get_queryset()
         params = self.request.query_params
         user = self.request.user
 
-        if user.is_authenticated and user.is_client:
-            qs = qs.filter(
-                Q(request__client=user)
-                | Q(deal__client=user)
-                | Q(task__client=user)
-            )
-        elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+        if user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
             qs = qs.filter(
                 Q(property__isnull=False)
                 | Q(request__agent=user)
@@ -2127,7 +2105,7 @@ class DashboardStatsView(APIView):
 
 
 class PropertyExportView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsEmployee]
 
     def get(self, request):
         queryset = models.Property.objects.select_related(

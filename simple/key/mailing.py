@@ -11,7 +11,6 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.db import connection, transaction
 from django.db.models import Q
-from django.template import Context, Template
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -31,26 +30,7 @@ EMAIL_CLAIM_TIMEOUT = timedelta(minutes=15)
 
 
 def _render(template: str, ctx: dict[str, Any]) -> tuple[str, str, str]:
-    """Возвращает (subject, text, html) из шаблонов emails/<template>/*."""
-    configured = (
-        models.NotificationTemplate.objects
-        .filter(code=template, is_active=True)
-        .only(
-            'subject_template',
-            'body_template',
-            'html_template',
-        )
-        .first()
-    )
-    if configured is not None:
-        context = Context(ctx)
-        subject = Template(configured.subject_template).render(context).strip()
-        text = Template(configured.body_template).render(context)
-        html = ''
-        if configured.html_template:
-            html = Template(configured.html_template).render(context)
-        return subject, text, html
-
+    """Возвращает (subject, text, html) из статических шаблонов emails/<template>/*."""
     base = f'emails/{template}'
     subject = render_to_string(f'{base}/subject.txt', ctx).strip()
     text = render_to_string(f'{base}/body.txt', ctx)
@@ -161,7 +141,6 @@ def _is_retryable_smtp_error(exc: Exception) -> bool:
 def _audit_context(
     *,
     trigger_code: str,
-    template_code: str,
     request: models.Request | None,
     task: models.Task | None,
     property_obj: models.Property | None,
@@ -169,7 +148,6 @@ def _audit_context(
     """Единая структура аудита отправки, сохраняемая в OutgoingEmail.context."""
     return {
         'trigger_code': trigger_code,
-        'template_code': template_code,
         'request_id': getattr(request, 'pk', None),
         'task_id': getattr(task, 'pk', None),
         'property_id': getattr(property_obj, 'pk', None),
@@ -405,11 +383,9 @@ def _enqueue_by_template(
         subject=subject,
         body=text,
         html_body=html,
-        template_code=template,
         trigger_code=trigger_code,
         context=_audit_context(
             trigger_code=trigger_code,
-            template_code=template,
             request=request,
             task=task,
             property_obj=property_obj,
@@ -420,8 +396,8 @@ def _enqueue_by_template(
         status='pending',
     )
     log.info(
-        'Email queued: trigger=%s template=%s recipient=%s request=%s task=%s property=%s',
-        trigger_code, template, recipient.pk, getattr(request, 'pk', None),
+        'Email queued: trigger=%s recipient=%s request=%s task=%s property=%s',
+        trigger_code, recipient.pk, getattr(request, 'pk', None),
         getattr(task, 'pk', None), getattr(property_obj, 'pk', None),
     )
     return email
@@ -494,9 +470,9 @@ def enqueue_task_assigned(*, task: models.Task) -> models.OutgoingEmail | None:
         'request': task.request,
         'property': task.property,
     }
-    template_code = _task_template_by_type(task.task_type)
+    template_key = _task_template_by_type(task.task_type)
     return _enqueue_by_template(
-        template=template_code,
+        template=template_key,
         trigger_code='task_assigned',
         context=ctx,
         recipient=assignee,
@@ -521,6 +497,6 @@ def resend(email: models.OutgoingEmail) -> None:
         processing_started_at=None,
     )
     log.info(
-        'Email re-queued: id=%s trigger=%s template=%s',
-        email.pk, email.trigger_code, email.template_code,
+        'Email re-queued: id=%s trigger=%s',
+        email.pk, email.trigger_code,
     )

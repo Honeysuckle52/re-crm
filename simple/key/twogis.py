@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any
 
 import requests
 from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,7 @@ class TwoGisClient:
             'lat': lat,
             'lon': lon,
             'org_id': org_id,
+            'rubric_name': rubric_name,
             'photos': photos,
         }
 
@@ -120,3 +123,75 @@ class TwoGisClient:
             f'{_STATIC_MAP_URL}?{base}&zoom=16',  # квартал — видна улица
             f'{_STATIC_MAP_URL}?{base}&zoom=15',  # обзор района
         ]
+
+
+def apply_property_enrichment(
+    property_obj,
+    info: dict[str, Any] | None,
+    *,
+    add_photos: bool = True,
+) -> int:
+    """Apply 2GIS payload to a property and persist the result."""
+    from .models import PropertyPhoto
+
+    if not info:
+        return 0
+
+    update_fields: list[str] = []
+
+    def set_if_changed(attr: str, value):
+        if value is None:
+            return
+        if getattr(property_obj, attr) != value:
+            setattr(property_obj, attr, value)
+            update_fields.append(attr)
+
+    set_if_changed('twogis_org_id', (info.get('org_id') or '').strip() or None)
+    set_if_changed('twogis_name', (info.get('name') or '').strip() or None)
+    set_if_changed('twogis_address_full', (info.get('address_full') or '').strip() or None)
+    set_if_changed('twogis_rubric', (info.get('rubric_name') or '').strip() or None)
+
+    lat = info.get('lat')
+    lon = info.get('lon')
+    if lat is not None:
+        lat_value = Decimal(str(lat))
+        if property_obj.coordinates_lat != lat_value:
+            property_obj.coordinates_lat = lat_value
+            update_fields.append('coordinates_lat')
+    if lon is not None:
+        lon_value = Decimal(str(lon))
+        if property_obj.coordinates_lon != lon_value:
+            property_obj.coordinates_lon = lon_value
+            update_fields.append('coordinates_lon')
+
+    twogis_desc = (info.get('description') or '').strip()
+    if twogis_desc:
+        existing_description = (property_obj.description or '').strip()
+        if not existing_description:
+            property_obj.description = twogis_desc
+            update_fields.append('description')
+        elif not existing_description.startswith(twogis_desc):
+            property_obj.description = f'{twogis_desc}\n\n{existing_description}'
+            update_fields.append('description')
+
+    set_if_changed('twogis_synced_at', timezone.now())
+
+    if update_fields:
+        property_obj.save(update_fields=list(dict.fromkeys(update_fields)))
+
+    if not add_photos or PropertyPhoto.objects.filter(property=property_obj).exists():
+        return 0
+
+    photo_urls: list[str] = info.get('photos') or []
+    if not photo_urls:
+        return 0
+
+    for order, url in enumerate(photo_urls):
+        PropertyPhoto.objects.create(
+            property=property_obj,
+            url=url,
+            caption='2GIS',
+            is_cover=(order == 0),
+            order=order,
+        )
+    return len(photo_urls)

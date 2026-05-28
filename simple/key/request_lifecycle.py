@@ -10,7 +10,6 @@ from rest_framework.exceptions import ValidationError
 
 from . import audit as audit_service
 from . import business_rules, models
-from . import process_versions
 from .deals_service import create_deal_from_request
 from .mailing import (
     enqueue_property_matched,
@@ -139,7 +138,6 @@ def _ensure_contact_task(
         request=request_obj,
         due_date=timezone.now() + timedelta(hours=24),
     )
-    process_versions.assign_task_process_version(task)
     return task, True
 
 
@@ -198,7 +196,6 @@ def sync_request_assignment(
                 'task_type': contact_task.task_type,
                 'request_id': req.pk,
                 'auto_created': True,
-                'process_version_id': contact_task.process_version_id,
             },
             property_obj=req.property,
             request_obj=req,
@@ -233,7 +230,6 @@ def create_request_from_serializer(
             extra['status'] = processing
 
     request_obj = serializer.save(**extra)
-    process_versions.assign_request_process_version(request_obj)
     audit_service.log_event(
         entity=request_obj,
         action_code='created',
@@ -244,7 +240,6 @@ def create_request_from_serializer(
             'client_id': request_obj.client_id,
             'agent_id': request_obj.agent_id,
             'status_code': request_obj.status_code,
-            'process_version_id': request_obj.process_version_id,
         },
         property_obj=request_obj.property,
     )

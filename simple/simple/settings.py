@@ -99,7 +99,6 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
-GAR_ROOT = Path(os.getenv('GAR_ROOT', BASE_DIR.parent / 'GAR'))
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

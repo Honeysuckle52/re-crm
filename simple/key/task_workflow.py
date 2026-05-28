@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from rest_framework.exceptions import ValidationError
 
 from . import models
-from . import process_versions
 
-MATCH_TASK_TYPES = process_versions.MATCH_TASK_TYPES
+MATCH_TASK_TYPES = {'property_search', 'showing'}
 
 CONTACT_STEP = 'contact'
 REQUEST_STEP = 'request'
@@ -44,10 +43,56 @@ def _schema_step_to_spec(step: dict) -> WorkflowStepSpec:
     )
 
 
+TASK_DEFAULT_SCHEMA = [
+    {
+        'id': CONTACT_STEP,
+        'label': 'Контакт с клиентом',
+        'outcomes': [
+            {'code': 'called', 'label': 'позвонил'},
+            {'code': 'messaged', 'label': 'написал'},
+            {'code': 'missed', 'label': 'не дозвонился'},
+        ],
+    },
+    {
+        'id': REQUEST_STEP,
+        'label': 'Заявка',
+        'outcomes': [
+            {'code': 'created', 'label': 'создана новая заявка'},
+            {'code': 'linked', 'label': 'связана с существующей заявкой'},
+            {'code': 'exists', 'label': 'использована активная заявка клиента'},
+        ],
+    },
+    {
+        'id': COMPLETE_STEP,
+        'label': 'Завершение',
+        'outcomes': [],
+    },
+]
+
+TASK_MATCH_SCHEMA = [
+    TASK_DEFAULT_SCHEMA[0],
+    TASK_DEFAULT_SCHEMA[1],
+    {
+        'id': MATCH_STEP,
+        'label': 'Подбор/выполнение',
+        'outcomes': [
+            {'code': 'proposed', 'label': 'предложил варианты'},
+            {'code': 'showing_scheduled', 'label': 'назначил показ'},
+            {'code': 'confirmed', 'label': 'клиент подтвердил вариант'},
+        ],
+    },
+    TASK_DEFAULT_SCHEMA[2],
+]
+
+
+def _schema_for_task(task: models.Task) -> list[dict]:
+    return TASK_MATCH_SCHEMA if task.task_type in MATCH_TASK_TYPES else TASK_DEFAULT_SCHEMA
+
+
 def _step_specs_for_task(task: models.Task) -> tuple[WorkflowStepSpec, ...]:
     return tuple(
         _schema_step_to_spec(step)
-        for step in process_versions.task_schema(task)
+        for step in _schema_for_task(task)
         if step.get('id')
     )
 

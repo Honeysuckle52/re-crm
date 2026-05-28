@@ -89,11 +89,6 @@
           <input class="input" type="number" step="0.01"
                  v-model.number="form.area_total" />
         </div>
-        <div class="field">
-          <label>Жилая площадь, м²</label>
-          <input class="input" type="number" step="0.01"
-                 v-model.number="form.area_living" />
-        </div>
       </div>
 
       <div class="surface-head property-form__section-head">
@@ -237,7 +232,7 @@ function defaultForm() {
     title: '', operation_type: 1, status: 1,
     address: null,
     price: null, price_per_sqm: null,
-    area_total: null, area_living: null, area_kitchen: null,
+    area_total: null,
     rooms_count: null, floor_number: null, total_floors: null,
     description: '',
     feature_ids: [],
@@ -439,8 +434,6 @@ async function submit() {
       price: form.price,
       price_per_sqm: form.price_per_sqm,
       area_total: form.area_total,
-      area_living: form.area_living,
-      area_kitchen: form.area_kitchen,
       rooms_count: form.rooms_count,
       floor_number: form.floor_number,
       total_floors: form.total_floors,
@@ -501,8 +494,6 @@ onMounted(async () => {
       price: data.price,
       price_per_sqm: data.price_per_sqm,
       area_total: data.area_total,
-      area_living: data.area_living,
-      area_kitchen: data.area_kitchen,
       rooms_count: data.rooms_count,
       floor_number: data.floor_number,
       total_floors: data.total_floors,

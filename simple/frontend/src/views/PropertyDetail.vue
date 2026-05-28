@@ -182,8 +182,6 @@
           <InfoRow label="Стоимость за м²"  :value="property.price_per_sqm
                                                   ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
           <InfoRow label="Общая площадь"    :value="property.area_total ? property.area_total + ' м²' : '—'" />
-          <InfoRow label="Жилая площадь"    :value="property.area_living ? property.area_living + ' м²' : '—'" />
-          <InfoRow label="Площадь кухни"    :value="property.area_kitchen ? property.area_kitchen + ' м²' : '—'" />
           <InfoRow label="Количество комнат":value="property.rooms_count || '—'" />
           <InfoRow label="Этаж / всего"     :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
           <InfoRow label="Статус"           :value="property.status_name" />

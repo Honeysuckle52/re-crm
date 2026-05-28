@@ -16,8 +16,6 @@ router.register('property-statuses', views.PropertyStatusViewSet)
 router.register('request-statuses', views.RequestStatusViewSet)
 router.register('deal-statuses', views.DealStatusViewSet)
 router.register('task-statuses', views.TaskStatusViewSet)
-router.register('notification-templates', views.NotificationTemplateViewSet)
-router.register('process-versions', views.ProcessVersionViewSet)
 router.register('user-roles', views.UserRoleViewSet)
 
 router.register('cities', views.CityViewSet)
