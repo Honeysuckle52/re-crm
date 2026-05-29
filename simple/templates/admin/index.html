@@ -9,13 +9,13 @@
 <div id="content-main" class="crm-dash crm-admin-dashboard">
   <section class="crm-admin-pagehead" aria-labelledby="crm-admin-dashboard-title">
     <div>
-      <div class="crm-admin-pagehead__eyebrow">Django Admin</div>
-      <h1 id="crm-admin-dashboard-title" class="crm-admin-pagehead__title">Системная админ-панель</h1>
-      <p class="crm-admin-pagehead__text">Разделы управления открываются справа от фиксированной навигации. Интерфейс оставлен близким к стандартной Django Admin, но приведён к единому стилю CRM.</p>
+      <div class="crm-admin-pagehead__eyebrow">Администрирование</div>
+      <h1 id="crm-admin-dashboard-title" class="crm-admin-pagehead__title">Системная панель</h1>
+      <p class="crm-admin-pagehead__text">Разделы управления открываются справа от фиксированной навигации. Интерфейс приведён к единому стилю CRM и остаётся предсказуемым для повседневной работы.</p>
     </div>
   </section>
 
-  <section class="crm-dash-models" aria-label="Разделы админ-панели">
+  <section class="crm-dash-models" aria-label="Разделы системной панели">
     {% if app_list %}
       {% for app in app_list %}
         <div class="crm-app-block app-{{ app.app_label }}">
@@ -50,7 +50,7 @@
         </div>
       {% endfor %}
     {% else %}
-      <div class="crm-empty">У вас нет доступных разделов админ-панели.</div>
+      <div class="crm-empty">У вас нет доступных разделов системной панели.</div>
     {% endif %}
   </section>
 </div>

@@ -6,7 +6,7 @@
           <div class="hero__eyebrow">Администрирование</div>
           <h1 class="h2 admin-hero__title">Рабочий центр управления</h1>
           <div class="admin-hero__text">
-            Все системные настройки, справочники и журнал действий перенесены в Django admin.
+            Все системные настройки, справочники и журнал действий перенесены в системную панель.
             Здесь остаются быстрые переходы к CRM-разделам и точка входа в системную панель.
           </div>
         </div>
@@ -23,17 +23,18 @@
         <div class="surface-head admin-section-head">
           <div>
             <div class="surface-head__meta">Системная панель</div>
-            <h2 class="h2">Открыть Django admin</h2>
+            <h2 class="h2">Открыть системную панель</h2>
           </div>
           <span class="surface-head__caption">только для администратора</span>
         </div>
         <p class="muted admin-panel__text">
-          В Django admin теперь находятся справочники, модели сотрудников, аудит и все
-          системные операции, которые должны жить в единой админской консоли.
+          В системной панели теперь находятся справочники, модели сотрудников, аудит и все
+          системные операции, которые должны жить в единой административной панели.
         </p>
         <div class="row admin-panel__actions" style="gap: 8px; flex-wrap: wrap">
-          <a href="/admin/" class="btn btn--primary">Перейти в Django admin</a>
+          <a href="/admin/" class="btn btn--primary">Перейти в системную панель</a>
           <router-link to="/reports" class="btn">Открыть отчёты</router-link>
+          <a href="/admin/backups/" class="btn">Резервное копирование БД</a>
         </div>
       </div>
 
@@ -60,7 +61,7 @@
       <div class="surface-head admin-section-head">
         <div>
           <div class="surface-head__meta">Подсказка</div>
-          <h2 class="h2">Что искать в Django admin</h2>
+          <h2 class="h2">Что искать в системной панели</h2>
         </div>
       </div>
       <div class="dashboard__tips">

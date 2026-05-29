@@ -1,10 +1,12 @@
-"""Регистрация моделей и настройка Django admin."""
+"""Регистрация моделей и настройка панели администрирования."""
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
 from django.urls import path
 
-from . import mailing, models, reports
+from . import db_backups, mailing, models, reports
 
 
 def _crm_admin_has_permission(request):
@@ -21,9 +23,9 @@ def _crm_admin_has_permission(request):
 
 
 admin.site.has_permission = _crm_admin_has_permission
-admin.site.site_header = 'РИЭЛТ · Django Admin'
-admin.site.site_title = 'РИЭЛТ Admin'
-admin.site.index_title = 'Системное администрирование'
+admin.site.site_header = 'РИЭЛТ · Панель администрирования'
+admin.site.site_title = 'РИЭЛТ · Системная панель'
+admin.site.index_title = 'Панель управления системой'
 
 
 def _admin_query_string(query_dict, **updates):
@@ -55,6 +57,26 @@ def _build_admin_report_context(request):
         ordering_options = reports.DEALS_REPORT.ordering_options
 
     return report_type, payload, status_options, ordering_options
+
+
+def _build_admin_backup_context(request):
+    overview = db_backups.get_database_backup_overview()
+    backup_history = models.DatabaseBackup.objects.select_related('created_by')[:20]
+    summary_items = [
+        ('СУБД', overview.engine_label),
+        ('База данных', overview.database_name),
+        ('Подключение', overview.location_label),
+        ('Формат', overview.format_label),
+    ]
+    return {
+        **admin.site.each_context(request),
+        'title': 'Резервное копирование БД',
+        'summary_items': summary_items,
+        'backup_available': overview.available,
+        'backup_unavailable_reason': overview.unavailable_reason,
+        'backup_tool_label': overview.tool_label,
+        'backup_history': backup_history,
+    }
 
 
 def _admin_reports_view(request):
@@ -123,10 +145,52 @@ def _admin_reports_view(request):
     return TemplateResponse(request, 'admin/reports.html', context)
 
 
+def _admin_backups_view(request):
+    if request.method == 'POST':
+        try:
+            backup_bytes, filename = db_backups.build_full_database_backup()
+            db_backups.create_database_backup_record(
+                backup_bytes=backup_bytes,
+                filename=filename,
+                created_by=request.user,
+            )
+        except db_backups.DatabaseBackupError as exc:
+            messages.error(request, str(exc))
+        else:
+            response = HttpResponse(
+                backup_bytes,
+                content_type='application/octet-stream',
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
+
+    return TemplateResponse(
+        request,
+        'admin/backups.html',
+        _build_admin_backup_context(request),
+    )
+
+
+def _admin_backup_download_view(request, backup_id):
+    backup = get_object_or_404(models.DatabaseBackup, pk=backup_id)
+    if not backup.file:
+        raise Http404('Файл резервной копии не найден.')
+    try:
+        handle = backup.file.open('rb')
+    except FileNotFoundError as exc:
+        raise Http404('Файл резервной копии отсутствует на диске.') from exc
+    return FileResponse(
+        handle,
+        as_attachment=True,
+        filename=backup.filename,
+        content_type='application/octet-stream',
+    )
+
+
 def _admin_dashboard_view(request):
     return admin.site.index(
         request,
-        extra_context={'title': 'Системная админ-панель'},
+        extra_context={'title': 'Системная панель'},
     )
 
 
@@ -146,6 +210,16 @@ def _crm_admin_get_urls():
             admin.site.admin_view(_admin_reports_view),
             name='crm_reports',
         ),
+        path(
+            'backups/',
+            admin.site.admin_view(_admin_backups_view),
+            name='crm_backups',
+        ),
+        path(
+            'backups/<int:backup_id>/download/',
+            admin.site.admin_view(_admin_backup_download_view),
+            name='crm_backup_download',
+        ),
     ]
     return custom_urls + admin.site._crm_original_get_urls()
 
@@ -154,7 +228,7 @@ admin.site.get_urls = _crm_admin_get_urls
 
 
 class CrmAdminPermissionsMixin:
-    """Разрешает полный доступ в Django admin пользователям с ролью admin."""
+    """Разрешает полный доступ в панели пользователям с ролью администратора."""
 
     list_per_page = 40
     list_max_show_all = 200
@@ -258,9 +332,27 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
     ordering = ('-created_at',)
     list_select_related = ('role',)
     fieldsets = (
-        (None, {'fields': ('username', 'password')}),
-        ('Контакты', {'fields': ('email', 'phone')}),
-        ('Тип и роль', {'fields': ('user_type', 'role')}),
+        (
+            'Учётная запись',
+            {
+                'fields': ('username', 'password'),
+                'description': 'Логин и пароль пользователя. Пароль хранится только в зашифрованном виде.',
+            },
+        ),
+        (
+            'Контакты',
+            {
+                'fields': ('email', 'phone'),
+                'description': 'Email обязателен и должен быть уникальным. Телефон можно оставить пустым.',
+            },
+        ),
+        (
+            'Тип и роль',
+            {
+                'fields': ('user_type', 'role'),
+                'description': 'Роль назначается сотрудникам. Клиенты не должны иметь административные роли.',
+            },
+        ),
         ('Подтверждение', {'fields': ('is_email_verified', 'is_phone_verified')}),
         (
             'Права',
@@ -271,6 +363,10 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
                     'is_superuser',
                     'groups',
                     'user_permissions',
+                ),
+                'description': (
+                    'Доступ в панель администрирования разрешён только '
+                    'staff/superuser или пользователям с ролью администратора.'
                 ),
             },
         ),
@@ -374,6 +470,47 @@ class PropertyAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
     inlines = [PropertyPhotoInline, PropertyFeatureValueInline]
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        (
+            'Основная информация',
+            {
+                'fields': ('title', 'operation_type', 'status', 'address'),
+                'description': 'Базовые данные объекта и текущий статус публикации.',
+            },
+        ),
+        (
+            'Цена и параметры',
+            {
+                'fields': (
+                    'price',
+                    'price_per_sqm',
+                    'area_total',
+                    'rooms_count',
+                    'floor_number',
+                    'total_floors',
+                ),
+                'description': 'Числовые значения проходят серверную проверку: цена и площади не могут быть отрицательными.',
+            },
+        ),
+        (
+            'Геоданные и 2ГИС',
+            {
+                'classes': ('collapse',),
+                'fields': (
+                    'coordinates_lat',
+                    'coordinates_lon',
+                    'twogis_org_id',
+                    'twogis_name',
+                    'twogis_address_full',
+                    'twogis_rubric',
+                    'twogis_synced_at',
+                ),
+            },
+        ),
+        ('Описание', {'fields': ('description',)}),
+        ('Служебные даты', {'classes': ('collapse',), 'fields': ('created_at', 'updated_at')}),
+    )
 
 
 @admin.register(models.Request)
@@ -393,6 +530,25 @@ class RequestAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
     autocomplete_fields = ('client', 'agent', 'property')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        (
+            'Участники и статус',
+            {
+                'fields': ('client', 'agent', 'property', 'operation_type', 'status'),
+                'description': 'Клиент обязателен. Агент и конкретный объект могут быть назначены позже.',
+            },
+        ),
+        (
+            'Параметры подбора',
+            {
+                'fields': ('property_type', 'min_price', 'max_price', 'min_area', 'max_area', 'rooms_count'),
+                'description': 'Минимальные значения не должны превышать максимальные.',
+            },
+        ),
+        ('Пожелания клиента', {'fields': ('address_preferences', 'description')}),
+        ('Даты', {'fields': ('created_at', 'updated_at', 'closed_at')}),
+    )
 
 
 @admin.register(models.Deal)
@@ -413,6 +569,42 @@ class DealAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     date_hierarchy = 'deal_date'
     ordering = ('-deal_date', '-id')
     autocomplete_fields = ('property', 'client', 'agent', 'request')
+    readonly_fields = (
+        'contract_requested_at',
+        'contract_processing_started_at',
+        'contract_generated_at',
+    )
+    fieldsets = (
+        (
+            'Сделка',
+            {
+                'fields': ('deal_number', 'property', 'request', 'operation_type', 'status', 'deal_date'),
+                'description': 'Номер сделки уникален. Связанная заявка может быть только одна.',
+            },
+        ),
+        ('Участники', {'fields': ('client', 'agent')}),
+        (
+            'Финансы',
+            {
+                'fields': ('price_final', 'commission_percent', 'commission_amount'),
+                'description': 'Цена и комиссия проверяются на отрицательные значения и допустимые проценты.',
+            },
+        ),
+        (
+            'Договор',
+            {
+                'fields': (
+                    'contract_status',
+                    'contract_file',
+                    'contract_error_message',
+                    'contract_requested_at',
+                    'contract_processing_started_at',
+                    'contract_generated_at',
+                ),
+            },
+        ),
+        ('Заметки', {'fields': ('notes',)}),
+    )
 
 
 @admin.register(models.Task)
@@ -433,6 +625,27 @@ class TaskAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
     autocomplete_fields = ('assignee', 'created_by', 'client', 'property', 'request', 'deal')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        (
+            'Задача',
+            {
+                'fields': ('title', 'description', 'task_type', 'priority', 'status'),
+                'description': 'Название обязательно. Тип и приоритет задают сценарий работы сотрудника.',
+            },
+        ),
+        ('Ответственные', {'fields': ('assignee', 'created_by')}),
+        (
+            'Связи CRM',
+            {
+                'fields': ('client', 'property', 'request', 'deal'),
+                'description': 'Задачу можно связать с клиентом, объектом, заявкой или сделкой.',
+            },
+        ),
+        ('Сроки и результат', {'fields': ('due_date', 'completed_at', 'result', 'is_auto_closed')}),
+        ('Журнал этапов', {'classes': ('collapse',), 'fields': ('steps_log',)}),
+        ('Служебные даты', {'classes': ('collapse',), 'fields': ('created_at', 'updated_at')}),
+    )
 
 
 @admin.register(models.PropertyStatusHistory)

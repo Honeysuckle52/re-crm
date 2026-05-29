@@ -3809,6 +3809,15 @@ class BulkOperationsApiTests(TestCase):
 
 class DjangoAdminAccessTests(TestCase):
     def setUp(self):
+        temp_root = Path(settings.BASE_DIR) / '.tmp-admin-backups'
+        temp_root.mkdir(parents=True, exist_ok=True)
+        self.temp_path = temp_root / f'backups-{uuid4().hex}'
+        self.temp_path.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(lambda: shutil.rmtree(self.temp_path, ignore_errors=True))
+        self.override = override_settings(DATABASE_BACKUP_ROOT=self.temp_path / 'backups')
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+
         self.admin_role = models.UserRole.objects.create(
             code='admin',
             name='Администратор',
@@ -3844,14 +3853,73 @@ class DjangoAdminAccessTests(TestCase):
         self.assertEqual(index_response.status_code, 200)
         self.assertEqual(users_response.status_code, 200)
 
+    def test_admin_index_uses_russian_navigation_and_backup_entry(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get('/admin/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Системная панель')
+        self.assertContains(response, 'Резервное копирование БД')
+        self.assertNotContains(response, 'Дашборд')
+        self.assertNotContains(response, 'Django Admin')
+
+    def test_admin_role_user_can_open_database_backup_page(self):
+        self.client.force_login(self.admin_user)
+
+        response = self.client.get('/admin/backups/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Резервное копирование БД')
+        self.assertContains(response, 'Полный резервный снимок')
+        self.assertContains(response, 'История резервных копий')
+
+    @patch('key.admin.db_backups.build_full_database_backup')
+    @patch('key.admin.db_backups.create_database_backup_record')
+    def test_admin_backup_download_returns_generated_file(self, create_record_mock, build_backup_mock):
+        self.client.force_login(self.admin_user)
+        build_backup_mock.return_value = (b'backup-bytes', 're-crm.dump')
+
+        response = self.client.post('/admin/backups/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/octet-stream')
+        self.assertEqual(
+            response['Content-Disposition'],
+            'attachment; filename="re-crm.dump"',
+        )
+        self.assertEqual(response.content, b'backup-bytes')
+        create_record_mock.assert_called_once()
+
+    @patch('key.admin.db_backups.build_full_database_backup')
+    def test_admin_backup_history_file_is_downloadable(self, build_backup_mock):
+        self.client.force_login(self.admin_user)
+        build_backup_mock.return_value = (b'backup-bytes', 're-crm.dump')
+
+        response = self.client.post('/admin/backups/')
+        self.assertEqual(response.status_code, 200)
+
+        backup = models.DatabaseBackup.objects.latest('id')
+        history_response = self.client.get(f'/admin/backups/{backup.pk}/download/')
+
+        self.assertEqual(history_response.status_code, 200)
+        self.assertEqual(history_response['Content-Type'], 'application/octet-stream')
+        self.assertEqual(b''.join(history_response.streaming_content), b'backup-bytes')
+        self.assertEqual(
+            history_response['Content-Disposition'],
+            f'attachment; filename="{backup.filename}"',
+        )
+
     def test_manager_role_user_is_blocked_from_django_admin(self):
         self.client.force_login(self.manager_user)
 
         index_response = self.client.get('/admin/')
         users_response = self.client.get('/admin/key/user/')
+        backups_response = self.client.get('/admin/backups/')
 
         self.assertEqual(index_response.status_code, 302)
         self.assertEqual(users_response.status_code, 302)
+        self.assertEqual(backups_response.status_code, 302)
 
 
 class SeedDataCommandTests(TestCase):

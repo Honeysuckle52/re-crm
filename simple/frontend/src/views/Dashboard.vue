@@ -17,7 +17,7 @@
           Каталог объектов
         </router-link>
         <a v-if="auth.isManager" :href="adminPanelHref" class="btn btn--primary">
-          Админ-панель
+          Системная панель
         </a>
       </div>
       <div class="hero__callout">

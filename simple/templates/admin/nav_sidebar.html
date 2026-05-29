@@ -3,13 +3,17 @@
 <nav class="sticky" id="nav-sidebar" aria-label="{% translate 'Sidebar' %}">
   <div class="crm-sidebar-top">
     <div class="crm-sidebar-top__label">Навигация</div>
-    <a class="crm-sidebar-link{% if request.resolver_match.url_name == 'index' or request.resolver_match.url_name == 'crm_dashboard' %} is-active{% endif %}" href="{% url 'admin:crm_dashboard' %}">
+    <a class="crm-sidebar-link{% if request.resolver_match.url_name == 'index' or request.resolver_match.url_name == 'crm_dashboard' %} is-active{% endif %}" href="{% url 'admin:index' %}">
       <span class="crm-sidebar-link__dot"></span>
-      <span>Дашборд</span>
+      <span>Панель</span>
     </a>
     <a class="crm-sidebar-link{% if request.resolver_match.url_name == 'crm_reports' %} is-active{% endif %}" href="{% url 'admin:crm_reports' %}">
       <span class="crm-sidebar-link__dot"></span>
       <span>Отчёты</span>
+    </a>
+    <a class="crm-sidebar-link{% if request.resolver_match.url_name == 'crm_backups' %} is-active{% endif %}" href="{% url 'admin:crm_backups' %}">
+      <span class="crm-sidebar-link__dot"></span>
+      <span>Резервное копирование БД</span>
     </a>
   </div>
 

@@ -1,0 +1,131 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Главная</a> &rsaquo; Резервное копирование БД
+  </div>
+{% endblock %}
+{% block content_title %}{% endblock %}
+{% block bodyclass %}{{ block.super }} crm-backups-page{% endblock %}
+
+{% block content %}
+<div id="content-main" class="crm-report-shell">
+  <div class="crm-dash-title">
+    <h1 class="crm-dash-title__h">Резервное копирование БД</h1>
+  </div>
+
+  <section class="crm-report-hero">
+    <div class="crm-report-hero__copy">
+      <div class="crm-report-hero__eyebrow">Надёжность</div>
+      <h2>Полный резервный снимок</h2>
+      <p>Файл формируется средствами PostgreSQL по текущему подключению, сохраняется в истории и сразу отдается на скачивание.</p>
+    </div>
+    <div class="crm-report-tabs" role="list" aria-label="Тип резервной копии">
+      <span class="crm-report-tabs__link is-active">Полный снимок</span>
+    </div>
+  </section>
+
+  <section class="crm-report-panel">
+    <div class="crm-report-panel__head crm-report-panel__head--row">
+      <div>
+        <h3>Сформировать резервную копию</h3>
+        <div class="crm-report-panel__meta">Используется утилита {{ backup_tool_label }}. Файл сохраняется в журнале и подходит для полного восстановления базы через PostgreSQL.</div>
+      </div>
+      <form method="post" class="crm-backup-action">
+        {% csrf_token %}
+        <button type="submit" class="button default" {% if not backup_available %}disabled{% endif %}>
+          Создать и скачать снимок
+        </button>
+      </form>
+    </div>
+
+    {% if not backup_available %}
+      <div class="crm-report-empty">{{ backup_unavailable_reason }}</div>
+    {% endif %}
+
+    <div class="crm-report-kpis">
+      {% for label, value in summary_items %}
+        <article class="crm-report-kpi">
+          <div class="crm-report-kpi__label">{{ label }}</div>
+          <div class="crm-report-kpi__value">{{ value }}</div>
+        </article>
+      {% endfor %}
+    </div>
+
+    <div class="crm-backup-history">
+      <div class="crm-report-panel__head">
+        <h3>История резервных копий</h3>
+        <div class="crm-report-panel__meta">Последние сохранённые файлы с журналом, кто и когда их создавал.</div>
+      </div>
+
+      {% if backup_history %}
+        <div class="crm-report-table-wrap">
+          <table class="crm-report-table crm-backup-table">
+            <thead>
+              <tr>
+                <th>Файл</th>
+                <th>Создал</th>
+                <th>Дата</th>
+                <th>Размер</th>
+                <th>Действие</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for backup in backup_history %}
+                <tr>
+                  <td>
+                    <strong>{{ backup.filename }}</strong>
+                    <div class="crm-backup-muted">{{ backup.engine_label }} · {{ backup.database_name }}</div>
+                  </td>
+                  <td>{{ backup.created_by|default:"Системно" }}</td>
+                  <td>{{ backup.created_at|date:"d.m.Y H:i" }}</td>
+                  <td>{{ backup.size_bytes|filesizeformat }}</td>
+                  <td>
+                    <a class="crm-row-btn crm-row-btn--edit" href="{% url 'admin:crm_backup_download' backup.id %}">
+                      Скачать
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="crm-report-empty">Сохранённых резервных копий пока нет.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="crm-report-panel">
+    <div class="crm-report-panel__head">
+      <h3>Что входит в файл</h3>
+      <div class="crm-report-panel__meta">Карточка оформлена в том же контуре, что и отчёты: без лишних действий, с понятным составом результата.</div>
+    </div>
+
+    <div class="crm-report-kpis">
+      <article class="crm-report-kpi">
+        <div class="crm-report-kpi__label">Структура</div>
+        <div class="crm-backup-copy">Таблицы, последовательности, схемы и служебные объекты базы.</div>
+      </article>
+      <article class="crm-report-kpi">
+        <div class="crm-report-kpi__label">Данные</div>
+        <div class="crm-backup-copy">Все записи из рабочих таблиц, включая связанные сущности CRM.</div>
+      </article>
+      <article class="crm-report-kpi">
+        <div class="crm-report-kpi__label">Формат</div>
+        <div class="crm-backup-copy">Сжатый файл <code>.dump</code> для восстановления через <code>pg_restore</code>.</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="crm-report-panel">
+    <div class="crm-report-panel__head">
+      <h3>На что обратить внимание</h3>
+      <div class="crm-report-panel__meta">Если кнопка неактивна, на сервере не хватает утилиты <code>pg_dump</code> или используется неподдерживаемая СУБД.</div>
+    </div>
+    <div class="crm-report-empty">
+      Для стабильной эксплуатации стоит хранить скачанные снимки вне рабочей машины и периодически проверять тестовое восстановление.
+    </div>
+  </section>
+</div>
+{% endblock %}

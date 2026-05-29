@@ -99,6 +99,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+DATABASE_BACKUP_ROOT = Path(
+    os.getenv('DATABASE_BACKUP_ROOT', BASE_DIR / 'private_backups'),
+)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

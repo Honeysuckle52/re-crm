@@ -1,10 +1,37 @@
 """ORM-модели приложения ``key``."""
+from decimal import Decimal
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models
 from django.utils import timezone
 
+from .storage import database_backup_storage
+
 # Поле ``Task.property`` перекрывает builtins.property.
 _property = property
+
+phone_validator = RegexValidator(
+    regex=r'^\+?[0-9][0-9\s().-]{6,19}$',
+    message='Укажите корректный номер телефона.',
+)
+username_validator = RegexValidator(
+    regex=r'^[\w.@+-]+$',
+    message='Логин может содержать только буквы, цифры и символы @/./+/-/_.',
+)
+passport_series_validator = RegexValidator(
+    regex=r'^\d{4}$',
+    message='Серия паспорта должна состоять из 4 цифр.',
+)
+passport_number_validator = RegexValidator(
+    regex=r'^\d{6}$',
+    message='Номер паспорта должен состоять из 6 цифр.',
+)
+passport_code_validator = RegexValidator(
+    regex=r'^\d{3}-\d{3}$',
+    message='Код подразделения должен быть в формате 000-000.',
+)
 
 class OperationType(models.Model):
     """Тип операции с недвижимостью (продажа / аренда)."""
@@ -52,7 +79,7 @@ class DealStatus(models.Model):
     """Статус сделки — стадия воронки продаж."""
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=50)
-    order = models.PositiveSmallIntegerField(default=0)
+    order = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0)])
 
     class Meta:
         db_table = 'deal_statuses'
@@ -68,7 +95,7 @@ class TaskStatus(models.Model):
     """Статус задачи сотрудника."""
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=50)
-    order = models.PositiveSmallIntegerField(default=0)
+    order = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0)])
 
     class Meta:
         db_table = 'task_statuses'
@@ -85,17 +112,44 @@ class UserRole(models.Model):
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=50)
     description = models.TextField(blank=True, null=True)
-    max_active_tasks = models.PositiveSmallIntegerField(default=2)
-    max_in_progress_tasks = models.PositiveSmallIntegerField(default=1)
-    max_active_requests = models.PositiveSmallIntegerField(default=2)
+    max_active_tasks = models.PositiveSmallIntegerField(
+        default=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    max_in_progress_tasks = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    max_active_requests = models.PositiveSmallIntegerField(
+        default=2,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
 
     class Meta:
         db_table = 'user_roles'
         verbose_name = 'Роль пользователя'
         verbose_name_plural = 'Роли пользователей'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(max_active_tasks__gte=0)
+                & models.Q(max_active_tasks__lte=100)
+                & models.Q(max_in_progress_tasks__gte=0)
+                & models.Q(max_in_progress_tasks__lte=100)
+                & models.Q(max_active_requests__gte=0)
+                & models.Q(max_active_requests__lte=100),
+                name='user_role_limits_in_range',
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        if self.max_in_progress_tasks > self.max_active_tasks:
+            raise ValidationError({
+                'max_in_progress_tasks': 'Лимит задач в работе не может быть больше общего лимита активных задач.',
+            })
 
 class City(models.Model):
     """Город / населённый пункт."""
@@ -159,8 +213,16 @@ class Address(models.Model):
     """Полный адрес: дом + квартира/этаж/подъезд."""
     house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='addresses')
     apartment_number = models.CharField(max_length=20, blank=True, null=True)
-    entrance = models.IntegerField(blank=True, null=True)
-    floor = models.IntegerField(blank=True, null=True)
+    entrance = models.IntegerField(
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(99)],
+    )
+    floor = models.IntegerField(
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(-5), MaxValueValidator(300)],
+    )
 
     class Meta:
         db_table = 'addresses'
@@ -169,6 +231,20 @@ class Address(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['house', 'apartment_number'],
                                     name='unique_address'),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(entrance__isnull=True)
+                    | (models.Q(entrance__gte=1) & models.Q(entrance__lte=99))
+                ),
+                name='address_entrance_range',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(floor__isnull=True)
+                    | (models.Q(floor__gte=-5) & models.Q(floor__lte=300))
+                ),
+                name='address_floor_range',
+            ),
         ]
 
     def __str__(self):
@@ -206,9 +282,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         ('client', 'Клиент'),
     ]
 
-    username = models.CharField(max_length=50, unique=True)
+    username = models.CharField(
+        max_length=50,
+        unique=True,
+        validators=[username_validator],
+    )
     email = models.EmailField(max_length=255, unique=True)
-    phone = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    phone = models.CharField(
+        max_length=20,
+        unique=True,
+        blank=True,
+        null=True,
+        validators=[phone_validator],
+    )
 
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES,
                                  default='client')
@@ -235,9 +321,35 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_table = 'users'
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(user_type__in=['employee', 'client']),
+                name='user_type_valid',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.username} ({self.get_user_type_display()})'
+
+    def clean(self):
+        super().clean()
+        if self.email:
+            self.email = User.objects.normalize_email(self.email)
+        if self.phone == '':
+            self.phone = None
+        if self.user_type == 'client' and (self.is_staff or self.is_superuser):
+            raise ValidationError({
+                'user_type': 'Клиент не может иметь доступ к административной панели.',
+                'is_staff': 'Для клиента доступ staff должен быть выключен.',
+            })
+        if self.user_type == 'client' and self.role_id:
+            raise ValidationError({
+                'role': 'Роль назначается только сотрудникам.',
+            })
+        if self.is_staff and self.user_type != 'employee':
+            raise ValidationError({
+                'user_type': 'Доступ в админку разрешён только сотрудникам.',
+            })
 
     @property
     def role_code(self) -> str | None:
@@ -286,6 +398,11 @@ class EmployeeProfile(models.Model):
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
 
+    def clean(self):
+        super().clean()
+        if self.user_id and self.user.user_type != 'employee':
+            raise ValidationError({'user': 'Профиль сотрудника можно привязать только к пользователю типа "Сотрудник".'})
+
 
 class ClientProfile(models.Model):
     """Профиль клиента."""
@@ -296,11 +413,26 @@ class ClientProfile(models.Model):
     middle_name = models.CharField(max_length=50, blank=True, null=True)
     birth_date = models.DateField(blank=True, null=True)
 
-    passport_series = models.CharField(max_length=4, blank=True, null=True)
-    passport_number = models.CharField(max_length=6, blank=True, null=True)
+    passport_series = models.CharField(
+        max_length=4,
+        blank=True,
+        null=True,
+        validators=[passport_series_validator],
+    )
+    passport_number = models.CharField(
+        max_length=6,
+        blank=True,
+        null=True,
+        validators=[passport_number_validator],
+    )
     passport_issued_by = models.CharField(max_length=255, blank=True, null=True)
     passport_issued_date = models.DateField(blank=True, null=True)
-    passport_code = models.CharField(max_length=7, blank=True, null=True)
+    passport_code = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        validators=[passport_code_validator],
+    )
 
     registration_address = models.TextField(blank=True, null=True)
     actual_address = models.TextField(blank=True, null=True)
@@ -318,6 +450,13 @@ class ClientProfile(models.Model):
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
 
+    def clean(self):
+        super().clean()
+        if self.user_id and self.user.user_type != 'client':
+            raise ValidationError({'user': 'Профиль клиента можно привязать только к пользователю типа "Клиент".'})
+        if self.passport_issued_date and self.birth_date and self.passport_issued_date <= self.birth_date:
+            raise ValidationError({'passport_issued_date': 'Дата выдачи паспорта должна быть позже даты рождения.'})
+
 class Property(models.Model):
     """Объект недвижимости."""
     title = models.CharField(max_length=255, blank=True, null=True)
@@ -328,25 +467,39 @@ class Property(models.Model):
     address = models.ForeignKey(Address, on_delete=models.PROTECT,
                                 related_name='properties')
 
-    coordinates_lat = models.DecimalField(max_digits=10, decimal_places=8,
-                                          blank=True, null=True)
-    coordinates_lon = models.DecimalField(max_digits=11, decimal_places=8,
-                                          blank=True, null=True)
+    coordinates_lat = models.DecimalField(
+        max_digits=10,
+        decimal_places=8,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal('-90')), MaxValueValidator(Decimal('90'))],
+    )
+    coordinates_lon = models.DecimalField(
+        max_digits=11,
+        decimal_places=8,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal('-180')), MaxValueValidator(Decimal('180'))],
+    )
     twogis_org_id = models.CharField(max_length=128, blank=True, null=True, db_index=True)
     twogis_name = models.CharField(max_length=255, blank=True, null=True)
     twogis_address_full = models.TextField(blank=True, null=True)
     twogis_rubric = models.CharField(max_length=255, blank=True, null=True)
     twogis_synced_at = models.DateTimeField(blank=True, null=True)
 
-    price = models.FloatField()
-    price_per_sqm = models.FloatField(blank=True, null=True)
+    price = models.FloatField(validators=[MinValueValidator(0)])
+    price_per_sqm = models.FloatField(blank=True, null=True, validators=[MinValueValidator(0)])
 
     area_total = models.DecimalField(max_digits=8, decimal_places=2,
-                                     blank=True, null=True)
+                                     blank=True, null=True,
+                                     validators=[MinValueValidator(Decimal('0.01'))])
 
-    rooms_count = models.IntegerField(blank=True, null=True)
-    floor_number = models.IntegerField(blank=True, null=True)
-    total_floors = models.IntegerField(blank=True, null=True)
+    rooms_count = models.IntegerField(blank=True, null=True,
+                                      validators=[MinValueValidator(0), MaxValueValidator(100)])
+    floor_number = models.IntegerField(blank=True, null=True,
+                                       validators=[MinValueValidator(-5), MaxValueValidator(300)])
+    total_floors = models.IntegerField(blank=True, null=True,
+                                       validators=[MinValueValidator(0), MaxValueValidator(300)])
 
     description = models.TextField(blank=True, null=True)
 
@@ -358,9 +511,66 @@ class Property(models.Model):
         verbose_name = 'Объект недвижимости'
         verbose_name_plural = 'Объекты недвижимости'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(price__gte=0), name='property_price_non_negative'),
+            models.CheckConstraint(
+                condition=models.Q(price_per_sqm__isnull=True) | models.Q(price_per_sqm__gte=0),
+                name='property_price_per_sqm_non_negative',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(area_total__isnull=True) | models.Q(area_total__gt=0),
+                name='property_area_total_positive',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(rooms_count__isnull=True) | models.Q(rooms_count__gte=0),
+                name='property_rooms_non_negative',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(total_floors__isnull=True)
+                    | models.Q(floor_number__isnull=True)
+                    | models.Q(floor_number__lte=models.F('total_floors'))
+                ),
+                name='property_floor_not_above_total',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(coordinates_lat__isnull=True)
+                    | (models.Q(coordinates_lat__gte=Decimal('-90')) & models.Q(coordinates_lat__lte=Decimal('90')))
+                ),
+                name='property_latitude_range',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(coordinates_lon__isnull=True)
+                    | (models.Q(coordinates_lon__gte=Decimal('-180')) & models.Q(coordinates_lon__lte=Decimal('180')))
+                ),
+                name='property_longitude_range',
+            ),
+        ]
 
     def __str__(self):
         return self.title or f'Объект №{self.pk}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.price is not None and self.price < 0:
+            errors['price'] = 'Цена не может быть отрицательной.'
+        if self.price_per_sqm is not None and self.price_per_sqm < 0:
+            errors['price_per_sqm'] = 'Цена за м² не может быть отрицательной.'
+        if self.area_total is not None and self.area_total <= 0:
+            errors['area_total'] = 'Площадь должна быть больше нуля.'
+        if self.rooms_count is not None and self.rooms_count < 0:
+            errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
+        if (
+            self.floor_number is not None
+            and self.total_floors is not None
+            and self.floor_number > self.total_floors
+        ):
+            errors['floor_number'] = 'Этаж объекта не может быть выше общего количества этажей.'
+        if errors:
+            raise ValidationError(errors)
 
 
 class PropertyFeature(models.Model):
@@ -414,6 +624,20 @@ class PropertyPhoto(models.Model):
         verbose_name_plural = 'Фото объектов'
         ordering = ['-is_cover', 'order', '-uploaded_at']
 
+    def clean(self):
+        super().clean()
+        errors = {}
+        if not self.image and not self.url:
+            errors['image'] = 'Добавьте файл изображения или укажите URL фотографии.'
+        if self.is_cover and self.property_id:
+            covers = PropertyPhoto.objects.filter(property_id=self.property_id, is_cover=True)
+            if self.pk:
+                covers = covers.exclude(pk=self.pk)
+            if covers.exists():
+                errors['is_cover'] = 'У объекта может быть только одна обложка.'
+        if errors:
+            raise ValidationError(errors)
+
 
 class PropertyDocument(models.Model):
     """Документ, привязанный к объекту (выписка ЕГРН, договор и т. п.)."""
@@ -432,6 +656,16 @@ class PropertyDocument(models.Model):
         db_table = 'property_documents'
         verbose_name = 'Документ объекта'
         verbose_name_plural = 'Документы объектов'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.is_verified and not self.verified_by_id:
+            errors['verified_by'] = 'Для подтверждённого документа нужно указать проверившего сотрудника.'
+        if self.verified_at and not self.is_verified:
+            errors['verified_at'] = 'Дата проверки допускается только для подтверждённого документа.'
+        if errors:
+            raise ValidationError(errors)
 
 
 class Request(models.Model):
@@ -469,13 +703,16 @@ class Request(models.Model):
     status = models.ForeignKey(RequestStatus, on_delete=models.PROTECT,
                                related_name='requests', default=1)
     property_type = models.CharField(max_length=50, blank=True, null=True)
-    min_price = models.FloatField(blank=True, null=True)
-    max_price = models.FloatField(blank=True, null=True)
+    min_price = models.FloatField(blank=True, null=True, validators=[MinValueValidator(0)])
+    max_price = models.FloatField(blank=True, null=True, validators=[MinValueValidator(0)])
     min_area = models.DecimalField(max_digits=8, decimal_places=2,
-                                   blank=True, null=True)
+                                   blank=True, null=True,
+                                   validators=[MinValueValidator(Decimal('0.01'))])
     max_area = models.DecimalField(max_digits=8, decimal_places=2,
-                                   blank=True, null=True)
-    rooms_count = models.IntegerField(blank=True, null=True)
+                                   blank=True, null=True,
+                                   validators=[MinValueValidator(Decimal('0.01'))])
+    rooms_count = models.IntegerField(blank=True, null=True,
+                                      validators=[MinValueValidator(0), MaxValueValidator(100)])
 
     address_preferences = models.TextField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
@@ -489,9 +726,57 @@ class Request(models.Model):
         verbose_name = 'Заявка клиента'
         verbose_name_plural = 'Заявки клиентов'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(min_price__isnull=True) | models.Q(min_price__gte=0),
+                name='request_min_price_non_negative',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(max_price__isnull=True) | models.Q(max_price__gte=0),
+                name='request_max_price_non_negative',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(min_price__isnull=True)
+                    | models.Q(max_price__isnull=True)
+                    | models.Q(min_price__lte=models.F('max_price'))
+                ),
+                name='request_price_range_valid',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(min_area__isnull=True)
+                    | models.Q(max_area__isnull=True)
+                    | models.Q(min_area__lte=models.F('max_area'))
+                ),
+                name='request_area_range_valid',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(rooms_count__isnull=True) | models.Q(rooms_count__gte=0),
+                name='request_rooms_non_negative',
+            ),
+        ]
 
     def __str__(self):
         return f'Заявка №{self.pk} от {self.client.username}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.client_id and self.client.user_type != 'client':
+            errors['client'] = 'В поле клиента можно выбрать только пользователя типа "Клиент".'
+        if self.agent_id and self.agent.user_type != 'employee':
+            errors['agent'] = 'В поле агента можно выбрать только сотрудника.'
+        if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
+            errors['min_price'] = 'Минимальная цена не может быть больше максимальной.'
+        if self.min_area is not None and self.max_area is not None and self.min_area > self.max_area:
+            errors['min_area'] = 'Минимальная площадь не может быть больше максимальной.'
+        if self.rooms_count is not None and self.rooms_count < 0:
+            errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
+        if self.closed_at and not self.status_id:
+            errors['closed_at'] = 'Перед закрытием заявки нужно указать статус.'
+        if errors:
+            raise ValidationError(errors)
 
     @classmethod
     def normalize_status_code(cls, code: str | None) -> str | None:
@@ -576,10 +861,24 @@ class RequestPropertyMatch(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['request', 'property'],
                                     name='unique_request_property_match'),
+            models.CheckConstraint(
+                condition=~(models.Q(is_confirmed=True) & models.Q(is_rejected=True)),
+                name='request_match_not_confirmed_and_rejected',
+            ),
         ]
 
     def __str__(self):
         return f'Заявка №{self.request_id} ↔ объект №{self.property_id}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.is_confirmed and self.is_rejected:
+            errors['is_confirmed'] = 'Вариант не может быть одновременно подтверждён и отклонён.'
+        if self.confirmed_at and not self.is_confirmed:
+            errors['confirmed_at'] = 'Дата подтверждения допускается только для подтверждённого варианта.'
+        if errors:
+            raise ValidationError(errors)
 
     @_property
     def state_code(self) -> str:
@@ -621,10 +920,11 @@ class Deal(models.Model):
         related_name='deal', blank=True, null=True,
     )
 
-    price_final = models.FloatField()
+    price_final = models.FloatField(validators=[MinValueValidator(0)])
     commission_percent = models.DecimalField(max_digits=5, decimal_places=2,
-                                             blank=True, null=True)
-    commission_amount = models.FloatField(blank=True, null=True)
+                                             blank=True, null=True,
+                                             validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))])
+    commission_amount = models.FloatField(blank=True, null=True, validators=[MinValueValidator(0)])
 
     deal_date = models.DateField()
     notes = models.TextField(blank=True, null=True)
@@ -648,9 +948,43 @@ class Deal(models.Model):
         verbose_name = 'Сделка'
         verbose_name_plural = 'Сделки'
         ordering = ['-deal_date']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(price_final__gte=0), name='deal_price_final_non_negative'),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(commission_percent__isnull=True)
+                    | (models.Q(commission_percent__gte=Decimal('0')) & models.Q(commission_percent__lte=Decimal('100')))
+                ),
+                name='deal_commission_percent_range',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(commission_amount__isnull=True) | models.Q(commission_amount__gte=0),
+                name='deal_commission_amount_non_negative',
+            ),
+        ]
 
     def __str__(self):
         return f'Сделка {self.deal_number}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.agent_id and self.agent.user_type != 'employee':
+            errors['agent'] = 'Агентом сделки может быть только сотрудник.'
+        if self.client_id and self.client.user_type != 'client':
+            errors['client'] = 'Клиентом сделки может быть только пользователь типа "Клиент".'
+        if self.price_final is not None and self.price_final < 0:
+            errors['price_final'] = 'Итоговая цена не может быть отрицательной.'
+        if self.commission_percent is not None and not (Decimal('0') <= self.commission_percent <= Decimal('100')):
+            errors['commission_percent'] = 'Процент комиссии должен быть от 0 до 100.'
+        if self.commission_amount is not None and self.commission_amount < 0:
+            errors['commission_amount'] = 'Сумма комиссии не может быть отрицательной.'
+        if self.contract_status == 'ready' and not self.contract_file:
+            errors['contract_file'] = 'Для статуса "Готов" нужно прикрепить файл договора.'
+        if self.contract_status == 'failed' and not self.contract_error_message:
+            errors['contract_error_message'] = 'Для статуса ошибки нужно указать причину.'
+        if errors:
+            raise ValidationError(errors)
 
 
 class PropertyStatusHistory(models.Model):
@@ -668,6 +1002,11 @@ class PropertyStatusHistory(models.Model):
         verbose_name = 'История статусов'
         verbose_name_plural = 'История статусов'
         ordering = ['-changed_at']
+
+    def clean(self):
+        super().clean()
+        if self.changed_by_id and self.changed_by.user_type != 'employee':
+            raise ValidationError({'changed_by': 'Статус объекта может менять только сотрудник.'})
 
 
 class PropertyViewing(models.Model):
@@ -689,6 +1028,16 @@ class PropertyViewing(models.Model):
         verbose_name = 'Просмотр объекта'
         verbose_name_plural = 'Просмотры объектов'
         ordering = ['-scheduled_date']
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.client_id and self.client.user_type != 'client':
+            errors['client'] = 'В просмотре клиентом может быть только пользователь типа "Клиент".'
+        if self.agent_id and self.agent.user_type != 'employee':
+            errors['agent'] = 'Агентом просмотра может быть только сотрудник.'
+        if errors:
+            raise ValidationError(errors)
 
 
 class Task(models.Model):
@@ -755,9 +1104,40 @@ class Task(models.Model):
         verbose_name = 'Задача'
         verbose_name_plural = 'Задачи'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(priority__in=['low', 'normal', 'high']),
+                name='task_priority_valid',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(task_type__in=[
+                    'contact_client',
+                    'property_search',
+                    'showing',
+                    'documents',
+                    'call',
+                    'other',
+                ]),
+                name='task_type_valid',
+            ),
+        ]
 
     def __str__(self):
         return self.title
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.assignee_id and self.assignee.user_type != 'employee':
+            errors['assignee'] = 'Исполнителем задачи может быть только сотрудник.'
+        if self.created_by_id and self.created_by.user_type != 'employee':
+            errors['created_by'] = 'Создателем задачи должен быть сотрудник.'
+        if self.client_id and self.client.user_type != 'client':
+            errors['client'] = 'В поле клиента можно выбрать только пользователя типа "Клиент".'
+        if self.completed_at and self.status_id and self.status.code not in self.TERMINAL_STATUS_CODES:
+            errors['completed_at'] = 'Дата завершения допускается только для финального статуса задачи.'
+        if errors:
+            raise ValidationError(errors)
 
     @_property
     def is_completed(self):
@@ -816,9 +1196,27 @@ class OutgoingEmail(models.Model):
         verbose_name = 'Исходящее письмо'
         verbose_name_plural = 'Исходящие письма'
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(status__in=['processing', 'pending', 'sent', 'failed']),
+                name='outgoing_email_status_valid',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.subject} → {self.recipient.email}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.sender_id and self.sender.user_type != 'employee':
+            errors['sender'] = 'Отправителем может быть только сотрудник.'
+        if self.status == 'sent' and not self.sent_at:
+            errors['sent_at'] = 'Для отправленного письма нужно указать дату отправки.'
+        if self.status == 'failed' and not self.error_message:
+            errors['error_message'] = 'Для ошибки отправки нужно указать причину.'
+        if errors:
+            raise ValidationError(errors)
 
 
 class AuditLog(models.Model):
@@ -880,6 +1278,43 @@ class AuditLog(models.Model):
         verbose_name = 'Запись журнала'
         verbose_name_plural = 'Журнал действий'
         ordering = ['-created_at', '-id']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(entity_type__in=['property', 'request', 'task', 'deal']),
+                name='audit_log_entity_type_valid',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.get_entity_type_display()} #{self.entity_id}: {self.action_label}'
+
+
+class DatabaseBackup(models.Model):
+    """Сохраненный файл полной резервной копии базы данных."""
+
+    filename = models.CharField(max_length=255)
+    file = models.FileField(
+        storage=database_backup_storage,
+        upload_to='database_backups/%Y/%m/',
+    )
+    size_bytes = models.PositiveBigIntegerField(default=0)
+    database_name = models.CharField(max_length=255)
+    engine_label = models.CharField(max_length=120)
+    tool_label = models.CharField(max_length=120, blank=True, default='')
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='database_backups',
+    )
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        db_table = 'database_backups'
+        verbose_name = 'Резервная копия БД'
+        verbose_name_plural = 'Резервные копии БД'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return self.filename
