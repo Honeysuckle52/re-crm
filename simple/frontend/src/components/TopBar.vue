@@ -3,6 +3,7 @@
     <nav class="topbar__nav">
       <router-link to="/">Сводка</router-link>
       <router-link to="/properties">Объекты</router-link>
+      <router-link v-if="auth.isClient" to="/my-properties">Мои объекты</router-link>
       <router-link to="/requests">Заявки</router-link>
       <router-link v-if="canSeeTasks" to="/tasks">Задачи</router-link>
       <router-link v-if="canSeeDeals" to="/deals">Сделки</router-link>
@@ -31,7 +32,7 @@ const auth = useAuthStore()
 const router = useRouter()
 const initial = computed(() => (auth.displayName?.[0] || '?').toUpperCase())
 
-const canSeeDeals = computed(() => auth.isStaff)
+const canSeeDeals = computed(() => auth.isStaff || auth.isClient)
 const canSeeTasks = computed(() => auth.isStaff)
 const canSeeAdmin = computed(() => auth.isManager)
 const adminPanelHref = computed(() => (auth.isAdmin ? '/admin/' : '/admin'))

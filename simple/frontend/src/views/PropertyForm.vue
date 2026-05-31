@@ -73,8 +73,18 @@
         </div>
 
         <div class="field">
+          <label>Тип помещения</label>
+          <select class="select" v-model="form.premises_type" required>
+            <option value="apartment">Квартира</option>
+            <option value="house">Дом</option>
+            <option value="office">Офис</option>
+            <option value="warehouse">Склад</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Количество комнат</label>
-          <input class="input" type="number" v-model.number="form.rooms_count" />
+          <input class="input" type="number" v-model.number="form.rooms_count"
+                 :disabled="isRoomsDisabled" :placeholder="isRoomsDisabled ? 'Не применяется' : ''" />
         </div>
         <div class="field">
           <label>Этаж / всего этажей</label>
@@ -119,24 +129,6 @@
       </div>
       <div v-else-if="existingAddress" class="muted">
         Текущий адрес: {{ existingAddress }}
-      </div>
-
-      <div class="surface-head property-form__section-head">
-        <div>
-          <div class="surface-head__meta">Описание объекта</div>
-          <h2 class="h3">Характеристики</h2>
-        </div>
-        <div class="surface-head__caption">Отметьте свойства, которые будут видны в карточке объекта.</div>
-      </div>
-      <div class="row" style="flex-wrap: wrap; gap: 8px">
-        <label v-for="f in dict.features" :key="f.id" class="chip-check">
-          <input type="checkbox" :value="f.id" v-model="form.feature_ids" />
-          <span>{{ f.name }}</span>
-        </label>
-        <span v-if="!dict.features.length" class="muted">
-          Справочник характеристик пуст. Запустите команду
-          <code>seed_data --only dictionaries</code>.
-        </span>
       </div>
 
       <div class="surface-head property-form__section-head">
@@ -213,7 +205,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
@@ -230,18 +222,18 @@ const isEdit = computed(() => !!route.params.id)
 function defaultForm() {
   return {
     title: '', operation_type: 1, status: 1,
+    premises_type: 'apartment',
     address: null,
     price: null, price_per_sqm: null,
     area_total: null,
     rooms_count: null, floor_number: null, total_floors: null,
     description: '',
-    feature_ids: [],
   }
 }
 
 const form = reactive(defaultForm())
 
-const dict = reactive({ operations: [], features: [] })
+const dict = reactive({ operations: [] })
 const addressQuery = ref('')
 const addressPicked = ref(null)
 const existingAddress = ref('')
@@ -262,7 +254,8 @@ const addressStateLabel = computed(() => {
   if (existingAddress.value) return 'Сохранён'
   return 'Не указан'
 })
-const selectedFeaturesCount = computed(() => form.feature_ids.length)
+const selectedFeaturesCount = computed(() => 0)
+const isRoomsDisabled = computed(() => ['office', 'warehouse'].includes(form.premises_type))
 const photoCount = computed(() => photos.value.length)
 const coverCount = computed(() => photos.value.filter((photo) => photo.is_cover).length)
 const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
@@ -355,6 +348,31 @@ function isPropertyDraftEmpty(draft) {
   )
 }
 
+function formatPropertyValidationError(data) {
+  const labels = {
+    title: 'Название',
+    operation_type: 'Тип операции',
+    status: 'Статус',
+    premises_type: 'Тип помещения',
+    price: 'Цена',
+    price_per_sqm: 'Цена за м²',
+    area_total: 'Площадь',
+    rooms_count: 'Количество комнат',
+    floor_number: 'Этаж',
+    total_floors: 'Количество этажей',
+    address: 'Адрес',
+  }
+
+  if (!data || typeof data !== 'object') return ''
+  const parts = []
+  for (const [key, value] of Object.entries(data)) {
+    const title = labels[key] || key
+    const message = Array.isArray(value) ? value.filter(Boolean).join(' ') : String(value || '')
+    if (message) parts.push(`${title}: ${message}`)
+  }
+  return parts.join(' ')
+}
+
 function applyPropertyDraft(draft) {
   Object.assign(form, defaultForm(), draft?.form || {})
   addressQuery.value = draft?.addressQuery || ''
@@ -431,14 +449,14 @@ async function submit() {
       title: form.title,
       operation_type: form.operation_type,
       status: form.status,
+      premises_type: form.premises_type,
       price: form.price,
       price_per_sqm: form.price_per_sqm,
       area_total: form.area_total,
-      rooms_count: form.rooms_count,
+      rooms_count: isRoomsDisabled.value ? null : form.rooms_count,
       floor_number: form.floor_number,
       total_floors: form.total_floors,
       description: form.description,
-      feature_ids: form.feature_ids,
     }
     if (addressPicked.value) {
       payload.address_data = addressPicked.value
@@ -461,9 +479,9 @@ async function submit() {
     error.value = extractError(e, 'Не удалось сохранить объект.')
     const data = e.response?.data
     if (typeof data === 'object' && data) {
-      error.value = Object.entries(data)
-        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
-        .join('; ')
+      const formatted = formatPropertyValidationError(data)
+      if (formatted) error.value = formatted
+      else error.value = extractError(e, 'Не удалось сохранить объект.')
     } else {
       error.value = e.message || 'Не удалось сохранить объект.'
     }
@@ -473,16 +491,12 @@ async function submit() {
 }
 
 onMounted(async () => {
-  const [o, f] = await Promise.all([
+  const [o] = await Promise.all([
     api.get('/operation-types/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    }),
-    api.get('/property-features/', {
       params: { page_size: LOOKUP_PAGE_SIZE },
     }),
   ])
   dict.operations = unpackPaginated(o.data).items
-  dict.features = unpackPaginated(f.data).items
 
   if (isEdit.value) {
     const { data } = await api.get(`/properties/${route.params.id}/`)
@@ -490,6 +504,7 @@ onMounted(async () => {
       title: data.title,
       operation_type: data.operation_type,
       status: data.status,
+      premises_type: data.premises_type || 'apartment',
       address: data.address,
       price: data.price,
       price_per_sqm: data.price_per_sqm,
@@ -498,13 +513,18 @@ onMounted(async () => {
       floor_number: data.floor_number,
       total_floors: data.total_floors,
       description: data.description,
-      feature_ids: (data.feature_values || []).map(fv => fv.feature),
     })
     existingAddress.value = data.full_address || ''
     photos.value = (data.photos || []).map(p => ({ ...p }))
     syncPropertyBaseline()
   } else if (!propertyDraftRestored.value) {
     syncPropertyBaseline()
+  }
+})
+
+watch(() => form.premises_type, (value) => {
+  if (value === 'office' || value === 'warehouse') {
+    form.rooms_count = null
   }
 })
 
@@ -525,6 +545,30 @@ onBeforeUnmount(() => {
 .property-form__main-grid {
   gap: 16px;
 }
+.property-form__main-grid > .field > .select {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.16);
+  color-scheme: light;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 10px 22px rgba(16, 55, 52, 0.08);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, rgba(21, 56, 57, 0.62) 50%),
+    linear-gradient(135deg, rgba(21, 56, 57, 0.62) 50%, transparent 50%);
+  background-position:
+    0 0,
+    calc(100% - 24px) calc(50% - 3px),
+    calc(100% - 18px) calc(50% - 3px);
+  background-size:
+    100% 100%,
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 42px;
+}
+
 
 .property-form__floor-row {
   gap: 10px;

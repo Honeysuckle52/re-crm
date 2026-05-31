@@ -130,16 +130,6 @@ DICTIONARY_DEFINITIONS = (
             ('max_active_requests', 'max_active_requests'),
         ),
     ),
-    DictionaryDefinition(
-        code='property_features',
-        title='Характеристики объектов',
-        queryset=models.PropertyFeature.objects.order_by('name'),
-        columns=(
-            ('id', 'id'),
-            ('name', 'name'),
-            ('category', 'category'),
-        ),
-    ),
 )
 
 

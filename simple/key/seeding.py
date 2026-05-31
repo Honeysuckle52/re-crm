@@ -21,8 +21,6 @@ from .models import (
     House,
     OperationType,
     Property,
-    PropertyFeature,
-    PropertyFeatureValue,
     PropertyPhoto,
     PropertyStatus,
     Request,
@@ -45,6 +43,7 @@ OPERATION_TYPES = [
 ]
 
 PROPERTY_STATUSES = [
+    {'code': 'pending', 'name': 'На модерации'},
     {'code': 'active', 'name': 'Активно'},
     {'code': 'reserved', 'name': 'Зарезервировано'},
     {'code': 'sold', 'name': 'Продано'},
@@ -105,21 +104,6 @@ USER_ROLES = [
     },
 ]
 
-PROPERTY_FEATURES = [
-    {'name': 'Балкон', 'category': 'Комфорт'},
-    {'name': 'Лоджия', 'category': 'Комфорт'},
-    {'name': 'Свежий ремонт', 'category': 'Состояние'},
-    {'name': 'Требует ремонта', 'category': 'Состояние'},
-    {'name': 'Парковка', 'category': 'Инфраструктура'},
-    {'name': 'Лифт', 'category': 'Инфраструктура'},
-    {'name': 'Мебель', 'category': 'Комфорт'},
-    {'name': 'Бытовая техника', 'category': 'Комфорт'},
-    {'name': 'Интернет', 'category': 'Коммуникации'},
-    {'name': 'Кондиционер', 'category': 'Комфорт'},
-    {'name': 'Охрана', 'category': 'Безопасность'},
-    {'name': 'Видеонаблюдение', 'category': 'Безопасность'},
-]
-
 DEMO_IMAGE_COLORS = [
     (205, 227, 211),
     (233, 214, 185),
@@ -165,7 +149,6 @@ class SeedDataService:
     def seed_dictionaries(self, *, flush: bool = False) -> dict[str, tuple[int, int]]:
         if flush:
             self.log.warning('Очищаем справочники...')
-            PropertyFeature.objects.all().delete()
             UserRole.objects.all().delete()
             TaskStatus.objects.all().delete()
             DealStatus.objects.all().delete()
@@ -180,7 +163,6 @@ class SeedDataService:
             'Статусы сделок': self._seed_rows(DealStatus, DEAL_STATUSES, key='code'),
             'Статусы задач': self._seed_rows(TaskStatus, TASK_STATUSES, key='code'),
             'Роли пользователей': self._seed_rows(UserRole, USER_ROLES, key='code'),
-            'Характеристики': self._seed_rows(PropertyFeature, PROPERTY_FEATURES, key='name'),
         }
         self.log.success('Справочники успешно заполнены:')
         for title, (created, updated) in created_counts.items():
@@ -550,7 +532,6 @@ class SeedDataService:
         status_reserved = PropertyStatus.objects.get(code='reserved')
         status_map = {'active': status_active, 'reserved': status_reserved}
 
-        features = list(PropertyFeature.objects.order_by('name')[:8])
         created: list[Property] = []
 
         specs = [
@@ -606,18 +587,13 @@ class SeedDataService:
                     'rooms_count': rooms,
                     'floor_number': floor,
                     'total_floors': total_floors,
+                    'premises_type': Property.PREMISES_APARTMENT,
                     'description': (
                         f'Объект в г. {city_name}. '
                         'Создан командой seed_data. __seed_demo__'
                     ),
                 },
             )
-            PropertyFeatureValue.objects.filter(property=property_obj).delete()
-            feature_slice = features[(idx - 1) % max(len(features), 1): (idx - 1) % max(len(features), 1) + 3]
-            if len(feature_slice) < 3 and features:
-                feature_slice = (feature_slice + features)[:3]
-            for feature in feature_slice:
-                PropertyFeatureValue.objects.create(property=property_obj, feature=feature, value='да')
 
             PropertyPhoto.objects.filter(property=property_obj).delete()
             enriched = self._enrich_property_from_twogis(

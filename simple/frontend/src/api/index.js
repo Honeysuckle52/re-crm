@@ -31,7 +31,7 @@ api.interceptors.response.use(
       } catch (e) {
         localStorage.removeItem('access')
         localStorage.removeItem('refresh')
-        window.location.href = '/login'
+        window.dispatchEvent(new Event('auth:expired'))
         throw e
       }
     }

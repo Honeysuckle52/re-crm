@@ -28,7 +28,6 @@ router.register('employee-profiles', views.EmployeeProfileViewSet)
 router.register('client-profiles', views.ClientProfileViewSet)
 
 router.register('properties', views.PropertyViewSet)
-router.register('property-features', views.PropertyFeatureViewSet)
 router.register('property-photos', views.PropertyPhotoViewSet)
 router.register('property-documents', views.PropertyDocumentViewSet)
 

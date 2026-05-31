@@ -319,20 +319,43 @@ def _deal_city(deal) -> str:
 
 def _passport_line(client) -> str:
     profile = getattr(client, 'client_profile', None)
-    if not profile or not (profile.passport_series or profile.passport_number):
+    details = getattr(profile, 'individual_details', None) if profile else None
+    if not details or not (details.passport_series or details.passport_number):
         return '—'
     pieces = []
-    if profile.passport_series and profile.passport_number:
+    if details.passport_series and details.passport_number:
         pieces.append(
-            f'серия {profile.passport_series} № {profile.passport_number}',
+            f'серия {details.passport_series} № {details.passport_number}',
         )
-    if profile.passport_issued_by:
-        pieces.append(f'выдан: {profile.passport_issued_by}')
-    if profile.passport_code:
-        pieces.append(f'код подразделения: {profile.passport_code}')
-    if profile.passport_issued_date:
-        pieces.append(f'дата выдачи: {profile.passport_issued_date:%d.%m.%Y}')
+    if details.passport_issued_by:
+        pieces.append(f'выдан: {details.passport_issued_by}')
+    if details.passport_code:
+        pieces.append(f'код подразделения: {details.passport_code}')
+    if details.passport_issued_date:
+        pieces.append(f'дата выдачи: {details.passport_issued_date:%d.%m.%Y}')
     return ', '.join(pieces) or '—'
+
+
+def _company_requisites_line(client) -> str:
+    profile = getattr(client, 'client_profile', None)
+    details = getattr(profile, 'company_details', None) if profile else None
+    if not details or not details.company_inn:
+        return '—'
+    return f'ИНН: {details.company_inn}'
+
+
+def _client_requisites_label(client) -> str:
+    profile = getattr(client, 'client_profile', None)
+    if profile and profile.client_kind == profile.CLIENT_KIND_COMPANY:
+        return 'Реквизиты юрлица'
+    return 'Паспортные данные'
+
+
+def _client_requisites_line(client) -> str:
+    profile = getattr(client, 'client_profile', None)
+    if profile and profile.client_kind == profile.CLIENT_KIND_COMPANY:
+        return _company_requisites_line(client)
+    return _passport_line(client)
 
 
 def _client_address_line(client) -> str:
@@ -543,7 +566,8 @@ def _signature_table(deal, *, styles) -> Table:
             f'<b>Заказчик</b><br/>'
             f'{_paragraph_text(_client_full_name(deal.client))}<br/>'
             f'Контакты: {_paragraph_text(_client_contact_line(deal.client))}<br/>'
-            f'Паспорт: {_paragraph_text(_passport_line(deal.client))}<br/><br/>'
+            f'{_client_requisites_label(deal.client)}: '
+            f'{_paragraph_text(_client_requisites_line(deal.client))}<br/><br/>'
             f'{signature_line}<br/>'
             f'<font size="8">подпись / расшифровка</font>'
         ),
@@ -779,7 +803,7 @@ def render_contract_pdf(deal) -> ContentFile:
                 ('Основание полномочий', _agency_signatory_basis()),
                 ('Контакты исполнителя', _agency_contact_line()),
                 ('Заказчик', _client_full_name(deal.client)),
-                ('Паспортные данные', _passport_line(deal.client)),
+                (_client_requisites_label(deal.client), _client_requisites_line(deal.client)),
                 ('Адрес заказчика', _client_address_line(deal.client)),
                 ('Контакты заказчика', _client_contact_line(deal.client)),
             ],

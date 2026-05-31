@@ -21,6 +21,7 @@ PROPERTY_FINAL_STATUS_BY_OPERATION: dict[str, str] = {
     'rent': 'rented',
 }
 PROPERTY_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    'pending': {'active', 'archived'},
     'active': {'reserved', 'archived'},
     'reserved': {'active', 'archived'},
     'sold': {'archived'},

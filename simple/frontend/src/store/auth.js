@@ -9,7 +9,7 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     isAuthenticated: (s) => !!s.access,
-    displayName: (s) => s.user?.username || 'Гость',
+    displayName: (s) => s.user?.email || s.user?.username || 'Гость',
     roleLabel: (s) => {
       if (!s.user) return 'Гость'
       if (s.user.is_superuser && !s.user.role_name) return 'Суперадминистратор'
@@ -19,6 +19,8 @@ export const useAuthStore = defineStore('auth', {
     isSuperuser: (s) => !!s.user?.is_superuser,
     isStaff: (s) =>
       s.user?.user_type === 'employee' || !!s.user?.is_superuser,
+    isClient: (s) =>
+      s.user?.user_type === 'client',
     isAdmin: (s) =>
       !!s.user?.is_superuser || s.user?.role_code === 'admin'
       || !!s.user?.is_admin,
@@ -40,8 +42,19 @@ export const useAuthStore = defineStore('auth', {
       this.refresh = localStorage.getItem('refresh')
       if (this.access) this.fetchMe().catch(() => this.logout())
     },
-    async login(username, password) {
-      const { data } = await api.post('/auth/login/', { username, password })
+    async initialize() {
+      this.access = localStorage.getItem('access')
+      this.refresh = localStorage.getItem('refresh')
+      if (this.access) {
+        try {
+          await this.fetchMe()
+        } catch (_err) {
+          await this.logout()
+        }
+      }
+    },
+    async login(email, password) {
+      const { data } = await api.post('/auth/login/', { email, password })
       this.access = data.access
       this.refresh = data.refresh
       localStorage.setItem('access', data.access)
@@ -50,7 +63,7 @@ export const useAuthStore = defineStore('auth', {
     },
     async register(payload) {
       await api.post('/auth/register/', payload)
-      await this.login(payload.username, payload.password)
+      await this.login(payload.email, payload.password)
     },
     async fetchMe() {
       const { data } = await api.get('/auth/me/')

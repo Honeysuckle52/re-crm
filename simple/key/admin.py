@@ -430,27 +430,19 @@ class EmployeeProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
 @admin.register(models.ClientProfile)
 class ClientProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('user', 'last_name', 'first_name', 'preferred_contact_method')
-    search_fields = ('user__username', 'first_name', 'last_name', 'passport_number')
-    list_select_related = ('user',)
-
-
-@admin.register(models.PropertyFeature)
-class PropertyFeatureAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('name', 'category')
-    list_filter = ('category',)
-    search_fields = ('name',)
+    list_display = ('user', 'last_name', 'first_name', 'client_kind', 'preferred_contact_method')
+    list_filter = ('client_kind',)
+    search_fields = (
+        'user__username', 'first_name', 'last_name',
+        'individual_details__passport_number', 'company_details__company_inn',
+    )
+    list_select_related = ('user', 'individual_details', 'company_details')
 
 
 class PropertyPhotoInline(admin.TabularInline):
     model = models.PropertyPhoto
     extra = 0
     fields = ('image', 'url', 'caption', 'is_cover', 'is_hidden', 'order')
-
-
-class PropertyFeatureValueInline(admin.TabularInline):
-    model = models.PropertyFeatureValue
-    extra = 0
 
 
 @admin.register(models.Property)
@@ -469,13 +461,13 @@ class PropertyAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_select_related = ('operation_type', 'status')
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
-    inlines = [PropertyPhotoInline, PropertyFeatureValueInline]
+    inlines = [PropertyPhotoInline]
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         (
             'Основная информация',
             {
-                'fields': ('title', 'operation_type', 'status', 'address'),
+                'fields': ('title', 'operation_type', 'status', 'premises_type', 'owner', 'address'),
                 'description': 'Базовые данные объекта и текущий статус публикации.',
             },
         ),

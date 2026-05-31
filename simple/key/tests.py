@@ -58,6 +58,95 @@ class AuthLogoutTests(TestCase):
         self.assertIn(refresh_response.status_code, {400, 401})
 
 
+class ClientRegistrationProfileDetailsTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+
+    def test_register_individual_creates_separate_passport_details(self):
+        response = self.api.post(
+            '/api/auth/register/',
+            {
+                'username': 'reg-individual',
+                'email': 'reg-individual@example.com',
+                'password': 'Secret123!',
+                'first_name': 'Иван',
+                'last_name': 'Клиентов',
+                'client_kind': models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+                'birth_date': '1990-05-12',
+                'passport_series': '1234',
+                'passport_number': '567890',
+                'passport_issued_by': 'ОУФМС России по Иркутской области',
+                'passport_issued_date': '2010-06-20',
+                'passport_code': '380-001',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        user = models.User.objects.get(username='reg-individual')
+        profile = user.client_profile
+        self.assertEqual(profile.client_kind, models.ClientProfile.CLIENT_KIND_INDIVIDUAL)
+        self.assertEqual(profile.individual_details.passport_number, '567890')
+        self.assertFalse(models.ClientCompanyDetails.objects.filter(profile=profile).exists())
+
+    def test_register_company_creates_separate_company_details(self):
+        response = self.api.post(
+            '/api/auth/register/',
+            {
+                'username': 'reg-company',
+                'email': 'reg-company@example.com',
+                'password': 'Secret123!',
+                'first_name': 'Мария',
+                'last_name': 'Директорова',
+                'client_kind': models.ClientProfile.CLIENT_KIND_COMPANY,
+                'company_inn': '3808000000',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        user = models.User.objects.get(username='reg-company')
+        profile = user.client_profile
+        self.assertEqual(profile.client_kind, models.ClientProfile.CLIENT_KIND_COMPANY)
+        self.assertEqual(profile.company_details.company_inn, '3808000000')
+        self.assertFalse(models.ClientIndividualDetails.objects.filter(profile=profile).exists())
+
+    def test_client_profile_update_switches_between_detail_tables(self):
+        user = models.User.objects.create_user(
+            username='profile-switch',
+            email='profile-switch@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        profile = models.ClientProfile.objects.create(
+            user=user,
+            first_name='Анна',
+            last_name='Клиентова',
+        )
+        models.ClientIndividualDetails.objects.create(
+            profile=profile,
+            passport_series='1234',
+            passport_number='567890',
+        )
+        self.api.force_authenticate(user=user)
+
+        response = self.api.patch(
+            f'/api/client-profiles/{profile.pk}/',
+            {
+                'client_kind': models.ClientProfile.CLIENT_KIND_COMPANY,
+                'company_inn': '3808000000',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.client_kind, models.ClientProfile.CLIENT_KIND_COMPANY)
+        self.assertEqual(profile.company_details.company_inn, '3808000000')
+        self.assertEqual(response.data['company_inn'], '3808000000')
+        self.assertFalse(models.ClientIndividualDetails.objects.filter(profile=profile).exists())
+
+
 class OutgoingEmailHtmlDeliveryTests(TestCase):
     def setUp(self):
         self.user = models.User.objects.create_user(
@@ -368,19 +457,22 @@ class DealContractQueueTests(TestCase):
             middle_name='Петрович',
             position='Агент по недвижимости',
         )
-        models.ClientProfile.objects.create(
+        client_profile = models.ClientProfile.objects.create(
             user=self.client_user,
             first_name='Мария',
             last_name='Клиентова',
             middle_name='Сергеевна',
+            registration_address='г. Иркутск, ул. Тестовая, д. 1, кв. 2',
+            actual_address='г. Иркутск, ул. Тестовая, д. 1, кв. 2',
+            preferred_contact_method='email',
+        )
+        models.ClientIndividualDetails.objects.create(
+            profile=client_profile,
             passport_series='1234',
             passport_number='567890',
             passport_issued_by='ОУФМС России по Иркутской области',
             passport_code='380-001',
             passport_issued_date=timezone.now().date(),
-            registration_address='г. Иркутск, ул. Тестовая, д. 1, кв. 2',
-            actual_address='г. Иркутск, ул. Тестовая, д. 1, кв. 2',
-            preferred_contact_method='email',
         )
         self.property.title = 'Квартира <с отделкой> & мебелью'
         self.property.area_total = Decimal('48.50')
@@ -751,6 +843,55 @@ class RequestFilteringTests(TestCase):
         payload_by_client = response_by_client.data['results']
         self.assertEqual(len(payload_by_client), 1)
         self.assertEqual(payload_by_client[0]['id'], self.request_two.pk)
+
+    def test_request_list_supports_operation_type_and_created_at_range(self):
+        self.api.force_authenticate(user=self.employee)
+        rent_operation = models.OperationType.objects.create(
+            code='rent',
+            name='Rent',
+        )
+        rent_request = models.Request.objects.create(
+            client=self.client_one,
+            agent=self.employee,
+            operation_type=rent_operation,
+            status=self.status_open,
+        )
+        older_date = timezone.now() - timedelta(days=3)
+        current_date = timezone.now()
+        models.Request.objects.filter(pk=self.request_one.pk).update(
+            created_at=older_date,
+        )
+        models.Request.objects.filter(pk=self.request_two.pk).update(
+            created_at=current_date,
+        )
+        models.Request.objects.filter(pk=self.request_three.pk).update(
+            created_at=current_date,
+        )
+        models.Request.objects.filter(pk=rent_request.pk).update(
+            created_at=current_date,
+        )
+
+        response = self.api.get('/api/requests/', {
+            'operation_type': self.operation_type.pk,
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item['id'] for item in response.data['results']},
+            {self.request_two.pk, self.request_three.pk},
+        )
+
+    def test_client_cannot_export_requests(self):
+        self.api.force_authenticate(user=self.client_one)
+
+        response = self.api.get(
+            '/api/requests/export/',
+            {'export_format': 'csv'},
+        )
+
+        self.assertEqual(response.status_code, 403)
 
 
 class RequestClosePermissionTests(TestCase):
@@ -1124,6 +1265,14 @@ class DashboardStatsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['tasks_open'], 2)
 
+    def test_client_dashboard_stats_do_not_include_tasks_open(self):
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get('/api/dashboard/stats/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('tasks_open', response.data)
+
 
 class ReportApiTests(TestCase):
     def setUp(self):
@@ -1322,6 +1471,15 @@ class ReportApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('application/json', response['Content-Type'])
         self.assertIn('REP-001', response.content.decode('utf-8'))
+
+    def test_client_cannot_access_reports(self):
+        self.api.force_authenticate(user=self.client_user)
+
+        deals_response = self.api.get('/api/reports/deals/')
+        tasks_response = self.api.get('/api/reports/tasks/')
+
+        self.assertEqual(deals_response.status_code, 403)
+        self.assertEqual(tasks_response.status_code, 403)
 
 
 class DataExchangeApiTests(TestCase):
@@ -3293,6 +3451,18 @@ class DealPermissionTests(TestCase):
         self.deal.refresh_from_db()
         self.assertEqual(self.deal.notes, 'Initial note')
 
+    def test_client_can_view_own_deal_list_and_detail(self):
+        self.api.force_authenticate(user=self.client_user)
+
+        list_response = self.api.get('/api/deals/')
+        detail_response = self.api.get(f'/api/deals/{self.deal.pk}/')
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.data['count'], 1)
+        self.assertEqual(list_response.data['results'][0]['id'], self.deal.pk)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.data['id'], self.deal.pk)
+
     def test_employee_cannot_see_foreign_deal(self):
         self.api.force_authenticate(user=self.other_employee)
 
@@ -3325,6 +3495,198 @@ class DealPermissionTests(TestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]['id'], second_deal.pk)
         self.assertEqual(payload[0]['status_code'], 'completed')
+
+    def test_deal_list_supports_operation_type_and_date_range(self):
+        rent_operation = models.OperationType.objects.create(
+            code='rent',
+            name='Rent',
+        )
+        second_property = models.Property.objects.create(
+            title='Rent deal property',
+            operation_type=rent_operation,
+            status=self.property_status,
+            address=self.property.address,
+            price=6_100_000,
+        )
+        old_sale_deal = models.Deal.objects.create(
+            deal_number='D-2026-0003',
+            property=self.property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.deal_status_new,
+            price_final=self.property.price,
+            deal_date=timezone.localdate() - timedelta(days=2),
+        )
+        models.Deal.objects.create(
+            deal_number='D-2026-0004',
+            property=second_property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=rent_operation,
+            status=self.deal_status_new,
+            price_final=second_property.price,
+            deal_date=timezone.localdate(),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/deals/', {
+            'operation_type': self.operation_type.pk,
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item['id'] for item in response.data['results']},
+            {self.deal.pk},
+        )
+        self.assertNotIn(old_sale_deal.pk, {item['id'] for item in response.data['results']})
+
+    def test_client_cannot_export_deals(self):
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get(
+            '/api/deals/export/',
+            {'export_format': 'csv'},
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+
+class TaskFilteringTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_sale = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.operation_rent = models.OperationType.objects.create(
+            code='rent',
+            name='Rent',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.task_status_new = models.TaskStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.deal_status_new = models.DealStatus.objects.create(
+            code='new',
+            name='New',
+            order=10,
+        )
+        self.property_status = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        self.employee = models.User.objects.create_user(
+            username='task-filter-employee',
+            email='task-filter-employee@example.com',
+            password='Secret123!',
+            user_type='employee',
+        )
+        self.client_user = models.User.objects.create_user(
+            username='task-filter-client',
+            email='task-filter-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='21')
+        address = models.Address.objects.create(
+            house=house,
+            apartment_number='8',
+        )
+        self.sale_property = models.Property.objects.create(
+            title='Sale property',
+            operation_type=self.operation_sale,
+            status=self.property_status,
+            address=address,
+            price=7_400_000,
+        )
+        self.rent_property = models.Property.objects.create(
+            title='Rent property',
+            operation_type=self.operation_rent,
+            status=self.property_status,
+            address=address,
+            price=3_100_000,
+        )
+        self.sale_request = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_sale,
+            status=self.request_status_open,
+        )
+        self.sale_deal = models.Deal.objects.create(
+            deal_number='TASK-2026-0001',
+            property=self.sale_property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=self.operation_sale,
+            status=self.deal_status_new,
+            price_final=self.sale_property.price,
+            deal_date=timezone.localdate(),
+        )
+        self.request_task = models.Task.objects.create(
+            title='Sale request task',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            request=self.sale_request,
+        )
+        self.property_task = models.Task.objects.create(
+            title='Rent property task',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            property=self.rent_property,
+        )
+        self.old_deal_task = models.Task.objects.create(
+            title='Old sale deal task',
+            status=self.task_status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            deal=self.sale_deal,
+        )
+
+    def test_task_list_supports_operation_type_and_created_at_range(self):
+        models.Task.objects.filter(pk=self.request_task.pk).update(
+            created_at=timezone.now(),
+        )
+        models.Task.objects.filter(pk=self.property_task.pk).update(
+            created_at=timezone.now(),
+        )
+        models.Task.objects.filter(pk=self.old_deal_task.pk).update(
+            created_at=timezone.now() - timedelta(days=2),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/tasks/', {
+            'operation_type': self.operation_sale.pk,
+            'date_from': timezone.localdate().isoformat(),
+            'date_to': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item['id'] for item in response.data['results']},
+            {self.request_task.pk},
+        )
+
+    def test_client_cannot_export_tasks(self):
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get(
+            '/api/tasks/export/',
+            {'export_format': 'csv'},
+        )
+
+        self.assertEqual(response.status_code, 403)
 
 
 class PropertyStatusTransitionTests(TestCase):

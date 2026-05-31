@@ -85,22 +85,45 @@
             </option>
           </select>
         </div>
-        <RemoteLookupField
-          v-model="form.property"
-          label="Конкретный объект"
-          placeholder="Найти объект по номеру или названию"
-          endpoint="/properties/"
-          :params="{ ordering: '-created_at' }"
-          :map-option="mapPropertyOption"
-          no-results-text="Объекты не найдены."
-        />
+        <div class="field request-form__property">
+          <label>Конкретный объект</label>
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <button class="btn btn--sm btn--accent" type="button" @click="propertyPickerOpen = true">
+              {{ form.property ? 'Изменить объект' : 'Выбрать объект' }}
+            </button>
+            <button v-if="form.property" class="btn btn--sm" type="button" @click="clearSelectedProperty">
+              Сбросить
+            </button>
+          </div>
+          <div class="muted" style="margin-top: 8px">
+            {{ form.property ? selectedPropertyLabel : 'Объект еще не выбран.' }}
+          </div>
+        </div>
         <div class="field">
-          <label>Тип недвижимости</label>
-          <input
-            v-model="form.property_type"
-            class="input"
-            placeholder="Квартира, дом, коммерция"
-          />
+          <label>Тип помещения</label>
+          <select v-model="form.property_type" class="select">
+            <option value="">Выберите тип</option>
+            <option value="apartment">Квартира</option>
+            <option value="house">Дом</option>
+            <option value="office">Офис</option>
+            <option value="warehouse">Склад</option>
+          </select>
+        </div>
+        <div v-if="form.property_type === 'apartment'" class="field">
+          <label>Этаж</label>
+          <input v-model.number="form.floor_number" class="input" type="number" />
+        </div>
+        <div v-if="form.property_type === 'house'" class="field">
+          <label>Этажей в доме</label>
+          <input v-model.number="form.total_floors" class="input" type="number" />
+        </div>
+        <div v-if="form.property_type === 'office' || form.property_type === 'warehouse'" class="field">
+          <label>Площадь от</label>
+          <input v-model.number="form.min_area" class="input" type="number" />
+        </div>
+        <div v-if="form.property_type === 'office' || form.property_type === 'warehouse'" class="field">
+          <label>Площадь до</label>
+          <input v-model.number="form.max_area" class="input" type="number" />
         </div>
         <div class="field">
           <label>Комнат</label>
@@ -133,6 +156,56 @@
     </form>
 
     <div class="panel panel--light">
+      <div class="surface-head requests-head">
+        <div class="surface-head__meta">
+          <h2 class="h3">Фильтры</h2>
+          <div class="muted">
+            Отберите заявки по операции, статусу и дате создания.
+          </div>
+        </div>
+        <button class="btn btn--sm btn--ghost" type="button" @click="resetFilters">
+          Сбросить
+        </button>
+      </div>
+      <div class="grid grid--4 request-filters-grid">
+        <div class="field">
+          <label>Операция</label>
+          <select v-model="requestFilters.operation_type" class="select">
+            <option value="">Все операции</option>
+            <option
+              v-for="operation in operations"
+              :key="operation.id"
+              :value="String(operation.id)"
+            >
+              {{ operation.name }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Статус</label>
+          <select v-model="requestFilters.status" class="select">
+            <option value="">Все статусы</option>
+            <option
+              v-for="status in statuses"
+              :key="status.id"
+              :value="String(status.id)"
+            >
+              {{ status.name }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Создана от</label>
+          <input v-model="requestFilters.date_from" class="input" type="date" />
+        </div>
+        <div class="field">
+          <label>Создана до</label>
+          <input v-model="requestFilters.date_to" class="input" type="date" />
+        </div>
+      </div>
+    </div>
+
+    <div class="panel panel--light">
       <div class="surface-head">
         <div class="surface-head__meta">
           <h2 class="h3">Список заявок</h2>
@@ -140,7 +213,7 @@
             Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
           </div>
         </div>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
+        <div v-if="auth.isStaff" class="row" style="gap: 8px; flex-wrap: wrap">
           <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('csv')">
             CSV
           </button>
@@ -216,7 +289,6 @@
                   :checked="allRequestsOnPageSelected"
                   @change="toggleRequestsPageSelection($event.target.checked)" />
               </th>
-              <th>#</th>
               <th v-if="auth.isStaff">Клиент</th>
               <th>Агент</th>
               <th>Объект</th>
@@ -228,17 +300,22 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="requestItem in visibleRequests" :key="requestItem.id">
+            <tr
+              v-for="requestItem in visibleRequests"
+              :key="requestItem.id"
+              class="requests-table__row-link"
+              role="link"
+              tabindex="0"
+              @click="openRequest(requestItem.id)"
+              @keydown.enter="openRequest(requestItem.id)"
+              @keydown.space.prevent="openRequest(requestItem.id)"
+            >
               <td v-if="auth.isStaff" class="table-check-cell" data-label="Выбор">
                 <input
                   type="checkbox"
                   :checked="isRequestSelected(requestItem)"
+                  @click.stop
                   @change="toggleRequestSelection(requestItem, $event.target.checked)" />
-              </td>
-              <td data-label="Заявка">
-                <router-link :to="`/requests/${requestItem.id}`" class="link">
-                  #{{ requestItem.id }}
-                </router-link>
               </td>
               <td v-if="auth.isStaff" data-label="Клиент">{{ requestItem.client_username }}</td>
               <td data-label="Агент">
@@ -249,9 +326,10 @@
                 <router-link
                   v-if="requestItem.property"
                   :to="`/properties/${requestItem.property}`"
-                  class="link"
+                  class="link requests-table__property-link"
+                  style="color: #ffffff"
                 >
-                  {{ requestItem.property_title || `Объект №${requestItem.property}` }}
+                  {{ requestItem.property_title || 'Объект' }}
                 </router-link>
                 <span v-else class="muted">подбор</span>
               </td>
@@ -274,28 +352,28 @@
                     :title="takeDisabled
                       ? `Достигнут лимит активных заявок (${workload.activeRequestsLabel})`
                       : 'Взять заявку в работу'"
-                    @click="takeRequest(requestItem)"
+                    @click.stop="takeRequest(requestItem)"
                   >
                     Взять
                   </button>
                   <button
                     v-if="canEditRequest(requestItem)"
                     class="btn btn--sm"
-                    @click="startEditRequest(requestItem)"
+                    @click.stop="startEditRequest(requestItem)"
                   >
                     Редактировать
                   </button>
                   <button
                     v-if="canDeleteRequest(requestItem)"
                     class="btn btn--sm btn--danger"
-                    @click="deleteRequest(requestItem)"
+                    @click.stop="deleteRequest(requestItem)"
                   >
                     Удалить
                   </button>
                   <button
                     v-if="auth.isStaff && requestItem.can_close"
                     class="btn btn--sm btn--danger"
-                    @click="closeRequest(requestItem)"
+                    @click.stop="closeRequest(requestItem)"
                   >
                     Закрыть
                   </button>
@@ -322,6 +400,15 @@
       />
     </div>
 
+
+    <PropertyPickerModal
+      v-if="propertyPickerOpen"
+      title="Выбор объекта для заявки"
+      :selected-id="form.property"
+      :params="{ ordering: '-created_at' }"
+      @close="propertyPickerOpen = false"
+      @select="selectProperty"
+    />
     <RequestCloseDialog
       v-if="closeDialog.open"
       :request-id="closeDialog.requestId"
@@ -334,12 +421,14 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../api'
 import { bulkCloseRequests } from '../api/bulk'
 import { exportEntityData } from '../api/exports'
 import BulkActionBar from '../components/BulkActionBar.vue'
 import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
+import PropertyPickerModal from '../components/PropertyPickerModal.vue'
 import RemoteLookupField from '../components/RemoteLookupField.vue'
 import RequestCloseDialog from '../components/RequestCloseDialog.vue'
 import { useDraftPersistence } from '../composables/useDraftPersistence'
@@ -360,12 +449,14 @@ import {
 } from '@/utils/requestClose'
 
 const auth = useAuthStore()
+const router = useRouter()
 const confirm = useConfirmStore()
 const workload = useWorkloadStore()
 const toasts = useToastsStore()
 
 const requests = ref([])
 const operations = ref([])
+const statuses = ref([])
 
 const showForm = ref(false)
 const formError = ref('')
@@ -377,6 +468,8 @@ const requestCount = ref(0)
 const exportingRequests = ref(false)
 const loadingRequests = ref(false)
 const editingRequestId = ref(null)
+const propertyPickerOpen = ref(false)
+const selectedPropertyLabel = ref('')
 const bulkCloseOutcome = ref('cancelled')
 const requestFormBaseline = ref('')
 const requestDraftRestored = ref(false)
@@ -391,6 +484,12 @@ const requestStatsSnapshot = reactive({
   closed: 0,
   unassigned: 0,
   mine: 0,
+})
+const requestFilters = reactive({
+  operation_type: '',
+  status: '',
+  date_from: '',
+  date_to: '',
 })
 
 const form = reactive(defaultForm())
@@ -407,6 +506,10 @@ function defaultForm() {
     operation_type: null,
     property: null,
     property_type: '',
+    floor_number: null,
+    total_floors: null,
+    min_area: null,
+    max_area: null,
     rooms_count: null,
     min_price: null,
     max_price: null,
@@ -493,6 +596,34 @@ function statusClass(requestItem) {
   return 'tag--accent'
 }
 
+function formatRequestValidationError(data) {
+  const labels = {
+    client: 'Клиент',
+    agent: 'Агент',
+    property: 'Объект',
+    operation_type: 'Тип операции',
+    status: 'Статус',
+    property_type: 'Тип помещения',
+    min_price: 'Минимальная цена',
+    max_price: 'Максимальная цена',
+    min_area: 'Минимальная площадь',
+    max_area: 'Максимальная площадь',
+    rooms_count: 'Количество комнат',
+    floor_number: 'Этаж',
+    total_floors: 'Количество этажей',
+    description: 'Пожелания',
+  }
+
+  if (!data || typeof data !== 'object') return ''
+  const parts = []
+  for (const [key, value] of Object.entries(data)) {
+    const title = labels[key] || key
+    const message = Array.isArray(value) ? value.filter(Boolean).join(' ') : String(value || '')
+    if (message) parts.push(`${title}: ${message}`)
+  }
+  return parts.join(' ')
+}
+
 function mapClientOption(user) {
   return {
     id: user.id,
@@ -517,6 +648,17 @@ function mapPropertyOption(property) {
     label: title,
     hint: [property.operation_type_name, price].filter(Boolean).join(' · ') || 'Объект',
   }
+}
+
+function selectProperty(property) {
+  form.property = property.id
+  selectedPropertyLabel.value = `${property.title || `?????? ?${property.id}`}${property.full_address ? ` ? ${property.full_address}` : ''}`
+  propertyPickerOpen.value = false
+}
+
+function clearSelectedProperty() {
+  form.property = null
+  selectedPropertyLabel.value = ''
 }
 
 function toggleForm() {
@@ -568,11 +710,18 @@ function populateFormFromRequest(requestItem) {
     operation_type: requestItem.operation_type ?? operations.value[0]?.id ?? null,
     property: requestItem.property ?? null,
     property_type: requestItem.property_type || '',
+    floor_number: requestItem.floor_number ?? null,
+    total_floors: requestItem.total_floors ?? null,
+    min_area: requestItem.min_area ?? null,
+    max_area: requestItem.max_area ?? null,
     rooms_count: requestItem.rooms_count ?? null,
     min_price: requestItem.min_price ?? null,
     max_price: requestItem.max_price ?? null,
     description: requestItem.description || '',
   })
+  selectedPropertyLabel.value = requestItem.property
+    ? (requestItem.property_title || `Объект #${requestItem.property}`)
+    : ''
 }
 
 function startEditRequest(requestItem) {
@@ -600,10 +749,16 @@ async function load() {
 
 async function loadLookups() {
   try {
-    const { data } = await api.get('/operation-types/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    })
-    operations.value = unpackPaginated(data).items
+    const [operationsResponse, statusesResponse] = await Promise.all([
+      api.get('/operation-types/', {
+        params: { page_size: LOOKUP_PAGE_SIZE },
+      }),
+      api.get('/request-statuses/', {
+        params: { page_size: LOOKUP_PAGE_SIZE },
+      }),
+    ])
+    operations.value = unpackPaginated(operationsResponse.data).items
+    statuses.value = unpackPaginated(statusesResponse.data).items
     if (operations.value.length && !form.operation_type) {
       form.operation_type = operations.value[0].id
     }
@@ -612,10 +767,30 @@ async function loadLookups() {
   }
 }
 
+function requestFilterParams({ includePaging = false } = {}) {
+  const params = {}
+  if (requestFilters.operation_type) {
+    params.operation_type = Number(requestFilters.operation_type)
+  }
+  if (requestFilters.status) {
+    params.status = Number(requestFilters.status)
+  }
+  if (requestFilters.date_from) {
+    params.date_from = requestFilters.date_from
+  }
+  if (requestFilters.date_to) {
+    params.date_to = requestFilters.date_to
+  }
+  if (includePaging) {
+    params.page = requestPage.value
+    params.page_size = requestPageSize.value
+  }
+  return params
+}
+
 function listParams() {
   const params = {
-    page: requestPage.value,
-    page_size: requestPageSize.value,
+    ...requestFilterParams({ includePaging: true }),
   }
   if (auth.isStaff && scope.value !== 'all') {
     params.scope = scope.value
@@ -624,7 +799,7 @@ function listParams() {
 }
 
 function requestExportParams() {
-  const params = {}
+  const params = requestFilterParams()
   if (auth.isStaff && scope.value !== 'all') {
     params.scope = scope.value
   }
@@ -641,11 +816,17 @@ async function fetchRequestCount(params = {}) {
 async function loadRequestCounts() {
   try {
     if (auth.isStaff) {
+      const totalParams = requestFilterParams()
+      const activeParams = {
+        ...requestFilterParams(),
+        status_code: activeRequestStatusCodes.join(','),
+      }
+      delete activeParams.status
       const [total, active, unassigned, mine] = await Promise.all([
-        fetchRequestCount(),
-        fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
-        fetchRequestCount({ scope: 'unassigned' }),
-        fetchRequestCount({ scope: 'mine' }),
+        fetchRequestCount(totalParams),
+        fetchRequestCount(activeParams),
+        fetchRequestCount({ ...totalParams, scope: 'unassigned' }),
+        fetchRequestCount({ ...totalParams, scope: 'mine' }),
       ])
       requestStatsSnapshot.total = total
       requestStatsSnapshot.active = active
@@ -655,10 +836,21 @@ async function loadRequestCounts() {
       return
     }
 
+    const totalParams = requestFilterParams()
+    const activeParams = {
+      ...requestFilterParams(),
+      status_code: activeRequestStatusCodes.join(','),
+    }
+    delete activeParams.status
+    const terminalParams = {
+      ...requestFilterParams(),
+      status_code: terminalRequestStatusCodes.join(','),
+    }
+    delete terminalParams.status
     const [total, active, closed] = await Promise.all([
-      fetchRequestCount(),
-      fetchRequestCount({ status_code: activeRequestStatusCodes.join(',') }),
-      fetchRequestCount({ status_code: terminalRequestStatusCodes.join(',') }),
+      fetchRequestCount(totalParams),
+      fetchRequestCount(activeParams),
+      fetchRequestCount(terminalParams),
     ])
     requestStatsSnapshot.total = total
     requestStatsSnapshot.active = active
@@ -678,6 +870,17 @@ function setRequestPage(page) {
 function setRequestPageSize(size) {
   if (!size || size === requestPageSize.value) return
   requestPageSize.value = size
+}
+
+function resetFilters() {
+  requestFilters.operation_type = ''
+  requestFilters.status = ''
+  requestFilters.date_from = ''
+  requestFilters.date_to = ''
+}
+
+function openRequest(id) {
+  router.push(`/requests/${id}`)
 }
 
 async function createRequest() {
@@ -725,11 +928,12 @@ async function createRequest() {
     ])
     toasts.success(wasEditing ? 'Заявка обновлена' : 'Заявка создана')
   } catch (err) {
-    formError.value = err.response?.data
-      ? Object.values(err.response.data).flat().join(' ')
-      : isEditingRequest.value
+    const validationMessage = formatRequestValidationError(err.response?.data)
+    formError.value = validationMessage || (
+      isEditingRequest.value
         ? 'Не удалось обновить заявку.'
         : 'Не удалось создать заявку.'
+    )
     toasts.error(extractError(
       err,
       isEditingRequest.value ? 'Не удалось обновить заявку' : 'Не удалось создать заявку',
@@ -879,6 +1083,19 @@ watch(scope, async () => {
   await load()
 })
 
+watch(
+  () => [
+    requestFilters.operation_type,
+    requestFilters.status,
+    requestFilters.date_from,
+    requestFilters.date_to,
+  ],
+  async () => {
+    requestPage.value = 1
+    await Promise.all([load(), loadRequestCounts()])
+  },
+)
+
 watch(requestPage, async () => {
   await load()
 })
@@ -906,6 +1123,10 @@ onMounted(async () => {
   align-items: stretch;
 }
 
+.request-filters-grid {
+  align-items: end;
+}
+
 .table-check-cell {
   width: 44px;
   text-align: center;
@@ -920,7 +1141,8 @@ onMounted(async () => {
   align-items: start;
 }
 
-.request-form__grid .select {
+.request-form__grid .select,
+.request-filters-grid .select {
   color-scheme: light;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
@@ -933,11 +1155,15 @@ onMounted(async () => {
     0 10px 20px rgba(16, 55, 52, 0.08);
 }
 
-.request-form__grid .select option {
+.request-form__grid .select option,
+.request-filters-grid .select option {
   background: #f4f8fa;
   color: var(--c-page-text);
 }
 
+.request-form__property {
+  min-width: 0;
+}
 .request-form__budget {
   max-width: 420px;
 }
@@ -950,6 +1176,25 @@ onMounted(async () => {
 
 .requests-table__actions {
   min-width: 240px;
+}
+
+.requests-table__row-link {
+  cursor: pointer;
+}
+
+.requests-table__row-link:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.requests-table__row-link:focus-visible {
+  outline: 2px solid rgba(120, 216, 206, 0.42);
+  outline-offset: -2px;
+}
+
+.table .requests-table__property-link,
+.table .requests-table__property-link:hover {
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .link {

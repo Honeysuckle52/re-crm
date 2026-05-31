@@ -48,7 +48,7 @@
       <article class="kpi-card kpi-card--accent">
         <span class="kpi-card__label">История</span>
         <strong class="kpi-card__value">{{ historyCount }}</strong>
-        <span class="kpi-card__meta">Характеристик: {{ featuresCount }}</span>
+        <span class="kpi-card__meta">Изменения по объекту</span>
       </article>
     </div>
 
@@ -59,7 +59,7 @@
         <div class="row row--between">
           <h2 class="h3">Заявка на объект</h2>
           <button type="button" class="btn btn--sm btn--ghost"
-                  style="color: var(--c-ink)"
+                  style="color: #000"
                   @click="showRequestForm = false">×</button>
         </div>
         <div class="muted">
@@ -184,6 +184,8 @@
           <InfoRow label="Общая площадь"    :value="property.area_total ? property.area_total + ' м²' : '—'" />
           <InfoRow label="Количество комнат":value="property.rooms_count || '—'" />
           <InfoRow label="Этаж / всего"     :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
+          <InfoRow label="Тип помещения"     :value="premisesTypeLabel(property.premises_type)" />
+          <InfoRow label="Владелец"          :value="property.owner_username || '—'" />
           <InfoRow label="Статус"           :value="property.status_name" />
         </div>
       </div>
@@ -191,18 +193,10 @@
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div class="surface-head__meta">Описание и теги</div>
-          <div class="surface-head__caption">Характеристик: {{ featuresCount }}</div>
+          <div class="surface-head__caption">Описание объекта</div>
         </div>
         <h2 class="h3">Описание</h2>
         <p style="white-space: pre-wrap">{{ property.description || 'Описание не заполнено.' }}</p>
-        <h2 class="h3" style="margin-top: 16px">Характеристики</h2>
-        <div v-if="property.feature_values?.length" class="row" style="flex-wrap: wrap; gap: 6px">
-          <span v-for="fv in property.feature_values" :key="fv.feature"
-                class="tag tag--accent">
-            {{ fv.feature_name }}{{ fv.value ? ': ' + fv.value : '' }}
-          </span>
-        </div>
-        <div v-else class="muted">Характеристики не заданы.</div>
       </div>
     </div>
 
@@ -258,7 +252,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
@@ -310,7 +304,6 @@ const photosCount = computed(() => property.value?.photos?.length || 0)
 const visiblePhotosCount = computed(() => (
   property.value?.photos?.filter((photo) => !photo.is_hidden).length || 0
 ))
-const featuresCount = computed(() => property.value?.feature_values?.length || 0)
 const historyCount = computed(() => history.value.length)
 const priceLabel = computed(() => (
   property.value?.price ? `${formatMoney(property.value.price)} ₽` : '—'
@@ -339,16 +332,27 @@ async function submitRequest () {
 }
 
 async function load() {
-  const [p, s, h] = await Promise.all([
-    api.get(`/properties/${route.params.id}/`),
-    api.get('/property-statuses/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    }),
-    api.get(`/properties/${route.params.id}/history/`).catch(() => ({ data: [] })),
-  ])
-  property.value = p.data
-  statuses.value = unpackPaginated(s.data).items
-  history.value = h.data
+  const propertyId = route.params.id
+  try {
+    const { data } = await api.get(`/properties/${propertyId}/`)
+    property.value = data
+  } catch (err) {
+    property.value = null
+    toasts.error(extractError(err, 'Не удалось загрузить объект'))
+    return
+  }
+
+  api.get('/property-statuses/', {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  })
+    .then(({ data }) => {
+      statuses.value = unpackPaginated(data).items
+    })
+    .catch(() => {
+      statuses.value = []
+    })
+
+  history.value = []
 }
 
 async function changeStatus(id) {
@@ -439,8 +443,19 @@ async function remove() {
 }
 
 function formatMoney (v) { return fmtMoney(v, '0') }
+function premisesTypeLabel (value) {
+  const map = {
+    apartment: 'Квартира',
+    house: 'Дом',
+    office: 'Офис',
+    warehouse: 'Склад',
+  }
+  return map[value] || '—'
+}
 
-onMounted(load)
+watch(() => route.params.id, () => {
+  load()
+}, { immediate: true })
 </script>
 
 <style scoped>

@@ -8,13 +8,7 @@
             Каталог недвижимости
           </h1>
         </div>
-        <router-link
-          v-if="false"
-          to="/properties/new"
-          class="btn btn--accent">
-          + Добавить объект
-        </router-link>
-        <div v-if="auth.isStaff" class="row properties-hero__actions" style="gap: 8px; flex-wrap: wrap">
+        <div v-if="canManageProperties" class="row properties-hero__actions" style="gap: 8px; flex-wrap: wrap">
           <input
             ref="importInput"
             type="file"
@@ -37,6 +31,11 @@
             + Добавить объект
           </router-link>
         </div>
+        <div v-else-if="auth.isClient && isMyProperties" class="row properties-hero__actions" style="gap: 8px; flex-wrap: wrap">
+          <router-link to="/properties/new" class="btn btn--accent">
+            + Подать заявку
+          </router-link>
+        </div>
       </div>
     </div>
 
@@ -44,9 +43,6 @@
       <aside class="panel panel--light properties-filter">
         <div class="properties-filter__head">
           <h2 class="h3">Фильтр объектов</h2>
-          <div class="muted">
-            Фильтр закреплён, а справа прокручивается только список объектов.
-          </div>
         </div>
 
         <div class="grid properties-filter__grid">
@@ -60,7 +56,7 @@
             </select>
           </div>
 
-          <div class="field">
+          <div v-if="auth.isStaff" class="field">
             <label>Статус</label>
             <select class="select" v-model="filters.status">
               <option value="">Все</option>
@@ -68,6 +64,37 @@
                 {{ s.name }}
               </option>
             </select>
+          </div>
+
+          <div class="field">
+            <label>Тип помещения</label>
+            <select class="select" v-model="filters.premises_type">
+              <option value="">Все</option>
+              <option value="apartment">Квартира</option>
+              <option value="house">Дом</option>
+              <option value="office">Офис</option>
+              <option value="warehouse">Склад</option>
+            </select>
+          </div>
+
+          <div v-if="filters.premises_type === 'apartment'" class="field">
+            <label>Этаж</label>
+            <input class="input" type="number" v-model.number="filters.floor_number" />
+          </div>
+
+          <div v-if="filters.premises_type === 'house'" class="field">
+            <label>Этажей в доме</label>
+            <input class="input" type="number" v-model.number="filters.total_floors" />
+          </div>
+
+          <div v-if="filters.premises_type === 'office' || filters.premises_type === 'warehouse'" class="field">
+            <label>Площадь от</label>
+            <input class="input" type="number" v-model.number="filters.min_area" />
+          </div>
+
+          <div v-if="filters.premises_type === 'office' || filters.premises_type === 'warehouse'" class="field">
+            <label>Площадь до</label>
+            <input class="input" type="number" v-model.number="filters.max_area" />
           </div>
 
           <div class="field">
@@ -138,6 +165,14 @@
             >
               В архив
             </button>
+            <button
+              class="btn btn--sm btn--accent"
+              :disabled="loading || !selectedPropertyCount"
+              type="button"
+              @click="openAttachToRequestDialog"
+            >
+              Прикрепить к заявке
+            </button>
           </BulkActionBar>
           <div class="properties-results__body">
             <div v-if="loading" class="empty properties-empty">Загрузка…</div>
@@ -176,33 +211,93 @@
       </section>
     </div>
   </section>
+
+  <Teleport to="body">
+    <div v-if="attachRequestDialogOpen" class="modal-overlay" @click.self="closeAttachToRequestDialog">
+      <div class="modal" style="max-width: 720px; width: calc(100vw - 32px)">
+        <div class="surface-head">
+          <div class="surface-head__meta">
+            <h3 class="h3">Прикрепить объекты к заявке</h3>
+            <div class="muted" style="margin-top: 6px">
+              Выбрано {{ selectedPropertyCount }} объектов. Найдите заявку и подтвердите привязку.
+            </div>
+          </div>
+        </div>
+
+        <div class="stack" style="gap: 14px; margin-top: 18px">
+          <RemoteLookupField
+            v-model="attachRequestId"
+            label="Заявка"
+            placeholder="Найти заявку по номеру, клиенту или объекту"
+            endpoint="/requests/"
+            :params="{ ordering: '-updated_at' }"
+            :map-option="mapRequestOption"
+            no-results-text="Заявки не найдены."
+            @select="selectedAttachRequestLabel = $event.label"
+          />
+          <div class="muted" v-if="selectedAttachRequestLabel">
+            Выбрана: {{ selectedAttachRequestLabel }}
+          </div>
+        </div>
+
+        <div class="row" style="gap: 10px; justify-content: flex-end; margin-top: 22px">
+          <button type="button" class="btn" @click="closeAttachToRequestDialog">Отмена</button>
+          <button
+            type="button"
+            class="btn btn--accent"
+            :disabled="attachRequestLoading || !attachRequestId"
+            @click="attachSelectedPropertiesToRequest"
+          >
+            {{ attachRequestLoading ? 'Прикрепление…' : 'Прикрепить' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import api from '../api'
 import { bulkArchiveProperties } from '../api/bulk'
 import { exportEntityData } from '../api/exports'
 import BulkActionBar from '../components/BulkActionBar.vue'
 import ListPagination from '../components/ListPagination.vue'
+import RemoteLookupField from '../components/RemoteLookupField.vue'
 import PropertyCard from '../components/PropertyCard.vue'
 import { useBulkSelection } from '../composables/useBulkSelection'
 import { useAuthStore } from '../store/auth'
+import { useRoute } from 'vue-router'
 import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
+const route = useRoute()
 const confirm = useConfirmStore()
 const toasts = useToastsStore()
+const canManageProperties = computed(() => auth.isManager)
+const isMyProperties = computed(() => route.name === 'client-properties')
+
+function defaultFilters() {
+  return {
+    operation_type: '',
+    status: '',
+    premises_type: '',
+    rooms: '',
+    floor_number: '',
+    total_floors: '',
+    min_area: null,
+    max_area: null,
+    min_price: null,
+    max_price: null,
+    search: '',
+    owner: '',
+  }
+}
 
 const filters = reactive({
-  operation_type: '',
-  status: '',
-  rooms: '',
-  min_price: null,
-  max_price: null,
-  search: '',
+  ...defaultFilters(),
 })
 
 const dict = reactive({ operations: [], statuses: [] })
@@ -212,6 +307,10 @@ const importInput = ref(null)
 const propertyPage = ref(1)
 const propertyPageSize = ref(DEFAULT_PAGE_SIZE)
 const propertyCount = ref(0)
+const attachRequestDialogOpen = ref(false)
+const attachRequestLoading = ref(false)
+const attachRequestId = ref(null)
+const selectedAttachRequestLabel = ref('')
 const {
   selectedIds: selectedPropertyIds,
   selectedCount: selectedPropertyCount,
@@ -241,12 +340,70 @@ async function load () {
   }
 }
 
+function syncRouteFilters() {
+  Object.assign(filters, defaultFilters())
+  filters.owner = isMyProperties.value ? 'me' : ''
+  propertyPage.value = 1
+  propertyPageSize.value = DEFAULT_PAGE_SIZE
+  clearPropertySelection()
+  items.value = []
+  propertyCount.value = 0
+}
+
 function exportParams () {
   const params = {}
   for (const [k, v] of Object.entries(filters)) {
     if (v !== '' && v !== null) params[k] = v
   }
   return params
+}
+
+function mapRequestOption(request) {
+  return {
+    id: request.id,
+    label: `Заявка №${request.id}`,
+    hint: [request.client_username, request.property_title, request.status_name]
+      .filter(Boolean)
+      .join(' · ') || 'Заявка',
+  }
+}
+
+function openAttachToRequestDialog() {
+  if (!selectedPropertyIds.value.length) return
+  attachRequestDialogOpen.value = true
+}
+
+function closeAttachToRequestDialog() {
+  attachRequestDialogOpen.value = false
+  attachRequestId.value = null
+  selectedAttachRequestLabel.value = ''
+}
+
+async function attachSelectedPropertiesToRequest() {
+  if (!attachRequestId.value || !selectedPropertyIds.value.length) return
+  attachRequestLoading.value = true
+  try {
+    const propertyIds = [...new Set(selectedPropertyIds.value)]
+    const results = []
+    for (const propertyId of propertyIds) {
+      try {
+        const { data } = await api.post(`/requests/${attachRequestId.value}/attach_property/`, {
+          property_id: propertyId,
+        })
+        results.push(data)
+      } catch (err) {
+        const detail = err?.response?.data?.detail || `Не удалось прикрепить объект #${propertyId}`
+        throw new Error(detail)
+      }
+    }
+    toasts.success(`К заявке прикреплено объектов: ${results.length}.`)
+    clearPropertySelection()
+    closeAttachToRequestDialog()
+  } catch (err) {
+    toasts.error(err?.message || 'Не удалось прикрепить объекты к заявке')
+  } finally {
+    attachRequestLoading.value = false
+  }
 }
 
 async function applyFilters () {
@@ -258,14 +415,7 @@ async function applyFilters () {
 }
 
 async function reset () {
-  Object.assign(filters, {
-    operation_type: '',
-    status: '',
-    rooms: '',
-    min_price: null,
-    max_price: null,
-    search: '',
-  })
+  syncRouteFilters()
   if (propertyPage.value !== 1) {
     propertyPage.value = 1
     return
@@ -376,7 +526,34 @@ onMounted(async () => {
   ])
   dict.operations = unpackPaginated(o.data).items
   dict.statuses = unpackPaginated(s.data).items
+  syncRouteFilters()
   await load()
+})
+
+watch(
+  () => route.name,
+  async () => {
+    syncRouteFilters()
+    await load()
+  },
+)
+
+watch(() => filters.premises_type, (value) => {
+  if (value === 'office' || value === 'warehouse') {
+    filters.rooms = ''
+    filters.floor_number = ''
+    filters.total_floors = ''
+  }
+  if (value === 'apartment') {
+    filters.total_floors = ''
+    filters.min_area = null
+    filters.max_area = null
+  }
+  if (value === 'house') {
+    filters.floor_number = ''
+    filters.min_area = null
+    filters.max_area = null
+  }
 })
 </script>
 

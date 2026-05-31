@@ -12,13 +12,18 @@ const routes = [
 
   { path: '/properties', name: 'properties',
     component: () => import('./views/Properties.vue') },
+  { path: '/my-properties', name: 'client-properties',
+    component: () => import('./views/Properties.vue') },
   { path: '/properties/new', name: 'property-new',
-    component: () => import('./views/PropertyForm.vue'),
-    meta: { staff: true } },
+    component: () => import('./views/PropertyForm.vue') },
   { path: '/properties/:id', name: 'property-detail',
     component: () => import('./views/PropertyDetail.vue') },
   { path: '/properties/:id/edit', name: 'property-edit',
     component: () => import('./views/PropertyForm.vue'),
+    meta: { staff: true } },
+
+  { path: '/properties/moderation', name: 'property-moderation',
+    component: () => import('./views/PropertyModeration.vue'),
     meta: { staff: true } },
 
   { path: '/requests', name: 'requests',
@@ -35,11 +40,9 @@ const routes = [
     component: () => import('./views/Clients.vue'),
     meta: { manager: true } },
   { path: '/deals', name: 'deals',
-    component: () => import('./views/Deals.vue'),
-    meta: { staff: true } },
+    component: () => import('./views/Deals.vue') },
   { path: '/deals/:id', name: 'deal-detail',
-    component: () => import('./views/DealDetail.vue'),
-    meta: { staff: true } },
+    component: () => import('./views/DealDetail.vue') },
   { path: '/reports', name: 'reports',
     component: () => import('./views/Reports.vue'),
     meta: { manager: true } },
@@ -61,6 +64,10 @@ router.beforeEach((to) => {
   if (to.meta.guest && auth.isAuthenticated) return { name: 'home' }
   if (to.meta.staff && !auth.isStaff) return { name: 'home' }
   if (to.meta.manager && !auth.isManager) return { name: 'home' }
+  if ((to.name === 'property-new' || to.name === 'property-edit')
+      && auth.isEmployee && !auth.isAdminOrManager) {
+    return { name: 'home' }
+  }
 })
 
 export default router

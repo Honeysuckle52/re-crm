@@ -4,12 +4,13 @@
       <div class="hero__eyebrow">РИЭЛТ</div>
       <h1 class="auth__title">Вход в систему</h1>
       <p class="muted" style="color: rgba(255,255,255,.7)">
-        Введите логин и пароль, чтобы продолжить работу
+        Введите электронную почту и пароль, чтобы продолжить работу
       </p>
       <form class="stack" @submit.prevent="submit">
         <div class="field">
-          <label>Логин</label>
-          <input class="input" v-model="username" autocomplete="username" required />
+          <label>Электронная почта</label>
+          <input class="input" type="email" v-model.trim="email"
+                 autocomplete="email" required />
         </div>
         <div class="field">
           <label>Пароль</label>
@@ -38,7 +39,7 @@ import { useAuthStore } from '../store/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
-const username = ref('')
+const email = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
@@ -46,10 +47,10 @@ const error = ref('')
 async function submit() {
   loading.value = true; error.value = ''
   try {
-    await auth.login(username.value, password.value)
+    await auth.login(email.value, password.value)
     router.push('/')
   } catch (e) {
-    error.value = e.response?.data?.detail || 'Неверный логин или пароль'
+    error.value = e.response?.data?.detail || 'Неверная почта или пароль'
   } finally {
     loading.value = false
   }

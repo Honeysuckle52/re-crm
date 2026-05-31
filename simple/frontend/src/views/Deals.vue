@@ -2,26 +2,56 @@
   <section class="stack">
     <div class="hero" style="padding: 24px 28px">
       <div class="hero__eyebrow">Сделки</div>
-      <h1 class="h2" style="color: #fff; margin-top: 8px">Журнал сделок</h1>
+      <h1 class="h2" style="color: #fff; margin-top: 8px">
+        {{ auth.isClient ? 'Мои сделки' : 'Журнал сделок' }}
+      </h1>
     </div>
 
     <div class="panel panel--light">
       <div class="surface-head deal-filter__head">
         <div class="surface-head__meta">
-          <h2 class="h3">Фильтр по статусам</h2>
-          <div class="muted">Оставьте только нужный участок воронки и работайте с ним прямо из таблицы.</div>
+          <h2 class="h3">Фильтры сделок</h2>
+          <div class="muted">
+            Оставьте нужный этап, операцию и период, чтобы быстро найти нужную сделку.
+          </div>
+        </div>
+        <button class="btn btn--sm btn--ghost" type="button" @click="resetFilters">
+          Сбросить
+        </button>
+      </div>
+      <div class="grid grid--4 deal-filter__grid">
+        <div class="field">
+          <label>Операция</label>
+          <select v-model="operationFilter" class="select">
+            <option value="">Все операции</option>
+            <option
+              v-for="operation in operations"
+              :key="operation.id"
+              :value="String(operation.id)"
+            >
+              {{ operation.name }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Дата от</label>
+          <input v-model="dateFromFilter" class="input" type="date" />
+        </div>
+        <div class="field">
+          <label>Дата до</label>
+          <input v-model="dateToFilter" class="input" type="date" />
         </div>
       </div>
       <div class="row deal-filter__actions" style="gap: 8px; flex-wrap: wrap">
         <button class="btn btn--sm"
-                :class="{ 'btn--primary': statusFilter === '' }"
-                @click="statusFilter = ''">
-          Все ({{ deals.length }})
+                 :class="{ 'btn--primary': statusFilter === '' }"
+                 @click="statusFilter = ''">
+          Все ({{ dealCount }})
         </button>
         <button v-for="s in statuses" :key="s.id"
-                class="btn btn--sm"
-                :class="{ 'btn--primary': statusFilter === s.id }"
-                @click="statusFilter = s.id">
+                 class="btn btn--sm"
+                 :class="{ 'btn--primary': statusFilter === String(s.id) }"
+                 @click="statusFilter = String(s.id)">
           {{ s.name }} ({{ countByStatus(s.id) }})
         </button>
       </div>
@@ -33,7 +63,7 @@
           <h2 class="h3">Сделки в работе</h2>
           <div class="muted">Показано {{ filtered.length }} из {{ filteredTotalCount }} записей по текущему фильтру.</div>
         </div>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
+        <div v-if="auth.isStaff" class="row" style="gap: 8px; flex-wrap: wrap">
           <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('csv')">CSV</button>
           <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('xlsx')">XLSX</button>
           <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('json')">JSON</button>
@@ -76,7 +106,7 @@
         <table class="table deals-table table--responsive-cards">
           <thead>
             <tr>
-              <th>Номер</th>
+              <th>Заявка</th>
               <th>Объект</th>
               <th>Тип</th>
               <th>Стоимость, ₽</th>
@@ -89,16 +119,18 @@
           </thead>
           <tbody>
             <tr v-for="deal in filtered" :key="deal.id">
-              <td data-label="Номер">
-                <router-link :to="`/deals/${deal.id}`" class="link">
-                  <b>{{ deal.deal_number }}</b>
-                </router-link>
-                <div v-if="deal.request" class="muted deals-table__sub">
-                  из заявки
-                  <router-link :to="`/requests/${deal.request}`" class="link">
-                    #{{ deal.request }}
-                  </router-link>
-                </div>
+              <td
+                class="deals-table__request-cell"
+                :class="{ 'deals-table__request-cell--clickable': deal.request }"
+                data-label="Заявка"
+                :role="deal.request ? 'link' : undefined"
+                :tabindex="deal.request ? 0 : undefined"
+                @click="openDealRequest(deal)"
+                @keydown.enter="openDealRequest(deal)"
+                @keydown.space.prevent="openDealRequest(deal)"
+              >
+                <b v-if="deal.request">#{{ deal.request }}</b>
+                <span v-else class="muted">—</span>
               </td>
               <td data-label="Объект">
                 <router-link v-if="deal.property" :to="`/properties/${deal.property}`" class="link">
@@ -183,6 +215,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../api'
 import { exportEntityData } from '../api/exports'
 import DataFetchPanel from '../components/DataFetchPanel.vue'
@@ -201,9 +234,14 @@ import { formatMoney as fmtMoney } from '@/utils/formatters'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
+const router = useRouter()
 const deals = ref([])
 const statuses = ref([])
+const operations = ref([])
 const statusFilter = ref('')
+const operationFilter = ref('')
+const dateFromFilter = ref('')
+const dateToFilter = ref('')
 const dealPage = ref(1)
 const dealPageSize = ref(DEFAULT_PAGE_SIZE)
 const dealCount = ref(0)
@@ -298,10 +336,16 @@ async function load () {
 
 async function loadStatuses () {
   try {
-    const { data } = await api.get('/deal-statuses/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    })
-    statuses.value = unpackPaginated(data).items
+    const [statusesResponse, operationsResponse] = await Promise.all([
+      api.get('/deal-statuses/', {
+        params: { page_size: LOOKUP_PAGE_SIZE },
+      }),
+      api.get('/operation-types/', {
+        params: { page_size: LOOKUP_PAGE_SIZE },
+      }),
+    ])
+    statuses.value = unpackPaginated(statusesResponse.data).items
+    operations.value = unpackPaginated(operationsResponse.data).items
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось загрузить статусы сделок'))
   }
@@ -316,9 +360,13 @@ async function fetchDealCount (params = {}) {
 
 async function loadStatusCounts () {
   try {
+    const baseParams = baseFilterParams()
     const requests = [
-      fetchDealCount(),
-      ...statuses.value.map((status) => fetchDealCount({ status: status.id })),
+      fetchDealCount(baseParams),
+      ...statuses.value.map((status) => fetchDealCount({
+        ...baseParams,
+        status: status.id,
+      })),
     ]
     const [total, ...counts] = await Promise.all(requests)
     dealCount.value = total
@@ -332,8 +380,23 @@ async function loadStatusCounts () {
   }
 }
 
+function baseFilterParams () {
+  const params = {}
+  if (operationFilter.value) {
+    params.operation_type = Number(operationFilter.value)
+  }
+  if (dateFromFilter.value) {
+    params.date_from = dateFromFilter.value
+  }
+  if (dateToFilter.value) {
+    params.date_to = dateToFilter.value
+  }
+  return params
+}
+
 function listParams () {
   const params = {
+    ...baseFilterParams(),
     page: dealPage.value,
     page_size: dealPageSize.value,
   }
@@ -348,6 +411,18 @@ function dealExportParams () {
   delete params.page
   delete params.page_size
   return params
+}
+
+function resetFilters () {
+  statusFilter.value = ''
+  operationFilter.value = ''
+  dateFromFilter.value = ''
+  dateToFilter.value = ''
+}
+
+function openDealRequest (deal) {
+  if (!deal.request) return
+  router.push(`/requests/${deal.request}`)
 }
 
 function setDealPage (page) {
@@ -388,7 +463,12 @@ useVisibilityRefresh({
 
 watch(statusFilter, async () => {
   dealPage.value = 1
-  await load()
+  await Promise.all([load(), loadStatusCounts()])
+})
+
+watch([operationFilter, dateFromFilter, dateToFilter], async () => {
+  dealPage.value = 1
+  await Promise.all([load(), loadStatusCounts()])
 })
 
 watch(dealPage, async () => {
@@ -411,7 +491,7 @@ onMounted(async () => {
 
 <style scoped>
 .link {
-  color: #f4fbfa;
+  color: #ffffff;
   font-weight: 700;
 }
 
@@ -427,6 +507,36 @@ onMounted(async () => {
 
 .deal-filter__actions {
   align-items: stretch;
+  margin-top: 14px;
+}
+
+.deal-filter__grid {
+  align-items: end;
+}
+
+.deal-filter__grid .select {
+  color-scheme: light;
+  background-color: #f4f8fa;
+  background-image:
+    var(--grad-control-light),
+    linear-gradient(45deg, transparent 50%, var(--c-accent) 50%),
+    linear-gradient(135deg, var(--c-accent) 50%, transparent 50%);
+  background-position:
+    0 0,
+    calc(100% - 24px) calc(50% - 3px),
+    calc(100% - 18px) calc(50% - 3px);
+  background-size: 100% 100%, 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 20px rgba(16, 55, 52, 0.08);
+}
+
+.deal-filter__grid .select option {
+  background: #f4f8fa;
+  color: var(--c-page-text);
 }
 
 .deals-table {
@@ -445,8 +555,25 @@ onMounted(async () => {
   box-shadow: 0 8px 18px rgba(16, 55, 52, 0.08);
 }
 
-.deals-table__sub {
-  font-size: 11px;
+.deals-table__request-cell {
+  color: var(--c-text);
+  font-weight: 700;
+}
+
+.deals-table__request-cell--clickable {
+  cursor: pointer;
+}
+
+.deals-table__request-cell--clickable:hover,
+.deals-table__request-cell--clickable:focus-visible {
+  color: var(--c-text);
+  text-decoration: underline;
+  text-decoration-color: rgba(244, 251, 250, 0.45);
+}
+
+.deals-table__request-cell--clickable:focus-visible {
+  outline: 2px solid rgba(120, 216, 206, 0.42);
+  outline-offset: -2px;
 }
 
 .deals-table__status {

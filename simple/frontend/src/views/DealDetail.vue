@@ -103,8 +103,8 @@
     </div>
 
     <AuditLogPanel
-      entity-type="deal"
-      :entity-id="deal.id"
+      v-if="auth.isStaff"
+      :params="{ deal: deal.id }"
       title="История сделки"
       empty-text="Для этой сделки пока нет записей в журнале."
     />
@@ -118,7 +118,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
@@ -230,9 +230,9 @@ useVisibilityRefresh({
   onRefresh: () => loadDeal(),
 })
 
-onMounted(async () => {
+watch(() => route.params.id, async () => {
   await Promise.all([loadStatuses(), loadDeal()])
-})
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -263,7 +263,7 @@ onMounted(async () => {
 }
 
 .link {
-  color: #f4fbfa;
+  color: #ffffff;
   font-weight: 700;
 }
 

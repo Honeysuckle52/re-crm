@@ -67,14 +67,14 @@ DEALS_REPORT = ReportDefinition(
 
 TASKS_REPORT = ReportDefinition(
     code='tasks',
-    title='Отчёт по задачам сотрудников',
+    title='Отчёт по задачам агента',
     filename_prefix='tasks-report',
     columns=(
         ('id', 'ID'),
         ('title', 'Задача'),
         ('task_type_display', 'Тип'),
         ('status_name', 'Статус'),
-        ('assignee_username', 'Исполнитель'),
+        ('assignee_username', 'Агент'),
         ('client_username', 'Клиент'),
         ('request_label', 'Заявка'),
         ('due_date', 'Срок'),

@@ -13,8 +13,8 @@ from .storage import database_backup_storage
 _property = property
 
 phone_validator = RegexValidator(
-    regex=r'^\+?[0-9][0-9\s().-]{6,19}$',
-    message='Укажите корректный номер телефона.',
+    regex=r'^\+7\d{10}$',
+    message='Телефон должен быть российским номером в формате +7XXXXXXXXXX.',
 )
 username_validator = RegexValidator(
     regex=r'^[\w.@+-]+$',
@@ -31,6 +31,10 @@ passport_number_validator = RegexValidator(
 passport_code_validator = RegexValidator(
     regex=r'^\d{3}-\d{3}$',
     message='Код подразделения должен быть в формате 000-000.',
+)
+company_inn_validator = RegexValidator(
+    regex=r'^\d{10}$',
+    message='ИНН юридического лица должен состоять из 10 цифр.',
 )
 
 class OperationType(models.Model):
@@ -406,13 +410,59 @@ class EmployeeProfile(models.Model):
 
 class ClientProfile(models.Model):
     """Профиль клиента."""
+    CLIENT_KIND_INDIVIDUAL = 'individual'
+    CLIENT_KIND_COMPANY = 'company'
+    CLIENT_KIND_CHOICES = [
+        (CLIENT_KIND_INDIVIDUAL, 'Физическое лицо'),
+        (CLIENT_KIND_COMPANY, 'Юридическое лицо'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE,
                                 related_name='client_profile')
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
     middle_name = models.CharField(max_length=50, blank=True, null=True)
-    birth_date = models.DateField(blank=True, null=True)
+    client_kind = models.CharField(
+        max_length=20,
+        choices=CLIENT_KIND_CHOICES,
+        default=CLIENT_KIND_INDIVIDUAL,
+    )
 
+    registration_address = models.TextField(blank=True, null=True)
+    actual_address = models.TextField(blank=True, null=True)
+
+    preferred_contact_method = models.CharField(max_length=20, blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'client_profiles'
+        verbose_name = 'Профиль клиента'
+        verbose_name_plural = 'Профили клиентов'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(client_kind__in=['individual', 'company']),
+                name='client_profile_kind_valid',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.last_name} {self.first_name}'
+
+    def clean(self):
+        super().clean()
+        if self.user_id and self.user.user_type != 'client':
+            raise ValidationError({'user': 'Профиль клиента можно привязать только к пользователю типа "Клиент".'})
+
+
+class ClientIndividualDetails(models.Model):
+    """Паспортные данные клиента-физлица."""
+    profile = models.OneToOneField(
+        ClientProfile,
+        on_delete=models.CASCADE,
+        related_name='individual_details',
+    )
     passport_series = models.CharField(
         max_length=4,
         blank=True,
@@ -433,31 +483,58 @@ class ClientProfile(models.Model):
         null=True,
         validators=[passport_code_validator],
     )
-
-    registration_address = models.TextField(blank=True, null=True)
-    actual_address = models.TextField(blank=True, null=True)
-
-    preferred_contact_method = models.CharField(max_length=20, blank=True, null=True)
-    notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'client_profiles'
-        verbose_name = 'Профиль клиента'
-        verbose_name_plural = 'Профили клиентов'
+        db_table = 'client_individual_details'
+        verbose_name = 'Паспортные данные клиента'
+        verbose_name_plural = 'Паспортные данные клиентов'
 
     def __str__(self):
-        return f'{self.last_name} {self.first_name}'
+        return f'Паспортные данные: {self.profile}'
 
     def clean(self):
         super().clean()
-        if self.user_id and self.user.user_type != 'client':
-            raise ValidationError({'user': 'Профиль клиента можно привязать только к пользователю типа "Клиент".'})
-        if self.passport_issued_date and self.birth_date and self.passport_issued_date <= self.birth_date:
-            raise ValidationError({'passport_issued_date': 'Дата выдачи паспорта должна быть позже даты рождения.'})
+
+
+class ClientCompanyDetails(models.Model):
+    """Реквизиты клиента-юрлица."""
+    profile = models.OneToOneField(
+        ClientProfile,
+        on_delete=models.CASCADE,
+        related_name='company_details',
+    )
+    company_inn = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        db_index=True,
+        validators=[company_inn_validator],
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'client_company_details'
+        verbose_name = 'Реквизиты юрлица'
+        verbose_name_plural = 'Реквизиты юрлиц'
+
+    def __str__(self):
+        return f'Юрлицо: {self.profile}'
 
 class Property(models.Model):
+    PREMISES_APARTMENT = 'apartment'
+    PREMISES_HOUSE = 'house'
+    PREMISES_OFFICE = 'office'
+    PREMISES_WAREHOUSE = 'warehouse'
+    PREMISES_TYPE_CHOICES = [
+        (PREMISES_APARTMENT, 'Apartment'),
+        (PREMISES_HOUSE, 'House'),
+        (PREMISES_OFFICE, 'Office'),
+        (PREMISES_WAREHOUSE, 'Warehouse'),
+    ]
+
     """Объект недвижимости."""
     title = models.CharField(max_length=255, blank=True, null=True)
     operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
@@ -486,6 +563,19 @@ class Property(models.Model):
     twogis_address_full = models.TextField(blank=True, null=True)
     twogis_rubric = models.CharField(max_length=255, blank=True, null=True)
     twogis_synced_at = models.DateTimeField(blank=True, null=True)
+    premises_type = models.CharField(
+        max_length=20,
+        choices=PREMISES_TYPE_CHOICES,
+        default=PREMISES_APARTMENT,
+    )
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='owned_properties',
+        limit_choices_to={'user_type': 'client'},
+        blank=True,
+        null=True,
+    )
 
     price = models.FloatField(validators=[MinValueValidator(0)])
     price_per_sqm = models.FloatField(blank=True, null=True, validators=[MinValueValidator(0)])
@@ -534,6 +624,10 @@ class Property(models.Model):
                 name='property_floor_not_above_total',
             ),
             models.CheckConstraint(
+                condition=models.Q(premises_type__in=['apartment', 'house', 'office', 'warehouse']),
+                name='property_premises_type_valid',
+            ),
+            models.CheckConstraint(
                 condition=(
                     models.Q(coordinates_lat__isnull=True)
                     | (models.Q(coordinates_lat__gte=Decimal('-90')) & models.Q(coordinates_lat__lte=Decimal('90')))
@@ -569,40 +663,11 @@ class Property(models.Model):
             and self.floor_number > self.total_floors
         ):
             errors['floor_number'] = 'Этаж объекта не может быть выше общего количества этажей.'
+        if self.owner_id and self.owner.user_type != 'client':
+            errors['owner'] = 'Owner must be a client user.'
         if errors:
             raise ValidationError(errors)
 
-
-class PropertyFeature(models.Model):
-    """Характеристика объекта (балкон, ремонт, парковка и т. п.)."""
-    name = models.CharField(max_length=100)
-    category = models.CharField(max_length=50, blank=True, null=True)
-
-    class Meta:
-        db_table = 'property_features'
-        verbose_name = 'Характеристика'
-        verbose_name_plural = 'Характеристики'
-
-    def __str__(self):
-        return self.name
-
-
-class PropertyFeatureValue(models.Model):
-    """Значение характеристики для конкретного объекта."""
-    property = models.ForeignKey(Property, on_delete=models.CASCADE,
-                                 related_name='feature_values')
-    feature = models.ForeignKey(PropertyFeature, on_delete=models.CASCADE,
-                                related_name='values')
-    value = models.CharField(max_length=255, blank=True, null=True)
-
-    class Meta:
-        db_table = 'property_feature_values'
-        verbose_name = 'Значение характеристики'
-        verbose_name_plural = 'Значения характеристик'
-        unique_together = [('property', 'feature')]
-
-    def __str__(self):
-        return f'{self.feature.name}: {self.value}'
 
 
 class PropertyPhoto(models.Model):

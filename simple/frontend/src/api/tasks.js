@@ -13,12 +13,31 @@ async function call(fn, opts = {}) {
     }
     return { ok: true, data: response.data, error: null }
   } catch (error) {
-    const detail = error?.response?.data?.detail
-      || error?.response?.data?.non_field_errors?.[0]
+    const response = error?.response
+    const detail = response?.data?.detail
+      || response?.data?.non_field_errors?.[0]
       || error?.message
       || 'Не удалось выполнить запрос'
-    return { ok: false, data: null, error: detail, raw: error }
+    return {
+      ok: false,
+      data: response?.data ?? null,
+      error: detail,
+      status: response?.status ?? null,
+      code: response?.data?.code ?? null,
+      raw: error,
+    }
   }
+}
+
+export function normalizeTaskError(errorText, payload) {
+  if (payload?.code === 'max_in_progress_tasks') {
+    return payload.detail || 'Нельзя стартовать задачу: превышен лимит задач в работе'
+  }
+  if (payload?.code === 'max_active_tasks') {
+    return payload.detail || 'Нельзя стартовать задачу: превышен лимит активных задач'
+  }
+  if (payload?.detail) return payload.detail
+  return errorText
 }
 
 export function listTasks(params = {}) {

@@ -89,15 +89,20 @@
           :params="{ user_type: 'client' }"
           :map-option="mapClientOption"
         />
-        <RemoteLookupField
-          v-model="form.property"
-          label="Связанный объект"
-          placeholder="Найти объект по номеру или названию"
-          endpoint="/properties/"
-          :params="{ ordering: '-created_at' }"
-          :map-option="mapPropertyOption"
-          no-results-text="Объекты не найдены."
-        />
+        <div class="field task-form__property">
+          <label>Связанный объект</label>
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <button class="btn btn--sm btn--accent" type="button" @click="propertyPickerOpen = true">
+              {{ form.property ? 'Заменить объект' : 'Выбрать объект' }}
+            </button>
+            <button v-if="form.property" class="btn btn--sm" type="button" @click="clearSelectedProperty">
+              Очистить
+            </button>
+          </div>
+          <div class="muted" style="margin-top: 8px">
+            {{ form.property ? selectedPropertyLabel : 'Объект ещё не выбран.' }}
+          </div>
+        </div>
       </div>
 
       <div class="field">
@@ -133,7 +138,7 @@
         </button>
       </div>
 
-      <div v-if="viewMode === 'active'" class="filter-row">
+      <div class="filter-row">
         <div class="filter-group">
           <span class="filter-label">Статус:</span>
           <div class="row" style="gap: 6px; flex-wrap: wrap">
@@ -142,10 +147,10 @@
               :class="{ 'btn--primary': statusFilter === '' }"
               @click="statusFilter = ''"
             >
-              Все ({{ activeCount }})
+              Все ({{ viewMode === 'active' ? activeCount : historyCount }})
             </button>
             <button
-              v-for="status in activeStatuses"
+              v-for="status in visibleStatuses"
               :key="status.id"
               class="btn btn--sm"
               :class="{ 'btn--primary': statusFilter === String(status.id) }"
@@ -163,6 +168,32 @@
               {{ taskType.name }}
             </option>
           </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Операция:</span>
+          <select v-model="operationFilter" class="select select--sm">
+            <option value="">Все операции</option>
+            <option
+              v-for="operation in operations"
+              :key="operation.id"
+              :value="String(operation.id)"
+            >
+              {{ operation.name }}
+            </option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Создана от:</span>
+          <input v-model="dateFromFilter" class="input" type="date" />
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Создана до:</span>
+          <input v-model="dateToFilter" class="input" type="date" />
+        </div>
+        <div class="filter-group filter-group--actions">
+          <button class="btn btn--sm btn--ghost" type="button" @click="resetFilters">
+            Сбросить
+          </button>
         </div>
       </div>
 
@@ -415,9 +446,18 @@
         @change="setActivePage"
         @change-page-size="setTaskPageSize"
       />
-    </div>
+      </div>
 
-    <div v-else class="panel panel--light">
+      <PropertyPickerModal
+        v-if="propertyPickerOpen"
+        title="Выбор объекта для задачи"
+        :selected-id="form.property"
+        :params="{ ordering: '-created_at' }"
+        @close="propertyPickerOpen = false"
+        @select="selectProperty"
+      />
+
+      <div v-else class="panel panel--light">
       <div class="surface-head task-section-head">
         <div>
           <div class="surface-head__meta">Архив выполнения</div>
@@ -584,6 +624,7 @@ import * as tasksApi from '../api/tasks'
 import BulkActionBar from '../components/BulkActionBar.vue'
 import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
+import PropertyPickerModal from '../components/PropertyPickerModal.vue'
 import RemoteLookupField from '../components/RemoteLookupField.vue'
 import TaskMineBadge from '../components/TaskMineBadge.vue'
 import { useDraftPersistence } from '../composables/useDraftPersistence'
@@ -605,9 +646,13 @@ const router = useRouter()
 const tasks = ref([])
 const history = ref([])
 const statuses = ref([])
+const operations = ref([])
 
 const statusFilter = ref('')
 const typeFilter = ref('')
+const operationFilter = ref('')
+const dateFromFilter = ref('')
+const dateToFilter = ref('')
 const showForm = ref(false)
 const busyId = ref(null)
 const viewMode = ref('active')
@@ -618,12 +663,15 @@ const exportingTasks = ref(false)
 const loadingTasks = ref(false)
 const loadingHistory = ref(false)
 const editingTaskId = ref(null)
+const propertyPickerOpen = ref(false)
+const selectedPropertyLabel = ref('')
 const activeTotalCount = ref(0)
 const activeFilteredCount = ref(0)
 const historyTotalCount = ref(0)
 const tasksLoadError = ref('')
 const historyLoadError = ref('')
-const statusCounts = ref({})
+const activeStatusCounts = ref({})
+const historyStatusCounts = ref({})
 const bulkTaskActionCode = ref('pause')
 const taskFormBaseline = ref('')
 const taskDraftRestored = ref(false)
@@ -749,6 +797,7 @@ function fillTaskForm(task) {
     client: task.client ?? null,
     property: task.property ?? null,
   })
+  selectedPropertyLabel.value = task.property ? (task.property_title || `?????? ?${task.property}`) : ''
 }
 
 const TERMINAL_CODES = ['done', 'cancelled']
@@ -756,6 +805,12 @@ const TERMINAL_CODES = ['done', 'cancelled']
 const activeTasks = computed(() => tasks.value)
 const activeStatuses = computed(() => (
   statuses.value.filter((status) => !TERMINAL_CODES.includes(status.code))
+ ))
+const historyStatuses = computed(() => (
+  statuses.value.filter((status) => TERMINAL_CODES.includes(status.code))
+))
+const visibleStatuses = computed(() => (
+  viewMode.value === 'history' ? historyStatuses.value : activeStatuses.value
 ))
 const filtered = computed(() => activeTasks.value)
 const activeCount = computed(() => activeTotalCount.value)
@@ -771,7 +826,10 @@ const {
 } = useBulkSelection(filtered)
 
 function countByStatus(id) {
-  return statusCounts.value[String(id)] || 0
+  const source = viewMode.value === 'history'
+    ? historyStatusCounts.value
+    : activeStatusCounts.value
+  return source[String(id)] || 0
 }
 
 function mapAssigneeOption(user) {
@@ -810,6 +868,17 @@ function mapPropertyOption(property) {
     label: title,
     hint: [property.operation_type_name, price].filter(Boolean).join(' · ') || 'Объект',
   }
+}
+
+function selectProperty(property) {
+  form.property = property.id
+  selectedPropertyLabel.value = `${property.title || `Объект №${property.id}`}${property.full_address ? ` · ${property.full_address}` : ''}`
+  propertyPickerOpen.value = false
+}
+
+function clearSelectedProperty() {
+  form.property = null
+  selectedPropertyLabel.value = ''
 }
 
 function taskTypeLabel(code) {
@@ -860,8 +929,26 @@ function toggleForm() {
   syncTaskFormBaseline()
 }
 
+function baseTaskFilterParams() {
+  const params = {}
+  if (typeFilter.value) {
+    params.task_type = typeFilter.value
+  }
+  if (operationFilter.value) {
+    params.operation_type = Number(operationFilter.value)
+  }
+  if (dateFromFilter.value) {
+    params.date_from = dateFromFilter.value
+  }
+  if (dateToFilter.value) {
+    params.date_to = dateToFilter.value
+  }
+  return params
+}
+
 function activeListParams({ includeStatusFilter = true, page = activePage.value } = {}) {
   const params = {
+    ...baseTaskFilterParams(),
     status_code: 'new,in_progress,waiting',
     page,
     page_size: taskPageSize.value,
@@ -869,18 +956,19 @@ function activeListParams({ includeStatusFilter = true, page = activePage.value 
   if (includeStatusFilter && statusFilter.value) {
     params.status = Number(statusFilter.value)
   }
-  if (typeFilter.value) {
-    params.task_type = typeFilter.value
-  }
   return params
 }
 
-function historyListParams({ page = historyPage.value } = {}) {
+function historyListParams({ includeStatusFilter = true, page = historyPage.value } = {}) {
   const params = {
+    ...baseTaskFilterParams(),
     status_code: 'done,cancelled',
     ordering: '-completed_at',
     page,
     page_size: taskPageSize.value,
+  }
+  if (includeStatusFilter && statusFilter.value) {
+    params.status = Number(statusFilter.value)
   }
   if (!auth.isManager) {
     params.assignee = 'me'
@@ -915,10 +1003,16 @@ async function load() {
 
 async function loadLookups() {
   try {
-    const { data } = await api.get('/task-statuses/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    })
-    statuses.value = unpackPaginated(data).items
+    const [statusesResponse, operationsResponse] = await Promise.all([
+      api.get('/task-statuses/', {
+        params: { page_size: LOOKUP_PAGE_SIZE },
+      }),
+      api.get('/operation-types/', {
+        params: { page_size: LOOKUP_PAGE_SIZE },
+      }),
+    ])
+    statuses.value = unpackPaginated(statusesResponse.data).items
+    operations.value = unpackPaginated(operationsResponse.data).items
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось загрузить справочники задач'))
   }
@@ -942,6 +1036,7 @@ async function loadHistory() {
 
 function setViewMode(mode) {
   viewMode.value = mode
+  statusFilter.value = ''
   if (mode === 'history') {
     loadHistory()
   }
@@ -960,24 +1055,46 @@ async function loadTaskCounts() {
       includeStatusFilter: false,
       page: 1,
     })
-    const requests = [
+    const baseHistoryParams = historyListParams({
+      includeStatusFilter: false,
+      page: 1,
+    })
+    const activeRequests = [
       fetchTaskCount(baseActiveParams),
-      fetchTaskCount(historyListParams({ page: 1 })),
       ...activeStatuses.value.map((status) => fetchTaskCount({
         ...baseActiveParams,
         status: status.id,
       })),
     ]
+    const historyRequests = [
+      fetchTaskCount(baseHistoryParams),
+      ...historyStatuses.value.map((status) => fetchTaskCount({
+        ...baseHistoryParams,
+        status: status.id,
+      })),
+    ]
 
-    const [activeTotal, historyTotal, ...perStatus] = await Promise.all(requests)
+    const [activeResults, historyResults] = await Promise.all([
+      Promise.all(activeRequests),
+      Promise.all(historyRequests),
+    ])
+
+    const [activeTotal, ...activePerStatus] = activeResults
+    const [historyTotal, ...historyPerStatus] = historyResults
     activeTotalCount.value = activeTotal
     historyTotalCount.value = historyTotal
 
-    const nextCounts = {}
+    const nextActiveCounts = {}
     activeStatuses.value.forEach((status, index) => {
-      nextCounts[String(status.id)] = perStatus[index]
+      nextActiveCounts[String(status.id)] = activePerStatus[index]
     })
-    statusCounts.value = nextCounts
+    activeStatusCounts.value = nextActiveCounts
+
+    const nextHistoryCounts = {}
+    historyStatuses.value.forEach((status, index) => {
+      nextHistoryCounts[String(status.id)] = historyPerStatus[index]
+    })
+    historyStatusCounts.value = nextHistoryCounts
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось обновить счётчики задач'))
   }
@@ -996,6 +1113,14 @@ function setHistoryPage(page) {
 function setTaskPageSize(size) {
   if (!size || size === taskPageSize.value) return
   taskPageSize.value = size
+}
+
+function resetFilters() {
+  statusFilter.value = ''
+  typeFilter.value = ''
+  operationFilter.value = ''
+  dateFromFilter.value = ''
+  dateToFilter.value = ''
 }
 
 async function submitTaskForm() {
@@ -1144,7 +1269,12 @@ async function startTask(task) {
       status: prevStatus,
     })
     workload.refresh()
-    toasts.error(error || 'Нельзя стартовать задачу: превышен лимит')
+    const conflictMessage = tasksApi.normalizeTaskError?.(error, data)
+    toasts.error(
+      conflictMessage
+        || error
+        || 'Нельзя стартовать задачу: превышен лимит',
+    )
   }
   busyId.value = null
 }
@@ -1279,9 +1409,14 @@ async function reloadTaskBoard() {
   ])
 }
 
-watch([statusFilter, typeFilter], async () => {
+watch([statusFilter, typeFilter, operationFilter, dateFromFilter, dateToFilter], async () => {
   activePage.value = 1
-  await Promise.all([load(), loadTaskCounts()])
+  historyPage.value = 1
+  await Promise.all([
+    load(),
+    loadTaskCounts(),
+    viewMode.value === 'history' ? loadHistory() : Promise.resolve(),
+  ])
 })
 
 watch(activePage, async () => {

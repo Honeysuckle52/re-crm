@@ -1,12 +1,139 @@
 """Сериализаторы DRF."""
+import re
+
 from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from . import business_rules, models
 from . import task_workflow
 
 User = get_user_model()
+
+ADDRESS_MIN_LENGTH = 10
+
+
+def normalize_russian_phone(value):
+    if value in (None, ''):
+        return None
+    raw_value = str(value).strip()
+    digits = re.sub(r'\D', '', raw_value)
+    if len(digits) == 11 and digits[0] in {'7', '8'}:
+        return f'+7{digits[1:]}'
+    if len(digits) == 10:
+        return f'+7{digits}'
+    raise serializers.ValidationError(
+        'Телефон должен быть российским номером в формате +7XXXXXXXXXX.',
+    )
+
+
+def validate_person_name(value, *, field_label):
+    normalized = re.sub(r'\s+', ' ', (value or '').strip())
+    if len(normalized) < 2:
+        raise serializers.ValidationError(f'{field_label}: минимум 2 символа.')
+    if not re.search(r'[A-Za-zА-Яа-яЁё]', normalized):
+        raise serializers.ValidationError(f'{field_label}: укажите буквы.')
+    return normalized
+
+
+def validate_optional_person_name(value, *, field_label):
+    if value in (None, ''):
+        return value
+    return validate_person_name(value, field_label=field_label)
+
+
+def validate_client_address(value, *, required=False, field_label='Адрес'):
+    if value in (None, ''):
+        if required:
+            raise serializers.ValidationError(
+                f'{field_label}: заполните адрес минимум на {ADDRESS_MIN_LENGTH} символов.',
+            )
+        return value
+    normalized = re.sub(r'\s+', ' ', str(value).strip())
+    if len(normalized) < ADDRESS_MIN_LENGTH:
+        raise serializers.ValidationError(
+            f'{field_label}: минимум {ADDRESS_MIN_LENGTH} символов.',
+        )
+    if not re.search(r'[A-Za-zА-Яа-яЁё]', normalized) or not re.search(r'\d', normalized):
+        raise serializers.ValidationError(
+            f'{field_label}: укажите улицу/населённый пункт и номер дома.',
+        )
+    return normalized
+
+
+def validate_passport_issuer(value):
+    if value in (None, ''):
+        return value
+    normalized = re.sub(r'\s+', ' ', str(value).strip())
+    if len(normalized) < 5:
+        raise serializers.ValidationError(
+            'Кем выдан: минимум 5 символов.',
+        )
+    if not re.search(r'[A-Za-zА-Яа-яЁё]', normalized):
+        raise serializers.ValidationError(
+            'Кем выдан: укажите название органа выдачи.',
+        )
+    return normalized
+
+
+def validate_requisite_dates(attrs):
+    issued_date = attrs.get('passport_issued_date')
+    today = timezone.localdate()
+    errors = {}
+    if issued_date and issued_date > today:
+        errors['passport_issued_date'] = 'Дата выдачи паспорта не может быть в будущем.'
+    if errors:
+        raise serializers.ValidationError(errors)
+
+
+class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """JWT-вход по электронной почте вместо логина."""
+    username_field = 'email'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['email'].required = False
+        self.fields['username'] = serializers.CharField(
+            required=False,
+            allow_blank=True,
+            write_only=True,
+        )
+
+    def validate(self, attrs):
+        identifier = (
+            attrs.get('email')
+            or attrs.get('username')
+            or ''
+        ).strip()
+        password = attrs.get('password')
+        if not identifier:
+            raise AuthenticationFailed('Укажите электронную почту.')
+
+        if '@' in identifier:
+            email = User.objects.normalize_email(identifier)
+            user = User.objects.filter(email__iexact=email).first()
+        else:
+            user = User.objects.filter(username=identifier).first()
+        if user is None:
+            raise AuthenticationFailed('Неверная почта или пароль.')
+
+        self.user = authenticate(
+            request=self.context.get('request'),
+            username=user.username,
+            password=password,
+        )
+        if self.user is None or not self.user.is_active:
+            raise AuthenticationFailed('Неверная почта или пароль.')
+
+        refresh = self.get_token(self.user)
+        return {
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+        }
 
 
 class OperationTypeSerializer(serializers.ModelSerializer):
@@ -92,6 +219,9 @@ class AddressSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     """Полное представление пользователя."""
+    phone = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True, max_length=20,
+    )
     role_name = serializers.CharField(source='role.name', read_only=True)
     role_code = serializers.CharField(source='role.code', read_only=True)
     user_type_display = serializers.CharField(source='get_user_type_display',
@@ -112,9 +242,18 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'is_staff', 'is_superuser',
                             'is_admin', 'is_manager']
 
+    def validate_phone(self, value):
+        return normalize_russian_phone(value)
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     """Регистрация клиента с одновременным созданием профиля."""
+    username = serializers.CharField(
+        write_only=True, max_length=50, required=False, allow_blank=True,
+    )
+    phone = serializers.CharField(
+        write_only=True, max_length=20, required=False, allow_blank=True,
+    )
     password = serializers.CharField(write_only=True,
                                      validators=[validate_password])
 
@@ -123,14 +262,22 @@ class RegisterSerializer(serializers.ModelSerializer):
     middle_name = serializers.CharField(
         write_only=True, max_length=50, required=False, allow_blank=True,
     )
-    birth_date = serializers.DateField(
-        write_only=True, required=False, allow_null=True,
+    client_kind = serializers.ChoiceField(
+        write_only=True,
+        choices=models.ClientProfile.CLIENT_KIND_CHOICES,
+        required=False,
+        default=models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+    )
+    contract_data_required = serializers.BooleanField(
+        write_only=True, required=False, default=False,
     )
     passport_series = serializers.CharField(
         write_only=True, max_length=4, required=False, allow_blank=True,
+        validators=[models.passport_series_validator],
     )
     passport_number = serializers.CharField(
         write_only=True, max_length=6, required=False, allow_blank=True,
+        validators=[models.passport_number_validator],
     )
     passport_issued_by = serializers.CharField(
         write_only=True, max_length=255, required=False, allow_blank=True,
@@ -140,6 +287,11 @@ class RegisterSerializer(serializers.ModelSerializer):
     )
     passport_code = serializers.CharField(
         write_only=True, max_length=7, required=False, allow_blank=True,
+        validators=[models.passport_code_validator],
+    )
+    company_inn = serializers.CharField(
+        write_only=True, max_length=10, required=False, allow_blank=True,
+        validators=[models.company_inn_validator],
     )
     registration_address = serializers.CharField(
         write_only=True, required=False, allow_blank=True,
@@ -149,36 +301,130 @@ class RegisterSerializer(serializers.ModelSerializer):
     )
 
     _PROFILE_FIELDS = (
-        'first_name', 'last_name', 'middle_name', 'birth_date',
-        'passport_series', 'passport_number', 'passport_issued_by',
-        'passport_issued_date', 'passport_code',
+        'first_name', 'last_name', 'middle_name', 'client_kind',
         'registration_address', 'actual_address',
     )
+    _INDIVIDUAL_FIELDS = (
+        'passport_series', 'passport_number', 'passport_issued_by',
+        'passport_issued_date', 'passport_code',
+    )
+    _COMPANY_FIELDS = ('company_inn',)
 
     class Meta:
         model = User
         fields = [
             'username', 'email', 'phone', 'password',
-            'first_name', 'last_name', 'middle_name', 'birth_date',
+            'first_name', 'last_name', 'middle_name', 'client_kind',
+            'contract_data_required',
             'passport_series', 'passport_number', 'passport_issued_by',
             'passport_issued_date', 'passport_code',
+            'company_inn',
             'registration_address', 'actual_address',
         ]
+
+    def validate_email(self, value):
+        return User.objects.normalize_email(value).strip()
+
+    def validate_phone(self, value):
+        return normalize_russian_phone(value)
+
+    def validate_first_name(self, value):
+        return validate_person_name(value, field_label='Имя')
+
+    def validate_last_name(self, value):
+        return validate_person_name(value, field_label='Фамилия')
+
+    def validate_middle_name(self, value):
+        return validate_optional_person_name(value, field_label='Отчество')
+
+    def validate_registration_address(self, value):
+        return validate_client_address(value, field_label='Адрес регистрации')
+
+    def validate_actual_address(self, value):
+        return validate_client_address(value, field_label='Фактический адрес')
+
+    def validate_passport_issued_by(self, value):
+        return validate_passport_issuer(value)
+
+    def validate(self, attrs):
+        validate_requisite_dates(attrs)
+        client_kind = attrs.get(
+            'client_kind',
+            models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+        )
+        detail_fields = (
+            self._INDIVIDUAL_FIELDS
+            + self._COMPANY_FIELDS
+            + ('registration_address', 'actual_address')
+        )
+        has_contract_data = any(attrs.get(field) not in (None, '') for field in detail_fields)
+        if not attrs.get('contract_data_required') and not has_contract_data:
+            return attrs
+
+        errors = {}
+        if not attrs.get('registration_address'):
+            errors['registration_address'] = (
+                f'Адрес регистрации: заполните минимум {ADDRESS_MIN_LENGTH} символов.'
+            )
+        if client_kind == models.ClientProfile.CLIENT_KIND_COMPANY:
+            if not attrs.get('company_inn'):
+                errors['company_inn'] = 'ИНН компании обязателен для юридического лица.'
+        else:
+            required_fields = {
+                'passport_series': 'Серия паспорта обязательна.',
+                'passport_number': 'Номер паспорта обязателен.',
+                'passport_issued_by': 'Поле "Кем выдан" обязательно.',
+                'passport_issued_date': 'Дата выдачи паспорта обязательна.',
+                'passport_code': 'Код подразделения обязателен.',
+            }
+            for field, message in required_fields.items():
+                if not attrs.get(field):
+                    errors[field] = message
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    @staticmethod
+    def _generate_username(email: str) -> str:
+        local_part = email.split('@', 1)[0].strip().lower()
+        base = re.sub(r'[^\w.@+-]+', '_', local_part)[:40].strip('._-')
+        if not base:
+            base = 'client'
+        candidate = base[:50]
+        suffix = 1
+        while User.objects.filter(username=candidate).exists():
+            suffix += 1
+            ending = f'-{suffix}'
+            candidate = f'{base[:50 - len(ending)]}{ending}'
+        return candidate
 
     def create(self, validated_data):
         from django.db import transaction
 
+        username = (validated_data.pop('username', '') or '').strip()
+        validated_data.pop('contract_data_required', None)
+        email = validated_data.get('email')
+        if not username:
+            username = self._generate_username(email)
         password = validated_data.pop('password')
         profile_data = {f: validated_data.pop(f, None)
                         for f in self._PROFILE_FIELDS}
-        profile_kwargs = {}
-        for key, value in profile_data.items():
-            if value in (None, ''):
-                continue
-            profile_kwargs[key] = value
+        individual_data = {f: validated_data.pop(f, None)
+                           for f in self._INDIVIDUAL_FIELDS}
+        company_data = {f: validated_data.pop(f, None)
+                        for f in self._COMPANY_FIELDS}
+        client_kind = (
+            profile_data.pop('client_kind', None)
+            or models.ClientProfile.CLIENT_KIND_INDIVIDUAL
+        )
+        profile_kwargs = {
+            key: value for key, value in profile_data.items()
+            if value not in (None, '')
+        }
 
         with transaction.atomic():
             user = User(
+                username=username,
                 user_type='client',
                 role=None,
                 is_staff=False,
@@ -187,12 +433,29 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
             user.set_password(password)
             user.save()
-            models.ClientProfile.objects.create(
+            profile = models.ClientProfile.objects.create(
                 user=user,
                 first_name=profile_kwargs.pop('first_name'),
                 last_name=profile_kwargs.pop('last_name'),
+                client_kind=client_kind,
                 **profile_kwargs,
             )
+            if client_kind == models.ClientProfile.CLIENT_KIND_COMPANY:
+                models.ClientCompanyDetails.objects.create(
+                    profile=profile,
+                    **{
+                        key: value for key, value in company_data.items()
+                        if value not in (None, '')
+                    },
+                )
+            else:
+                models.ClientIndividualDetails.objects.create(
+                    profile=profile,
+                    **{
+                        key: value for key, value in individual_data.items()
+                        if value not in (None, '')
+                    },
+                )
         return user
 
 
@@ -229,29 +492,269 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
 
 class ClientProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    passport_series = serializers.CharField(
+        max_length=4, required=False, allow_blank=True, allow_null=True,
+        write_only=True,
+        validators=[models.passport_series_validator],
+    )
+    passport_number = serializers.CharField(
+        max_length=6, required=False, allow_blank=True, allow_null=True,
+        write_only=True,
+        validators=[models.passport_number_validator],
+    )
+    passport_issued_by = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, allow_null=True,
+        write_only=True,
+    )
+    passport_issued_date = serializers.DateField(
+        required=False, allow_null=True, write_only=True,
+    )
+    passport_code = serializers.CharField(
+        max_length=7, required=False, allow_blank=True, allow_null=True,
+        write_only=True,
+        validators=[models.passport_code_validator],
+    )
+    company_inn = serializers.CharField(
+        max_length=10, required=False, allow_blank=True, allow_null=True,
+        write_only=True,
+        validators=[models.company_inn_validator],
+    )
+
+    _INDIVIDUAL_FIELDS = (
+        'passport_series', 'passport_number',
+        'passport_issued_by', 'passport_issued_date', 'passport_code',
+    )
+    _COMPANY_FIELDS = ('company_inn',)
 
     class Meta:
         model = models.ClientProfile
         fields = ['id', 'user', 'username', 'first_name', 'last_name',
-                  'middle_name', 'birth_date', 'passport_series',
+                  'middle_name', 'client_kind', 'passport_series',
                   'passport_number', 'passport_issued_by',
                   'passport_issued_date', 'passport_code',
+                  'company_inn',
                   'registration_address', 'actual_address',
                   'preferred_contact_method', 'notes']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        individual = getattr(instance, 'individual_details', None)
+        company = getattr(instance, 'company_details', None)
+        for field in self._INDIVIDUAL_FIELDS:
+            data[field] = getattr(individual, field, None) if individual else None
+        for field in self._COMPANY_FIELDS:
+            data[field] = getattr(company, field, None) if company else None
+        return data
 
-class PropertyFeatureSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = models.PropertyFeature
-        fields = ['id', 'name', 'category']
+    def validate_first_name(self, value):
+        return validate_person_name(value, field_label='Имя')
 
+    def validate_last_name(self, value):
+        return validate_person_name(value, field_label='Фамилия')
 
-class PropertyFeatureValueSerializer(serializers.ModelSerializer):
-    feature_name = serializers.CharField(source='feature.name', read_only=True)
+    def validate_middle_name(self, value):
+        return validate_optional_person_name(value, field_label='Отчество')
 
-    class Meta:
-        model = models.PropertyFeatureValue
-        fields = ['feature', 'feature_name', 'value']
+    def validate_registration_address(self, value):
+        return validate_client_address(
+            value,
+            field_label='Адрес регистрации',
+        )
+
+    def validate_actual_address(self, value):
+        return validate_client_address(value, field_label='Фактический адрес')
+
+    def validate_passport_issued_by(self, value):
+        return validate_passport_issuer(value)
+
+    @staticmethod
+    def _has_value(value):
+        return value not in (None, '')
+
+    def _merged_contract_data(self, attrs):
+        instance = self.instance
+        data = {
+            'first_name': attrs.get(
+                'first_name',
+                getattr(instance, 'first_name', None),
+            ),
+            'last_name': attrs.get(
+                'last_name',
+                getattr(instance, 'last_name', None),
+            ),
+            'middle_name': attrs.get(
+                'middle_name',
+                getattr(instance, 'middle_name', None),
+            ),
+            'client_kind': attrs.get(
+                'client_kind',
+                getattr(
+                    instance,
+                    'client_kind',
+                    models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+                ),
+            ),
+            'registration_address': attrs.get(
+                'registration_address',
+                getattr(instance, 'registration_address', None),
+            ),
+            'actual_address': attrs.get(
+                'actual_address',
+                getattr(instance, 'actual_address', None),
+            ),
+        }
+        individual = getattr(instance, 'individual_details', None)
+        for field in self._INDIVIDUAL_FIELDS:
+            data[field] = attrs.get(
+                field,
+                getattr(individual, field, None) if individual else None,
+            )
+        company = getattr(instance, 'company_details', None)
+        for field in self._COMPANY_FIELDS:
+            data[field] = attrs.get(
+                field,
+                getattr(company, field, None) if company else None,
+            )
+        return data
+
+    @staticmethod
+    def _merge_serializer_errors(errors, exc):
+        detail = exc.detail
+        if isinstance(detail, dict):
+            errors.update(detail)
+        else:
+            errors['detail'] = detail
+
+    def validate(self, attrs):
+        merged = self._merged_contract_data(attrs)
+        errors = {}
+
+        for field, label in (
+            ('first_name', 'Имя'),
+            ('last_name', 'Фамилия'),
+        ):
+            if not self._has_value(merged.get(field)):
+                errors[field] = f'{label}: поле обязательно.'
+                continue
+            try:
+                validate_person_name(merged[field], field_label=label)
+            except serializers.ValidationError as exc:
+                errors[field] = exc.detail
+
+        try:
+            validate_optional_person_name(
+                merged.get('middle_name'),
+                field_label='Отчество',
+            )
+        except serializers.ValidationError as exc:
+            errors['middle_name'] = exc.detail
+
+        try:
+            validate_client_address(
+                merged.get('registration_address'),
+                required=True,
+                field_label='Адрес регистрации',
+            )
+        except serializers.ValidationError as exc:
+            errors['registration_address'] = exc.detail
+
+        try:
+            validate_client_address(
+                merged.get('actual_address'),
+                field_label='Фактический адрес',
+            )
+        except serializers.ValidationError as exc:
+            errors['actual_address'] = exc.detail
+
+        if merged.get('client_kind') == models.ClientProfile.CLIENT_KIND_COMPANY:
+            company_inn = merged.get('company_inn')
+            if not self._has_value(company_inn):
+                errors['company_inn'] = 'ИНН компании обязателен для юридического лица.'
+            elif not re.fullmatch(r'\d{10}', str(company_inn)):
+                errors['company_inn'] = 'ИНН юридического лица должен состоять из 10 цифр.'
+        else:
+            required_fields = {
+                'passport_series': 'Серия паспорта обязательна.',
+                'passport_number': 'Номер паспорта обязателен.',
+                'passport_issued_by': 'Поле "Кем выдан" обязательно.',
+                'passport_issued_date': 'Дата выдачи паспорта обязательна.',
+                'passport_code': 'Код подразделения обязателен.',
+            }
+            for field, message in required_fields.items():
+                if not self._has_value(merged.get(field)):
+                    errors[field] = message
+
+            patterns = {
+                'passport_series': (r'\d{4}', 'Серия паспорта должна состоять из 4 цифр.'),
+                'passport_number': (r'\d{6}', 'Номер паспорта должен состоять из 6 цифр.'),
+                'passport_code': (r'\d{3}-\d{3}', 'Код подразделения должен быть в формате 000-000.'),
+            }
+            for field, (pattern, message) in patterns.items():
+                value = merged.get(field)
+                if self._has_value(value) and not re.fullmatch(pattern, str(value)):
+                    errors[field] = message
+            if self._has_value(merged.get('passport_issued_by')):
+                try:
+                    validate_passport_issuer(merged['passport_issued_by'])
+                except serializers.ValidationError as exc:
+                    errors['passport_issued_by'] = exc.detail
+
+            try:
+                validate_requisite_dates(merged)
+            except serializers.ValidationError as exc:
+                self._merge_serializer_errors(errors, exc)
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    def _pop_detail_data(self, validated_data):
+        individual = {
+            field: validated_data.pop(field)
+            for field in self._INDIVIDUAL_FIELDS
+            if field in validated_data
+        }
+        company = {
+            field: validated_data.pop(field)
+            for field in self._COMPANY_FIELDS
+            if field in validated_data
+        }
+        return individual, company
+
+    @staticmethod
+    def _normalize_detail_value(value):
+        return None if value == '' else value
+
+    def _save_details(self, profile, individual_data, company_data):
+        if profile.client_kind == models.ClientProfile.CLIENT_KIND_COMPANY:
+            models.ClientIndividualDetails.objects.filter(profile=profile).delete()
+            details, _ = models.ClientCompanyDetails.objects.get_or_create(
+                profile=profile,
+            )
+            for key, value in company_data.items():
+                setattr(details, key, self._normalize_detail_value(value))
+            details.save()
+            return
+
+        models.ClientCompanyDetails.objects.filter(profile=profile).delete()
+        details, _ = models.ClientIndividualDetails.objects.get_or_create(
+            profile=profile,
+        )
+        for key, value in individual_data.items():
+            setattr(details, key, self._normalize_detail_value(value))
+        details.save()
+
+    def create(self, validated_data):
+        individual_data, company_data = self._pop_detail_data(validated_data)
+        profile = super().create(validated_data)
+        self._save_details(profile, individual_data, company_data)
+        return profile
+
+    def update(self, instance, validated_data):
+        individual_data, company_data = self._pop_detail_data(validated_data)
+        profile = super().update(instance, validated_data)
+        self._save_details(profile, individual_data, company_data)
+        return profile
 
 
 class PropertyPhotoSerializer(serializers.ModelSerializer):
@@ -315,11 +818,7 @@ class PropertySerializer(serializers.ModelSerializer):
     allowed_status_ids = serializers.SerializerMethodField()
     full_address = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
-    feature_values = PropertyFeatureValueSerializer(many=True, read_only=True)
-    feature_ids = serializers.PrimaryKeyRelatedField(
-        queryset=models.PropertyFeature.objects.all(),
-        many=True, required=False, write_only=True,
-    )
+    owner_username = serializers.CharField(source='owner.username', read_only=True)
     address_data = AddressNestedWriteSerializer(required=False, write_only=True)
     address = serializers.PrimaryKeyRelatedField(
         queryset=models.Address.objects.all(), required=False,
@@ -332,10 +831,11 @@ class PropertySerializer(serializers.ModelSerializer):
             'status', 'status_name', 'status_code', 'allowed_status_ids',
             'address', 'address_data', 'full_address',
             'coordinates_lat', 'coordinates_lon',
+            'premises_type', 'owner', 'owner_username',
             'price', 'price_per_sqm',
             'area_total',
             'rooms_count', 'floor_number', 'total_floors',
-            'description', 'photos', 'feature_values', 'feature_ids',
+            'description', 'photos',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
@@ -372,6 +872,52 @@ class PropertySerializer(serializers.ModelSerializer):
         return PropertyPhotoSerializer(
             qs, many=True, context=self.context,
         ).data
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+        premises_type = attrs.get(
+            'premises_type',
+            getattr(instance, 'premises_type', None),
+        )
+        rooms_count = attrs.get(
+            'rooms_count',
+            getattr(instance, 'rooms_count', None),
+        )
+        floor_number = attrs.get(
+            'floor_number',
+            getattr(instance, 'floor_number', None),
+        )
+        total_floors = attrs.get(
+            'total_floors',
+            getattr(instance, 'total_floors', None),
+        )
+        area_total = attrs.get(
+            'area_total',
+            getattr(instance, 'area_total', None),
+        )
+
+        errors = {}
+        if premises_type == models.Property.PREMISES_APARTMENT:
+            if floor_number in (None, ''):
+                errors['floor_number'] = 'Для квартиры укажите этаж.'
+            if total_floors in (None, ''):
+                errors['total_floors'] = 'Для квартиры укажите общее количество этажей.'
+        elif premises_type == models.Property.PREMISES_HOUSE:
+            if total_floors in (None, ''):
+                errors['total_floors'] = 'Для дома укажите количество этажей.'
+        elif premises_type in {
+            models.Property.PREMISES_OFFICE,
+            models.Property.PREMISES_WAREHOUSE,
+        }:
+            if area_total in (None, ''):
+                errors['area_total'] = 'Для офиса или склада укажите площадь.'
+            if rooms_count not in (None, ''):
+                errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
     def _resolve_address(self, address_data: dict) -> models.Address:
         """Найти или создать Address → House → Street → City по данным DaData."""
@@ -424,21 +970,8 @@ class PropertySerializer(serializers.ModelSerializer):
         )
         return address
 
-    def _apply_features(self, instance: models.Property, feature_ids):
-        if feature_ids is None:
-            return
-        existing = {v.feature_id: v for v in instance.feature_values.all()}
-        wanted_ids = {f.id for f in feature_ids}
-        for fid in wanted_ids - set(existing):
-            models.PropertyFeatureValue.objects.create(
-                property=instance, feature_id=fid,
-            )
-        for fid in set(existing) - wanted_ids:
-            existing[fid].delete()
-
     def create(self, validated_data):
         address_data = validated_data.pop('address_data', None)
-        feature_ids = validated_data.pop('feature_ids', None)
         if address_data and not validated_data.get('address'):
             validated_data['address'] = self._resolve_address(address_data)
             if address_data.get('geo_lat') is not None and not validated_data.get('coordinates_lat'):
@@ -447,18 +980,13 @@ class PropertySerializer(serializers.ModelSerializer):
                 validated_data['coordinates_lon'] = address_data['geo_lon']
         if not validated_data.get('address'):
             raise serializers.ValidationError({'address': 'Адрес обязателен.'})
-        instance = super().create(validated_data)
-        self._apply_features(instance, feature_ids)
-        return instance
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         address_data = validated_data.pop('address_data', None)
-        feature_ids = validated_data.pop('feature_ids', None)
         if address_data:
             validated_data['address'] = self._resolve_address(address_data)
-        instance = super().update(instance, validated_data)
-        self._apply_features(instance, feature_ids)
-        return instance
+        return super().update(instance, validated_data)
 
 
 class RequestPropertyMatchSerializer(serializers.ModelSerializer):
@@ -536,6 +1064,64 @@ class RequestSerializer(serializers.ModelSerializer):
 
     def get_can_close(self, obj) -> bool:
         return bool(obj.status_id and not obj.is_terminal)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        instance = self.instance
+        property_type = (attrs.get(
+            'property_type',
+            getattr(instance, 'property_type', None),
+        ) or '').strip()
+        rooms_count = attrs.get(
+            'rooms_count',
+            getattr(instance, 'rooms_count', None),
+        )
+        floor_number = attrs.get(
+            'floor_number',
+            getattr(instance, 'floor_number', None),
+        )
+        total_floors = attrs.get(
+            'total_floors',
+            getattr(instance, 'total_floors', None),
+        )
+        min_area = attrs.get(
+            'min_area',
+            getattr(instance, 'min_area', None),
+        )
+        max_area = attrs.get(
+            'max_area',
+            getattr(instance, 'max_area', None),
+        )
+
+        errors = {}
+        if property_type == models.Property.PREMISES_APARTMENT:
+            if floor_number in (None, ''):
+                errors['floor_number'] = 'Для квартиры укажите этаж.'
+        elif property_type == models.Property.PREMISES_HOUSE:
+            if total_floors in (None, ''):
+                errors['total_floors'] = 'Для дома укажите количество этажей.'
+        elif property_type in {
+            models.Property.PREMISES_OFFICE,
+            models.Property.PREMISES_WAREHOUSE,
+        }:
+            if min_area in (None, '') and max_area in (None, ''):
+                errors['min_area'] = 'Для офиса или склада укажите диапазон площади.'
+            if rooms_count not in (None, ''):
+                errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
+        else:
+            if property_type and rooms_count in (None, '') and min_area in (None, '') and max_area in (None, ''):
+                errors['property_type'] = 'Укажите параметры, соответствующие выбранному типу помещения.'
+
+        if min_area not in (None, '') and max_area not in (None, ''):
+            try:
+                if float(min_area) > float(max_area):
+                    errors['min_area'] = 'Минимальная площадь не может быть больше максимальной.'
+            except (TypeError, ValueError):
+                pass
+
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
 
 
 class RequestCloseSerializer(serializers.Serializer):

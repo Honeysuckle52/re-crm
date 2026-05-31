@@ -19,11 +19,6 @@
       </ol>
 
       <form v-if="step === 1" class="stack" @submit.prevent="goToStep2">
-        <div class="field">
-          <label>Логин</label>
-          <input class="input" v-model.trim="form.username" required
-                 autocomplete="username" />
-        </div>
         <div class="grid grid--2">
           <div class="field">
             <label>Фамилия</label>
@@ -48,8 +43,9 @@
         </div>
         <div class="field">
           <label>Телефон</label>
-          <input class="input" v-model.trim="form.phone" placeholder="+7..."
-                 autocomplete="tel" />
+          <input class="input" type="tel" v-model.trim="form.phone"
+                 placeholder="+7XXXXXXXXXX" autocomplete="tel" maxlength="12"
+                 inputmode="tel" @input="formatPhoneInput" />
         </div>
         <div class="field">
           <label>Пароль</label>
@@ -72,44 +68,61 @@
       <form v-else class="stack" @submit.prevent="submit">
         <p class="muted" style="color: rgba(255,255,255,.7)">
           Эти данные нужны для автоматического заполнения договора.
-          Если сейчас нет под рукой паспорта — пропустите шаг, заполните
+          Для физлица укажите паспорт, для юрлица — ИНН компании. Если сейчас нет данных под рукой — пропустите шаг, заполните
           позже в личном кабинете.
         </p>
 
         <div class="field">
-          <label>Дата рождения</label>
-          <input class="input" type="date" v-model="form.birth_date" />
+          <label>Тип клиента</label>
+          <select class="select" v-model="form.client_kind">
+            <option value="individual">Физическое лицо</option>
+            <option value="company">Юридическое лицо</option>
+          </select>
         </div>
 
-        <div class="grid grid--2">
-          <div class="field">
-            <label>Серия паспорта</label>
-            <input class="input" v-model.trim="form.passport_series"
-                   maxlength="4" placeholder="0000" inputmode="numeric" />
+        <template v-if="form.client_kind === 'individual'">
+          <div class="grid grid--2">
+            <div class="field">
+              <label>Серия паспорта</label>
+              <input class="input" v-model.trim="form.passport_series"
+                     maxlength="4" placeholder="0000" inputmode="numeric"
+                     @input="limitDigits('passport_series', 4)" />
+            </div>
+            <div class="field">
+              <label>Номер паспорта</label>
+              <input class="input" v-model.trim="form.passport_number"
+                     maxlength="6" placeholder="000000" inputmode="numeric"
+                     @input="limitDigits('passport_number', 6)" />
+            </div>
           </div>
-          <div class="field">
-            <label>Номер паспорта</label>
-            <input class="input" v-model.trim="form.passport_number"
-                   maxlength="6" placeholder="000000" inputmode="numeric" />
-          </div>
-        </div>
 
-        <div class="field">
-          <label>Кем выдан</label>
-          <input class="input" v-model.trim="form.passport_issued_by" />
-        </div>
-        <div class="grid grid--2">
           <div class="field">
-            <label>Дата выдачи</label>
-            <input class="input" type="date"
-                   v-model="form.passport_issued_date" />
+            <label>Кем выдан</label>
+            <input class="input" v-model.trim="form.passport_issued_by" />
           </div>
+          <div class="grid grid--2">
+            <div class="field">
+              <label>Дата выдачи</label>
+              <input class="input" type="date"
+                     v-model="form.passport_issued_date" />
+            </div>
+            <div class="field">
+              <label>Код подразделения</label>
+              <input class="input" v-model.trim="form.passport_code"
+                     placeholder="000-000" maxlength="7"
+                     @input="formatPassportCode" />
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
           <div class="field">
-            <label>Код подразделения</label>
-            <input class="input" v-model.trim="form.passport_code"
-                   placeholder="000-000" maxlength="7" />
+            <label>ИНН компании</label>
+            <input class="input" v-model.trim="form.company_inn"
+                   maxlength="10" placeholder="0000000000" inputmode="numeric"
+                   @input="limitDigits('company_inn', 10)" />
           </div>
-        </div>
+        </template>
 
         <div class="field">
           <label>Адрес регистрации</label>
@@ -155,52 +168,208 @@ const loading = ref(false)
 const error = ref('')
 
 const form = reactive({
-  username: '',
   email: '',
   phone: '',
   password: '',
   last_name: '',
   first_name: '',
   middle_name: '',
-  birth_date: '',
+  client_kind: 'individual',
   passport_series: '',
   passport_number: '',
   passport_issued_by: '',
   passport_issued_date: '',
   passport_code: '',
+  company_inn: '',
   registration_address: '',
   actual_address: '',
 })
 
+const PERSON_NAME_RE = /[A-Za-zА-Яа-яЁё]/
+const ADDRESS_MIN_LENGTH = 10
+
+function digitsOnly (value) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function todayIso () {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function normalizeRussianPhone (value) {
+  const digits = digitsOnly(value)
+  if (!digits) return ''
+  if (digits.length === 11 && ['7', '8'].includes(digits[0])) {
+    return `+7${digits.slice(1)}`
+  }
+  if (digits.length === 10) {
+    return `+7${digits}`
+  }
+  return ''
+}
+
+function phoneInputValue (value) {
+  const digits = digitsOnly(value)
+  if (!digits) return ''
+  if (digits[0] === '8') return `+7${digits.slice(1, 11)}`
+  if (digits[0] === '7') return `+7${digits.slice(1, 11)}`
+  return `+7${digits.slice(0, 10)}`
+}
+
+function formatPhoneInput () {
+  form.phone = phoneInputValue(form.phone)
+}
+
+function limitDigits (field, max) {
+  form[field] = digitsOnly(form[field]).slice(0, max)
+}
+
+function formatPassportCode () {
+  const digits = digitsOnly(form.passport_code).slice(0, 6)
+  form.passport_code = digits.length > 3
+    ? `${digits.slice(0, 3)}-${digits.slice(3)}`
+    : digits
+}
+
+function validatePersonName (value, label, { required = true } = {}) {
+  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
+  if (!normalized) return required ? `${label}: заполните поле.` : ''
+  if (normalized.length < 2) return `${label}: минимум 2 символа.`
+  if (!PERSON_NAME_RE.test(normalized)) return `${label}: укажите буквы.`
+  return ''
+}
+
+function validateAddress (value, label, { required = false } = {}) {
+  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
+  if (!normalized) return required ? `${label}: заполните адрес.` : ''
+  if (normalized.length < ADDRESS_MIN_LENGTH) {
+    return `${label}: минимум ${ADDRESS_MIN_LENGTH} символов.`
+  }
+  if (!PERSON_NAME_RE.test(normalized) || !/\d/.test(normalized)) {
+    return `${label}: укажите улицу или населённый пункт и номер дома.`
+  }
+  return ''
+}
+
+function validateAccountStep () {
+  const phone = normalizeRussianPhone(form.phone)
+  const checks = [
+    validatePersonName(form.last_name, 'Фамилия'),
+    validatePersonName(form.first_name, 'Имя'),
+    validatePersonName(form.middle_name, 'Отчество', { required: false }),
+  ]
+  const failed = checks.find(Boolean)
+  if (failed) return failed
+  if (form.phone && !phone) {
+    return 'Телефон должен быть российским номером в формате +7XXXXXXXXXX.'
+  }
+  if (phone) form.phone = phone
+  if (form.password.length < 8) {
+    return 'Пароль должен быть не короче 8 символов.'
+  }
+  return ''
+}
+
+function validateContractStep () {
+  const commonChecks = [
+    validateAddress(form.registration_address, 'Адрес регистрации', { required: true }),
+    validateAddress(form.actual_address, 'Фактический адрес'),
+  ]
+  const commonFailed = commonChecks.find(Boolean)
+  if (commonFailed) return commonFailed
+
+  if (form.client_kind === 'company') {
+    if (!/^\d{10}$/.test(form.company_inn)) {
+      return 'ИНН компании должен состоять из 10 цифр.'
+    }
+    return ''
+  }
+
+  const today = todayIso()
+  if (!/^\d{4}$/.test(form.passport_series)) return 'Серия паспорта должна состоять из 4 цифр.'
+  if (!/^\d{6}$/.test(form.passport_number)) return 'Номер паспорта должен состоять из 6 цифр.'
+  if (String(form.passport_issued_by || '').trim().length < 5 || !PERSON_NAME_RE.test(form.passport_issued_by)) {
+    return 'Кем выдан: укажите название органа выдачи минимум на 5 символов.'
+  }
+  if (!form.passport_issued_date) return 'Дата выдачи паспорта обязательна.'
+  if (form.passport_issued_date > today) return 'Дата выдачи паспорта не может быть в будущем.'
+  if (!/^\d{3}-\d{3}$/.test(form.passport_code)) {
+    return 'Код подразделения должен быть в формате 000-000.'
+  }
+  return ''
+}
+
 function goToStep2 () {
   error.value = ''
-  if (form.password.length < 8) {
-    error.value = 'Пароль должен быть не короче 8 символов.'
+  const validationError = validateAccountStep()
+  if (validationError) {
+    error.value = validationError
     return
   }
   step.value = 2
 }
 
+function basePayload () {
+  const payload = {
+    email: form.email,
+    password: form.password,
+    first_name: form.first_name,
+    last_name: form.last_name,
+    client_kind: form.client_kind,
+  }
+  const phone = normalizeRussianPhone(form.phone)
+  if (phone) payload.phone = phone
+  if (form.middle_name) payload.middle_name = form.middle_name
+  return payload
+}
+
+function contractPayload () {
+  const requisites = {
+    contract_data_required: true,
+    registration_address: form.registration_address,
+    actual_address: form.actual_address,
+  }
+  if (form.client_kind === 'company') {
+    requisites.company_inn = form.company_inn
+  } else {
+    requisites.passport_series = form.passport_series
+    requisites.passport_number = form.passport_number
+    requisites.passport_issued_by = form.passport_issued_by
+    requisites.passport_issued_date = form.passport_issued_date
+    requisites.passport_code = form.passport_code
+  }
+  return stripEmpty(requisites)
+}
+
 async function doRegister (extended) {
-  loading.value = true
   error.value = ''
+  const accountError = validateAccountStep()
+  if (accountError) {
+    error.value = accountError
+    step.value = 1
+    return
+  }
+  if (extended) {
+    const contractError = validateContractStep()
+    if (contractError) {
+      error.value = contractError
+      return
+    }
+  }
+
+  loading.value = true
   try {
-    const payload = extended ? stripEmpty(form) : {
-      username: form.username,
-      email: form.email,
-      phone: form.phone,
-      password: form.password,
-      first_name: form.first_name,
-      last_name: form.last_name,
-      ...(form.middle_name ? { middle_name: form.middle_name } : {}),
+    const payload = {
+      ...basePayload(),
+      ...(extended ? contractPayload() : {}),
     }
     await auth.register(payload)
     router.push('/account?welcome=1')
   } catch (e) {
     const data = e.response?.data || {}
-    error.value = Object.values(data).flat().join(' ')
+    error.value = flattenErrors(data)
       || 'Не удалось создать учётную запись'
-    if (data.username || data.email || data.password || data.phone) {
+    if (data.email || data.password || data.phone || data.first_name || data.last_name) {
       step.value = 1
     }
   } finally {
@@ -218,6 +387,14 @@ function stripEmpty (obj) {
     out[k] = v
   }
   return out
+}
+
+function flattenErrors (data) {
+  if (!data || typeof data !== 'object') return ''
+  return Object.values(data)
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter(Boolean)
+    .join(' ')
 }
 </script>
 
@@ -243,6 +420,28 @@ function stripEmpty (obj) {
 .auth__card {
   position: relative;
   width: min(560px, 100%);
+}
+
+.auth__card .field > .select {
+  color-scheme: light;
+  background-color: #f4f8fa;
+  background-image:
+    var(--grad-control-light),
+    linear-gradient(45deg, transparent 50%, var(--c-accent) 50%),
+    linear-gradient(135deg, var(--c-accent) 50%, transparent 50%);
+  background-position:
+    0 0,
+    calc(100% - 24px) calc(50% - 3px),
+    calc(100% - 18px) calc(50% - 3px);
+  background-size: 100% 100%, 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+}
+
+.auth__card .field > .select option {
+  background: #f4f8fa;
+  color: var(--c-page-text);
 }
 
 .auth__title {

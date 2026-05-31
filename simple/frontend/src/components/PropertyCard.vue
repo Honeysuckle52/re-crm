@@ -1,5 +1,11 @@
 <template>
-  <router-link :to="`/properties/${property.id}`" class="card card--link">
+  <component
+    :is="interactive ? 'router-link' : 'div'"
+    :to="interactive ? `/properties/${property.id}` : undefined"
+    class="card card--link"
+    :class="{ 'card--selectable': selectable, 'card--selected': selected }"
+    @click="handleClick"
+  >
     <div class="card__thumb">
       <img v-if="property.photos?.[0]?.image_url" :src="property.photos[0].image_url"
            :alt="property.title || 'Объект'" />
@@ -25,13 +31,26 @@
       <span class="tag tag--accent">{{ property.status_name }}</span>
     </div>
     <div class="muted" style="font-size: 12px">{{ property.full_address }}</div>
-  </router-link>
+  </component>
 </template>
 
 <script setup>
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 
-defineProps({ property: { type: Object, required: true } })
+const props = defineProps({
+  property: { type: Object, required: true },
+  interactive: { type: Boolean, default: true },
+  selectable: { type: Boolean, default: false },
+  selected: { type: Boolean, default: false },
+})
+
+const emit = defineEmits(['select'])
+
+function handleClick(event) {
+  if (!props.selectable) return
+  event.preventDefault?.()
+  emit('select', props.property)
+}
 
 function formatMoney (v) { return fmtMoney(v, '0') }
 </script>
@@ -43,6 +62,15 @@ function formatMoney (v) { return fmtMoney(v, '0') }
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   display: flex;
   flex-direction: column;
+}
+
+.card--selectable {
+  cursor: pointer;
+}
+
+.card--selected {
+  outline: 2px solid rgba(99, 208, 197, 0.6);
+  outline-offset: 2px;
 }
 
 .card--link:hover {

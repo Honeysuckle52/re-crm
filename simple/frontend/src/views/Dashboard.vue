@@ -4,27 +4,29 @@
       <div class="hero__eyebrow">CRM агентства недвижимости</div>
       <h1 class="hero__title hero__title--compact">РИЭЛТ</h1>
       <div class="hero__subtitle">
-        Объекты, заявки, задачи и сделки в одном рабочем контуре
+        {{ heroSubtitle }}
       </div>
       <div class="hero__actions">
-        <router-link v-if="canEdit" to="/properties/new" class="btn btn--accent">
+        <router-link v-if="canCreateProperty" to="/properties/new" class="btn btn--accent">
           + Новый объект
         </router-link>
         <router-link to="/requests" class="btn btn--ghost">
-          Заявки клиентов
+          {{ primaryRequestsLabel }}
         </router-link>
         <router-link to="/properties" class="btn btn--ghost">
-          Каталог объектов
+          {{ propertiesLabel }}
+        </router-link>
+        <router-link v-if="auth.isClient" to="/deals" class="btn btn--ghost">
+          Мои сделки
         </router-link>
         <a v-if="auth.isManager" :href="adminPanelHref" class="btn btn--primary">
           Системная панель
         </a>
       </div>
       <div class="hero__callout">
-        <h3>Текущий рабочий фокус</h3>
+        <h3>{{ calloutTitle }}</h3>
         <p>
-          Открывайте заявки, распределяйте задачи, ведите сделки и контролируйте
-          загрузку сотрудников без переключения между разрозненными инструментами.
+          {{ calloutText }}
         </p>
       </div>
     </div>
@@ -48,20 +50,22 @@
       <div class="panel dashboard__panel dashboard__panel--accent">
         <div class="surface-head dashboard-panel-head">
           <div>
-            <div class="surface-head__meta">Быстрые действия</div>
-            <h2 class="h2 dashboard__title">Работа с входящим потоком</h2>
+            <div class="surface-head__meta">{{ actionPanelMeta }}</div>
+            <h2 class="h2 dashboard__title">{{ actionPanelTitle }}</h2>
           </div>
         </div>
         <p class="dashboard__text">
-          Создавайте новые объекты, открывайте заявки клиентов и быстро
-          переходите к основным рабочим контурам команды.
+          {{ actionPanelText }}
         </p>
         <div class="dashboard__actions">
           <router-link to="/requests" class="btn btn--accent">
-            Открыть заявки
+            {{ actionPanelPrimary }}
           </router-link>
           <router-link to="/properties" class="btn btn--ghost">
-            Смотреть объекты
+            {{ actionPanelSecondary }}
+          </router-link>
+          <router-link v-if="auth.isClient" to="/deals" class="btn btn--ghost">
+            Перейти к сделкам
           </router-link>
         </div>
       </div>
@@ -69,29 +73,19 @@
       <div class="panel panel--light dashboard__panel">
         <div class="surface-head dashboard-panel-head">
           <div>
-            <div class="surface-head__meta">Система и данные</div>
-            <h2 class="h2 dashboard__title">Подсказки по работе</h2>
+            <div class="surface-head__meta">{{ tipsPanelMeta }}</div>
+            <h2 class="h2 dashboard__title">{{ tipsPanelTitle }}</h2>
           </div>
         </div>
         <div class="dashboard__tips">
-          <div class="dashboard__tip">
-            <b>Каталог объектов</b>
+          <div
+            v-for="item in tipItems"
+            :key="item.title"
+            class="dashboard__tip"
+          >
+            <b>{{ item.title }}</b>
             <span>
-              Используйте широкий каталог и закреплённый фильтр для быстрого
-              подбора вариантов.
-            </span>
-          </div>
-          <div class="dashboard__tip">
-            <b>Заявки и задачи</b>
-            <span>
-              Сначала разбирайте нераспределённые заявки, затем переводите
-              процесс в задачи и подборку.
-            </span>
-          </div>
-          <div class="dashboard__tip">
-            <b>Сделки и договоры</b>
-            <span>
-              Контролируйте статусы и PDF-договоры прямо из журнала сделок.
+              {{ item.text }}
             </span>
           </div>
         </div>
@@ -106,39 +100,148 @@ import { useAuthStore } from '../store/auth'
 
 const auth = useAuthStore()
 const adminPanelHref = computed(() => (auth.isAdmin ? '/admin/' : '/admin'))
+const isClient = computed(() => auth.user?.user_type === 'client')
 
-const showcaseCards = [
-  {
-    badge: 'Каталог',
-    title: 'Объекты в работе',
-    text: 'Поддерживайте базу недвижимости, быстро фильтруйте карточки и открывайте нужный объект без лишних переходов.',
-    cta: 'Открыть каталог',
-    to: '/properties',
-  },
-  {
-    badge: 'Воронка',
-    title: 'Заявки клиентов',
-    text: 'Собирайте входящий поток, закрепляйте менеджеров и переводите обращения в следующий рабочий этап.',
-    cta: 'Перейти к заявкам',
-    to: '/requests',
-  },
-  {
-    badge: 'Процесс',
-    title: 'Задачи команды',
-    text: 'Держите под рукой активные поручения, сроки и текущую загрузку сотрудников в одном рабочем блоке.',
-    cta: 'Открыть задачи',
-    to: '/tasks',
-  },
-  {
-    badge: 'Финализация',
-    title: 'Сделки и договоры',
-    text: 'Контролируйте этапы закрытия, документы и финальную стоимость сделки через отдельный журнал.',
-    cta: 'Смотреть сделки',
-    to: '/deals',
-  },
-]
+const showcaseCards = computed(() => (
+  isClient.value
+    ? [
+        {
+          badge: 'Обращения',
+          title: 'Мои заявки',
+          text: 'Следите за своими обращениями, статусами и подборками объектов без лишних переходов.',
+          cta: 'Открыть заявки',
+          to: '/requests',
+        },
+        {
+          badge: 'Каталог',
+          title: 'Подбор объектов',
+          text: 'Просматривайте каталог, сравнивайте варианты и быстро возвращайтесь к интересующим объектам.',
+          cta: 'Смотреть объекты',
+          to: '/properties',
+        },
+        {
+          badge: 'Сделки',
+          title: 'Документы и договоры',
+          text: 'Открывайте свои сделки, проверяйте этапы и скачивайте готовые договоры в отдельном окне.',
+          cta: 'Перейти к сделкам',
+          to: '/deals',
+        },
+        {
+          badge: 'Профиль',
+          title: 'Личные данные',
+          text: 'Держите договорные данные актуальными, чтобы документы формировались без ручных уточнений.',
+          cta: 'Открыть аккаунт',
+          to: '/account',
+        },
+      ]
+    : [
+        {
+          badge: 'Каталог',
+          title: 'Объекты в работе',
+          text: 'Поддерживайте базу недвижимости, быстро фильтруйте карточки и открывайте нужный объект без лишних переходов.',
+          cta: 'Открыть каталог',
+          to: '/properties',
+        },
+        {
+          badge: 'Воронка',
+          title: 'Заявки клиентов',
+          text: 'Собирайте входящий поток, закрепляйте менеджеров и переводите обращения в следующий рабочий этап.',
+          cta: 'Перейти к заявкам',
+          to: '/requests',
+        },
+        {
+          badge: 'Процесс',
+          title: 'Мои задачи',
+          text: 'Держите под рукой свои поручения, сроки и текущую загрузку без лишнего командного шума.',
+          cta: 'Открыть задачи',
+          to: '/tasks',
+        },
+        {
+          badge: 'Финализация',
+          title: 'Сделки и договоры',
+          text: 'Контролируйте этапы закрытия, документы и финальную стоимость сделки через отдельный журнал.',
+          cta: 'Смотреть сделки',
+          to: '/deals',
+        },
+      ]
+))
 
-const canEdit = computed(() => auth.user?.user_type === 'employee')
+const tipItems = computed(() => (
+  isClient.value
+    ? [
+        {
+          title: 'Мои заявки',
+          text: 'Проверяйте статус обращения и открывайте карточку, чтобы видеть подборку и связанные сделки.',
+        },
+        {
+          title: 'Каталог объектов',
+          text: 'Используйте каталог для самостоятельного просмотра вариантов и уточнения интереса к объектам.',
+        },
+        {
+          title: 'Сделки и договоры',
+          text: 'Когда сделка готова, договор и ключевые этапы будут доступны в отдельном разделе сделок.',
+        },
+      ]
+    : [
+        {
+          title: 'Каталог объектов',
+          text: 'Используйте широкий каталог и закреплённый фильтр для быстрого подбора вариантов.',
+        },
+        {
+          title: 'Заявки и задачи',
+          text: 'Сначала разбирайте нераспределённые заявки, затем переводите процесс в задачи и подборку.',
+        },
+        {
+          title: 'Сделки и договоры',
+          text: 'Контролируйте статусы и PDF-договоры прямо из журнала сделок.',
+        },
+      ]
+))
+
+const heroSubtitle = computed(() => (
+  isClient.value
+    ? 'Ваши заявки, объекты и сделки в одном понятном пространстве'
+    : 'Объекты, заявки, задачи и сделки в одном рабочем контуре'
+))
+const primaryRequestsLabel = computed(() => (
+  isClient.value ? 'Мои заявки' : 'Заявки клиентов'
+))
+const propertiesLabel = computed(() => (
+  isClient.value ? 'Подбор объектов' : 'Каталог объектов'
+))
+const calloutTitle = computed(() => (
+  isClient.value ? 'Что важно сейчас' : 'Текущий рабочий фокус'
+))
+const calloutText = computed(() => (
+  isClient.value
+    ? 'Следите за движением своих заявок, просматривайте подобранные объекты и держите под рукой сделки с договорами.'
+    : 'Открывайте заявки, распределяйте задачи, ведите сделки и контролируйте загрузку сотрудников без переключения между разрозненными инструментами.'
+))
+const actionPanelMeta = computed(() => (
+  isClient.value ? 'Быстрый доступ' : 'Быстрые действия'
+))
+const actionPanelTitle = computed(() => (
+  isClient.value ? 'Ваши основные разделы' : 'Мои задачи и поток'
+))
+const actionPanelText = computed(() => (
+  isClient.value
+    ? 'Здесь удобно перейти к своим обращениям, каталогу объектов и разделу сделок, не отвлекаясь на внутренние процессы агентства.'
+    : 'Открывайте свои задачи, заявки клиентов и рабочие карточки без командных сводок и лишнего шума.'
+))
+const actionPanelPrimary = computed(() => (
+  isClient.value ? 'Открыть мои заявки' : 'Открыть заявки'
+))
+const actionPanelSecondary = computed(() => (
+  isClient.value ? 'Смотреть объекты' : 'Смотреть объекты'
+))
+const tipsPanelMeta = computed(() => (
+  isClient.value ? 'Подсказки' : 'Система и данные'
+))
+const tipsPanelTitle = computed(() => (
+  isClient.value ? 'Как ориентироваться в кабинете' : 'Подсказки по работе'
+))
+
+const canCreateProperty = computed(() => auth.isManager)
 </script>
 
 <style scoped>

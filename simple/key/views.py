@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import Count, Sum, Q
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -69,6 +70,50 @@ def _validation_error_payload(exc: ValidationError):
     return {'detail': detail}
 
 
+def _parse_date_filter_value(raw_value: str | None, *, field_name: str):
+    if raw_value in (None, ''):
+        return None
+    parsed = parse_date(str(raw_value).strip())
+    if parsed is None:
+        raise ValidationError({
+            field_name: [f'Неверный формат даты для параметра "{field_name}".'],
+        })
+    return parsed
+
+
+def _apply_date_range_filter(
+    qs,
+    params,
+    *,
+    field_name: str,
+    start_param: str = 'date_from',
+    end_param: str = 'date_to',
+    use_date_lookup: bool = False,
+):
+    start_date = _parse_date_filter_value(
+        params.get(start_param),
+        field_name=start_param,
+    )
+    end_date = _parse_date_filter_value(
+        params.get(end_param),
+        field_name=end_param,
+    )
+    lookup_field = f'{field_name}__date' if use_date_lookup else field_name
+    if start_date:
+        qs = qs.filter(**{f'{lookup_field}__gte': start_date})
+    if end_date:
+        qs = qs.filter(**{f'{lookup_field}__lte': end_date})
+    return qs
+
+
+def _task_operation_filter_q(operation_type_id) -> Q:
+    return (
+        Q(request__operation_type_id=operation_type_id)
+        | Q(deal__operation_type_id=operation_type_id)
+        | Q(property__operation_type_id=operation_type_id)
+    )
+
+
 def _apply_property_filters(qs, params):
     if params.get('operation_type'):
         qs = qs.filter(operation_type_id=params['operation_type'])
@@ -76,6 +121,20 @@ def _apply_property_filters(qs, params):
         qs = qs.filter(status_id=params['status'])
     if params.get('rooms'):
         qs = qs.filter(rooms_count=params['rooms'])
+    if params.get('floor_number'):
+        qs = qs.filter(floor_number=params['floor_number'])
+    if params.get('total_floors'):
+        qs = qs.filter(total_floors=params['total_floors'])
+    if params.get('min_area'):
+        qs = qs.filter(area_total__gte=params['min_area'])
+    if params.get('max_area'):
+        qs = qs.filter(area_total__lte=params['max_area'])
+    premises_type = (params.get('premises_type') or '').strip()
+    if premises_type:
+        qs = qs.filter(premises_type=premises_type)
+    owner = (params.get('owner') or '').strip()
+    if owner and owner != 'me':
+        qs = qs.filter(owner_id=owner)
     if params.get('min_price'):
         qs = qs.filter(price__gte=params['min_price'])
     if params.get('max_price'):
@@ -163,6 +222,7 @@ class RegisterView(APIView):
 class LoginView(TokenObtainPairView):
     """Получение пары токенов ``access`` / ``refresh``."""
     permission_classes = [AllowAny]
+    serializer_class = serializers.EmailTokenObtainPairSerializer
 
 
 class MeView(APIView):
@@ -428,7 +488,11 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
 
 
 class ClientProfileViewSet(viewsets.ModelViewSet):
-    queryset = models.ClientProfile.objects.select_related('user').order_by('id')
+    queryset = models.ClientProfile.objects.select_related(
+        'user',
+        'individual_details',
+        'company_details',
+    ).order_by('id')
     serializer_class = serializers.ClientProfileSerializer
     permission_classes = [IsOwnClientProfileOrEmployee]
 
@@ -442,17 +506,41 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
 
 class PropertyViewSet(viewsets.ModelViewSet):
     queryset = models.Property.objects.select_related(
-        'operation_type', 'status', 'address__house__street__city'
-    ).prefetch_related('photos', 'feature_values__feature').all()
+        'operation_type', 'status', 'address__house__street__city', 'owner',
+    ).prefetch_related('photos').all()
     serializer_class = serializers.PropertySerializer
     permission_classes = [IsEmployeeOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['=id', 'title', 'description']
     ordering_fields = ['price', 'created_at', 'area_total']
 
+    def get_permissions(self):
+        if self.action == 'create':
+            return [IsAuthenticated()]
+        if self.action in {
+            'update', 'partial_update', 'destroy',
+            'change_status', 'import_csv', 'bulk_archive',
+            'upload_photo', 'moderation',
+        }:
+            if self.action == 'upload_photo':
+                return [IsAuthenticated()]
+            return [IsAdminOrManager()]
+        return [IsAuthenticated()]
+
     def get_queryset(self):
         qs = super().get_queryset()
-        return _apply_property_filters(qs, self.request.query_params)
+        user = self.request.user
+        params = self.request.query_params
+        if user.is_authenticated and user.is_client:
+            if params.get('owner') == 'me':
+                qs = qs.filter(owner=user)
+            elif self.action in {'list', 'retrieve'}:
+                qs = qs.filter(status__code__in={'active', 'reserved', 'sold', 'rented'})
+            if self.action not in {'list', 'retrieve'} and params.get('owner') != 'me':
+                qs = qs.filter(owner=user)
+        if params.get('owner') == 'me' and user.is_authenticated:
+            qs = qs.filter(owner=user)
+        return _apply_property_filters(qs, params)
 
     @staticmethod
     def _fetch_twogis_photos(property_obj) -> int:
@@ -501,7 +589,17 @@ class PropertyViewSet(viewsets.ModelViewSet):
             return 0
 
     def perform_create(self, serializer):
-        property_obj = serializer.save()
+        if self.request.user.is_employee and not self.request.user.is_admin_or_manager:
+            raise ValidationError(
+                {'detail': 'Сотрудникам нельзя создавать объекты. Создание доступно только клиентам и руководителям.'},
+            )
+        save_kwargs = {}
+        if self.request.user.is_client:
+            pending_status = models.PropertyStatus.objects.filter(code='pending').first()
+            save_kwargs['owner'] = self.request.user
+            if pending_status is not None:
+                save_kwargs['status'] = pending_status
+        property_obj = serializer.save(**save_kwargs)
         audit_service.log_event(
             entity=property_obj,
             action_code='created',
@@ -515,6 +613,15 @@ class PropertyViewSet(viewsets.ModelViewSet):
         )
         # Автоматически подгружаем фото из 2GIS Static Maps при создании
         self._fetch_twogis_photos(property_obj)
+
+    @action(detail=False, methods=['get'], url_path='moderation')
+    def moderation(self, request):
+        qs = self.get_queryset().filter(status__code='pending')
+        return Response(serializers.PropertySerializer(
+            qs.select_related('operation_type', 'status', 'address__house__street__city', 'owner')
+              .prefetch_related('photos'),
+            many=True, context={'request': request}
+        ).data)
 
     def perform_update(self, serializer):
         changed_fields = sorted(serializer.validated_data.keys())
@@ -721,6 +828,16 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def upload_photo(self, request, pk=None):
         """Загрузить фото объекта."""
         property_obj = self.get_object()
+        if request.user.is_employee and not request.user.is_admin_or_manager:
+            return Response(
+                {'detail': 'Сотрудникам нельзя загружать фото к объектам.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if request.user.is_client and property_obj.owner_id != request.user.id:
+            return Response(
+                {'detail': 'Можно загружать фото только к своему объекту.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         image = request.FILES.get('image')
         url = request.data.get('url')
         if not image and not url:
@@ -742,12 +859,6 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 photo, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
-
-
-class PropertyFeatureViewSet(viewsets.ModelViewSet):
-    queryset = models.PropertyFeature.objects.all()
-    serializer_class = serializers.PropertyFeatureSerializer
-    permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
 class PropertyPhotoViewSet(viewsets.ModelViewSet):
@@ -975,6 +1086,12 @@ class RequestViewSet(viewsets.ModelViewSet):
                     codes,
                 ),
             )
+        qs = _apply_date_range_filter(
+            qs,
+            params,
+            field_name='created_at',
+            use_date_lookup=True,
+        )
         scope = params.get('scope')
         if scope == 'unassigned' and user.is_employee:
             qs = qs.filter(agent__isnull=True)
@@ -1361,6 +1478,8 @@ class DealViewSet(viewsets.ModelViewSet):
             codes = [c.strip() for c in params['status_code'].split(',')
                      if c.strip()]
             qs = qs.filter(status__code__in=codes)
+        if params.get('operation_type'):
+            qs = qs.filter(operation_type_id=params['operation_type'])
         if params.get('request'):
             qs = qs.filter(request_id=params['request'])
         if params.get('agent'):
@@ -1369,6 +1488,11 @@ class DealViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(agent=user)
             elif value != 'me':
                 qs = qs.filter(agent_id=value)
+        qs = _apply_date_range_filter(
+            qs,
+            params,
+            field_name='deal_date',
+        )
         return qs
 
     @action(
@@ -1538,8 +1662,18 @@ class TaskViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(assignee_id=value)
         if params.get('task_type'):
             qs = qs.filter(task_type=params['task_type'])
+        if params.get('operation_type'):
+            qs = qs.filter(
+                _task_operation_filter_q(params['operation_type']),
+            )
         if params.get('request'):
             qs = qs.filter(request_id=params['request'])
+        qs = _apply_date_range_filter(
+            qs,
+            params,
+            field_name='created_at',
+            use_date_lookup=True,
+        )
         if params.get('completed_after'):
             qs = qs.filter(completed_at__gte=params['completed_after'])
         if params.get('completed_before'):
@@ -2105,12 +2239,12 @@ class DashboardStatsView(APIView):
 
 
 class PropertyExportView(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [IsAdminOrManager]
 
     def get(self, request):
         queryset = models.Property.objects.select_related(
-            'operation_type', 'status', 'address__house__street__city',
-        ).prefetch_related('photos', 'feature_values__feature').all()
+            'operation_type', 'status', 'address__house__street__city', 'owner',
+        ).prefetch_related('photos').all()
         queryset = _apply_property_filters(queryset, request.query_params)
         export_format = request.query_params.get('export_format', 'csv')
         return data_exchange.export_properties(queryset, export_format)
