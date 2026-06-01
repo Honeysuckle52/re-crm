@@ -37,14 +37,12 @@ simple/
 ├── README.md
 ├── .env.example
 ├── .gitignore
-│
 ├── simple/                              ← Django-проект
 │   ├── __init__.py
+│   ├── asgi.py
 │   ├── settings.py
 │   ├── urls.py
-│   ├── asgi.py
 │   └── wsgi.py
-│
 ├── key/                                 ← Django-приложение CRM/ERP
 │   ├── __init__.py
 │   ├── admin.py
@@ -53,6 +51,7 @@ simple/
 │   ├── business_rules.py
 │   ├── dadata.py
 │   ├── data_exchange.py
+│   ├── db_backups.py
 │   ├── deals_service.py
 │   ├── documents.py
 │   ├── events.py
@@ -64,20 +63,23 @@ simple/
 │   ├── request_lifecycle.py
 │   ├── seeding.py
 │   ├── serializers.py
+│   ├── storage.py
 │   ├── task_actions.py
 │   ├── task_workflow.py
 │   ├── tests.py
+│   ├── twogis.py
 │   ├── urls.py
 │   ├── views.py
 │   ├── xlsx_utils.py
 │   ├── fonts/
 │   │   ├── DejaVuSans.ttf
-│   │   └── DejaVuSans-Bold.ttf
-│   │   └── times.ttf
-│   │   └── timesbd.ttf
-│   │   └── timesbi.ttf
+│   │   ├── DejaVuSans-Bold.ttf
+│   │   ├── times.ttf
+│   │   ├── timesbd.ttf
+│   │   ├── timesbi.ttf
 │   │   └── timesi.ttf
 │   ├── management/
+│   │   ├── __init__.py
 │   │   ├── background_worker.py
 │   │   └── commands/
 │   │       ├── __init__.py
@@ -86,24 +88,59 @@ simple/
 │   │       └── seed_data.py
 │   ├── migrations/
 │   │   ├── __init__.py
-│   │   └── 0001_initial.py
+│   │   ├── 0001_initial.py
 │   └── templatetags/
 │       ├── __init__.py
 │       └── vite.py
-│
-├── static/                              ← Собранные статические ассеты (collectstatic)
-│
+├── static/                              
+│   └── admin/
+│       └── css/
+│           └── custom_admin.css
 ├── templates/                           ← HTML-шаблоны и переопределения Django-admin
 │   ├── index.html
-│   ├── admin/                           ← переопределения шаблонов Django-admin
-│
+│   ├── admin/
+│   │   ├── backups.html
+│   │   ├── base_site.html
+│   │   ├── index.html
+│   │   ├── nav_sidebar.html
+│   │   └── reports.html
+│   └── emails/
+│       ├── _base.html
+│       ├── property_matched/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
+│       ├── request_closed/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
+│       ├── request_taken/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
+│       ├── task_assigned/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
+│       ├── task_assigned_call/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
+│       ├── task_assigned_documents/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
+│       └── task_assigned_showing/
+│           ├── body.html
+│           ├── body.txt
+│           └── subject.txt
 └── frontend/                            ← Vue 3 + Vite SPA
     ├── index.html
     ├── package.json
-    ├── package-lock.json
-    ├── pnpm-lock.yaml
     ├── playwright.config.js
+    ├── pnpm-lock.yaml
     ├── vite.config.js
+    ├── test-results/
     ├── tests/
     │   └── e2e/
     │       └── register.spec.js
@@ -130,6 +167,7 @@ simple/
         │   ├── ListPagination.vue
         │   ├── NetworkBanner.vue
         │   ├── PropertyCard.vue
+        │   ├── PropertyPickerModal.vue
         │   ├── RemoteLookupField.vue
         │   ├── RequestCloseDialog.vue
         │   ├── StatCard.vue
@@ -167,6 +205,7 @@ simple/
             ├── Properties.vue
             ├── PropertyDetail.vue
             ├── PropertyForm.vue
+            ├── PropertyModeration.vue
             ├── Register.vue
             ├── Reports.vue
             ├── RequestDetail.vue
