@@ -131,13 +131,8 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach(async (to) => {
+router.beforeEach((to) => {
   const auth = useAuthStore()
-
-  // Ждём инициализацию auth, если она ещё не завершена
-  if (!auth.initialized) {
-    await auth.initialize()
-  }
 
   if (!to.meta.guest && !auth.isAuthenticated) {
     return { name: 'login' }
@@ -160,6 +155,11 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+router.onError((error) => {
+  console.error('Router navigation error:', error)
+  throw error
 })
 
 export default router
