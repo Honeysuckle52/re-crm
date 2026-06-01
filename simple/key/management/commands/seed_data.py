@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from ...seeding import SeedDataService
@@ -33,6 +34,7 @@ class Command(BaseCommand):
         )
     def handle(self, *args, **options):
         service = SeedDataService(self)
+        call_command('migrate', interactive=False, verbosity=0)
         execution = self._build_execution_plan(service, options)
         execution()
 
