@@ -213,7 +213,7 @@
             Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
           </div>
         </div>
-        <div v-if="auth.isStaff" class="row" style="gap: 8px; flex-wrap: wrap">
+        <div v-if="auth.canCreateRequestTaskReport" class="row" style="gap: 8px; flex-wrap: wrap">
           <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('csv')">
             CSV
           </button>

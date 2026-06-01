@@ -640,14 +640,36 @@ def _normalized_export_rows(rows: list[dict]) -> list[dict]:
     ]
 
 
+def _export_user_label(user) -> str:
+    if user is None:
+        return 'Пользователь'
+    parts = [
+        getattr(user, 'last_name', ''),
+        getattr(user, 'first_name', ''),
+        getattr(user, 'middle_name', ''),
+    ]
+    full_name = ' '.join(part for part in parts if part).strip()
+    if full_name:
+        return full_name
+    return getattr(user, 'username', None) or getattr(user, 'email', None) or 'Пользователь'
+
+
+def _export_title(definition: TabularExportDefinition, user) -> str:
+    stamp = timezone.localtime(timezone.now()).strftime('%d.%m.%Y %H:%M')
+    return f'{definition.sheet_title} · Сформировал: {_export_user_label(user)} · {stamp}'
+
+
 def _export_tabular(
     definition: TabularExportDefinition,
     rows: list[dict],
     fmt: str,
+    *,
+    title: str | None = None,
 ) -> HttpResponse:
     normalized = (fmt or '').strip().lower()
     suffix = timezone.localdate().strftime('%Y%m%d')
     prepared_rows = _normalized_export_rows(rows)
+    report_title = title
 
     if normalized == 'csv':
         response = HttpResponse(content_type='text/csv; charset=utf-8')
@@ -656,6 +678,9 @@ def _export_tabular(
         )
         response.write('\ufeff')
         writer = csv.writer(response, delimiter=';')
+        if report_title:
+            writer.writerow([report_title])
+            writer.writerow([])
         writer.writerow([label for _, label in definition.columns])
         for row in prepared_rows:
             writer.writerow([
@@ -671,29 +696,35 @@ def _export_tabular(
         response['Content-Disposition'] = (
             f'attachment; filename="{definition.filename_prefix}-{suffix}.json"'
         )
-        response.write(json.dumps({
+        payload = {
             'exported_at': timezone.now().isoformat(),
             'count': len(prepared_rows),
             'items': prepared_rows,
-        }, ensure_ascii=False, indent=2))
+        }
+        if report_title:
+            payload['title'] = report_title
+        response.write(json.dumps(payload, ensure_ascii=False, indent=2))
         return response
 
     if normalized == 'xlsx':
+        rows_payload = [
+            [label for _, label in definition.columns],
+            *[
+                [
+                    _export_cell_value(row.get(key))
+                    for key, _ in definition.columns
+                ]
+                for row in prepared_rows
+            ],
+        ]
+        if report_title:
+            rows_payload = [[report_title], [], *rows_payload]
         return _xlsx_response(
             f'{definition.filename_prefix}-{suffix}.xlsx',
             [
                 WorkbookSheet.from_rows(
                     definition.sheet_title,
-                    [
-                        [label for _, label in definition.columns],
-                        *[
-                            [
-                                _export_cell_value(row.get(key))
-                                for key, _ in definition.columns
-                            ]
-                            for row in prepared_rows
-                        ],
-                    ],
+                    rows_payload,
                 ),
             ],
         )
@@ -701,9 +732,9 @@ def _export_tabular(
     raise ValidationError({'format': ['Поддерживаются только csv, json и xlsx.']})
 
 
-def export_properties(queryset, fmt: str) -> HttpResponse:
+def export_properties(queryset, fmt: str, *, title: str | None = None) -> HttpResponse:
     rows = _property_export_rows(queryset)
-    return _export_tabular(PROPERTY_EXPORT_DEFINITION, rows, fmt)
+    return _export_tabular(PROPERTY_EXPORT_DEFINITION, rows, fmt, title=title)
 
 
 def _request_export_rows(queryset) -> list[dict]:
@@ -737,8 +768,18 @@ def _request_export_rows(queryset) -> list[dict]:
     return rows
 
 
-def export_requests(queryset, fmt: str) -> HttpResponse:
-    return _export_tabular(REQUEST_EXPORT_DEFINITION, _request_export_rows(queryset), fmt)
+def export_requests(
+    queryset,
+    fmt: str,
+    *,
+    title: str | None = None,
+) -> HttpResponse:
+    return _export_tabular(
+        REQUEST_EXPORT_DEFINITION,
+        _request_export_rows(queryset),
+        fmt,
+        title=title,
+    )
 
 
 def _task_export_rows(queryset) -> list[dict]:
@@ -773,8 +814,18 @@ def _task_export_rows(queryset) -> list[dict]:
     return rows
 
 
-def export_tasks(queryset, fmt: str) -> HttpResponse:
-    return _export_tabular(TASK_EXPORT_DEFINITION, _task_export_rows(queryset), fmt)
+def export_tasks(
+    queryset,
+    fmt: str,
+    *,
+    title: str | None = None,
+) -> HttpResponse:
+    return _export_tabular(
+        TASK_EXPORT_DEFINITION,
+        _task_export_rows(queryset),
+        fmt,
+        title=title,
+    )
 
 
 def _deal_export_rows(queryset) -> list[dict]:
@@ -808,8 +859,18 @@ def _deal_export_rows(queryset) -> list[dict]:
     return rows
 
 
-def export_deals(queryset, fmt: str) -> HttpResponse:
-    return _export_tabular(DEAL_EXPORT_DEFINITION, _deal_export_rows(queryset), fmt)
+def export_deals(
+    queryset,
+    fmt: str,
+    *,
+    title: str | None = None,
+) -> HttpResponse:
+    return _export_tabular(
+        DEAL_EXPORT_DEFINITION,
+        _deal_export_rows(queryset),
+        fmt,
+        title=title,
+    )
 
 
 def _user_export_rows(queryset) -> list[dict]:

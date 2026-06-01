@@ -67,7 +67,7 @@ DEALS_REPORT = ReportDefinition(
 
 TASKS_REPORT = ReportDefinition(
     code='tasks',
-    title='Отчёт по задачам агента',
+    title='Отчёт по задачам сотрудников',
     filename_prefix='tasks-report',
     columns=(
         ('id', 'ID'),
@@ -148,16 +148,40 @@ def _report_filename(definition: ReportDefinition, fmt: str) -> str:
     return f'{definition.filename_prefix}-{suffix}.{fmt}'
 
 
+def _report_user_label(user) -> str:
+    parts = [
+        getattr(user, 'last_name', ''),
+        getattr(user, 'first_name', ''),
+        getattr(user, 'middle_name', ''),
+    ]
+    full_name = ' '.join(part for part in parts if part).strip()
+    if full_name:
+        return full_name
+    return getattr(user, 'username', None) or getattr(user, 'email', None) or 'Пользователь'
+
+
+def _report_title(definition: ReportDefinition, user) -> str:
+    stamp = timezone.localtime(timezone.now()).strftime('%d.%m.%Y %H:%M')
+    return f'{definition.title} · {_report_user_label(user)} · {stamp}'
+
+
 def _summary_pairs(summary: dict) -> list[tuple[str, str]]:
     return [(label, str(value)) for label, value in summary.items()]
 
 
-def _export_csv(definition: ReportDefinition, summary: dict, rows: list[dict]) -> HttpResponse:
+def _export_csv(
+    definition: ReportDefinition,
+    summary: dict,
+    rows: list[dict],
+    *,
+    title: str | None = None,
+) -> HttpResponse:
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = f'attachment; filename="{_report_filename(definition, "csv")}"'
+    report_title = title or definition.title
     response.write('\ufeff')
     writer = csv.writer(response, delimiter=';')
-    writer.writerow([definition.title])
+    writer.writerow([report_title])
     writer.writerow([])
     writer.writerow(['Показатель', 'Значение'])
     for label, value in _summary_pairs(summary):
@@ -169,12 +193,20 @@ def _export_csv(definition: ReportDefinition, summary: dict, rows: list[dict]) -
     return response
 
 
-def _export_json(definition: ReportDefinition, summary: dict, rows: list[dict], ordering: str) -> HttpResponse:
+def _export_json(
+    definition: ReportDefinition,
+    summary: dict,
+    rows: list[dict],
+    ordering: str,
+    *,
+    title: str | None = None,
+) -> HttpResponse:
     response = HttpResponse(content_type='application/json; charset=utf-8')
     response['Content-Disposition'] = f'attachment; filename="{_report_filename(definition, "json")}"'
+    report_title = title or definition.title
     response.write(json.dumps({
         'report_code': definition.code,
-        'title': definition.title,
+        'title': report_title,
         'ordering': ordering,
         'summary': summary,
         'rows': rows,
@@ -218,12 +250,20 @@ def _export_xls(definition: ReportDefinition, summary: dict, rows: list[dict]) -
     return response
 
 
-def _export_xlsx(definition: ReportDefinition, summary: dict, rows: list[dict], ordering: str) -> HttpResponse:
+def _export_xlsx(
+    definition: ReportDefinition,
+    summary: dict,
+    rows: list[dict],
+    ordering: str,
+    *,
+    title: str | None = None,
+) -> HttpResponse:
+    report_title = title or definition.title
     workbook = build_xlsx_bytes([
         WorkbookSheet.from_rows(
             'Сводка',
             [
-                ('Отчёт', definition.title),
+                ('Отчёт', report_title),
                 ('Сортировка', ordering),
                 (),
                 ('Показатель', 'Значение'),
@@ -249,8 +289,15 @@ def _export_xlsx(definition: ReportDefinition, summary: dict, rows: list[dict], 
     return response
 
 
-def _export_pdf(definition: ReportDefinition, summary: dict, rows: list[dict]) -> HttpResponse:
+def _export_pdf(
+    definition: ReportDefinition,
+    summary: dict,
+    rows: list[dict],
+    *,
+    title: str | None = None,
+) -> HttpResponse:
     _ensure_fonts_registered()
+    report_title = title or definition.title
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -283,7 +330,7 @@ def _export_pdf(definition: ReportDefinition, summary: dict, rows: list[dict]) -
         fontName=FONT_BOLD,
     )
 
-    story = [Paragraph(definition.title, title_style), Spacer(1, 3 * mm)]
+    story = [Paragraph(report_title, title_style), Spacer(1, 3 * mm)]
     summary_data = [[
         Paragraph('<b>Показатель</b>', head_style),
         Paragraph('<b>Значение</b>', head_style),
@@ -347,23 +394,31 @@ def export_report(
     fmt: str,
     *,
     ordering: str | None = None,
+    title: str | None = None,
 ) -> HttpResponse:
     normalized = (fmt or '').strip().lower()
     if normalized == 'csv':
-        return _export_csv(definition, summary, rows)
+        return _export_csv(definition, summary, rows, title=title)
     if normalized == 'json':
-        return _export_json(definition, summary, rows, ordering or definition.default_ordering)
+        return _export_json(
+            definition,
+            summary,
+            rows,
+            ordering or definition.default_ordering,
+            title=title,
+        )
     if normalized == 'xlsx':
         return _export_xlsx(
             definition,
             summary,
             rows,
             ordering or definition.default_ordering,
+            title=title,
         )
     if normalized == 'xls':
         return _export_xls(definition, summary, rows)
     if normalized == 'pdf':
-        return _export_pdf(definition, summary, rows)
+        return _export_pdf(definition, summary, rows, title=title)
     raise ValidationError({'export': ['Поддерживаются только csv, json, xlsx, xls и pdf.']})
 
 
@@ -432,6 +487,7 @@ def build_deals_report(params, *, user) -> dict:
 
     return {
         'definition': DEALS_REPORT,
+        'title': _report_title(DEALS_REPORT, user),
         'summary': summary,
         'rows': rows,
         'ordering': ordering,
@@ -489,6 +545,7 @@ def build_tasks_report(params, *, user) -> dict:
 
     return {
         'definition': TASKS_REPORT,
+        'title': _report_title(TASKS_REPORT, user),
         'summary': summary,
         'rows': rows,
         'ordering': ordering,

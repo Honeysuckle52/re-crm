@@ -6,17 +6,20 @@ from django.utils.safestring import mark_safe
 
 register = template.Library()
 _manifest_cache = None
+_manifest_cache_mtime = None
 
 
 def _load_manifest():
-    global _manifest_cache
-    if _manifest_cache is not None:
-        return _manifest_cache
+    global _manifest_cache, _manifest_cache_mtime
     manifest_path = Path(settings.VITE_ASSETS_DIR) / "manifest.json"
     if not manifest_path.exists():
         raise FileNotFoundError(f"Vite manifest not found: {manifest_path}")
+    current_mtime = manifest_path.stat().st_mtime_ns
+    if _manifest_cache is not None and _manifest_cache_mtime == current_mtime:
+        return _manifest_cache
     with manifest_path.open("r", encoding="utf-8") as f:
         _manifest_cache = json.load(f)
+    _manifest_cache_mtime = current_mtime
     return _manifest_cache
 
 

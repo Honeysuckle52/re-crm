@@ -205,7 +205,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
@@ -245,6 +245,7 @@ const loading = ref(false)
 const error = ref('')
 const propertyBaseline = ref('')
 const propertyDraftRestored = ref(false)
+let initSeq = 0
 
 const formModeLabel = computed(() => (
   isEdit.value ? 'Редактирование' : 'Создание'
@@ -394,6 +395,70 @@ function syncPropertyBaseline() {
   propertyBaseline.value = propertyDirtySnapshot.value
 }
 
+function resetPropertyFormState () {
+  Object.assign(form, defaultForm())
+  addressQuery.value = ''
+  addressPicked.value = null
+  existingAddress.value = ''
+  photos.value.forEach(revokePreview)
+  photos.value = []
+  pendingFiles.value = []
+  removedPhotoIds.value = []
+  newPhotoUrl.value = ''
+  error.value = ''
+  propertyDraftRestored.value = false
+}
+
+async function ensureOperationTypesLoaded () {
+  if (dict.operations.length) return
+  const { data } = await api.get('/operation-types/', {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  })
+  dict.operations = unpackPaginated(data).items
+}
+
+async function initializeForm () {
+  const seq = ++initSeq
+  loading.value = true
+  resetPropertyFormState()
+
+  try {
+    await ensureOperationTypesLoaded()
+    if (seq !== initSeq) return
+
+    if (isEdit.value) {
+      const { data } = await api.get(`/properties/${route.params.id}/`)
+      if (seq !== initSeq) return
+      Object.assign(form, {
+        title: data.title,
+        operation_type: data.operation_type,
+        status: data.status,
+        premises_type: data.premises_type || 'apartment',
+        address: data.address,
+        price: data.price,
+        price_per_sqm: data.price_per_sqm,
+        area_total: data.area_total,
+        rooms_count: data.rooms_count,
+        floor_number: data.floor_number,
+        total_floors: data.total_floors,
+        description: data.description,
+      })
+      existingAddress.value = data.full_address || ''
+      photos.value = (data.photos || []).map((photo) => ({ ...photo }))
+      syncPropertyBaseline()
+    } else {
+      syncPropertyBaseline()
+    }
+  } catch (e) {
+    if (seq !== initSeq) return
+    error.value = extractError(e, 'Failed to initialize property form.')
+  } finally {
+    if (seq === initSeq) {
+      loading.value = false
+    }
+  }
+}
+
 const { clearDraft: clearPropertyDraft } = useDraftPersistence({
   key: 'property-form:create',
   enabled: () => !isEdit.value,
@@ -490,38 +555,9 @@ async function submit() {
   }
 }
 
-onMounted(async () => {
-  const [o] = await Promise.all([
-    api.get('/operation-types/', {
-      params: { page_size: LOOKUP_PAGE_SIZE },
-    }),
-  ])
-  dict.operations = unpackPaginated(o.data).items
-
-  if (isEdit.value) {
-    const { data } = await api.get(`/properties/${route.params.id}/`)
-    Object.assign(form, {
-      title: data.title,
-      operation_type: data.operation_type,
-      status: data.status,
-      premises_type: data.premises_type || 'apartment',
-      address: data.address,
-      price: data.price,
-      price_per_sqm: data.price_per_sqm,
-      area_total: data.area_total,
-      rooms_count: data.rooms_count,
-      floor_number: data.floor_number,
-      total_floors: data.total_floors,
-      description: data.description,
-    })
-    existingAddress.value = data.full_address || ''
-    photos.value = (data.photos || []).map(p => ({ ...p }))
-    syncPropertyBaseline()
-  } else if (!propertyDraftRestored.value) {
-    syncPropertyBaseline()
-  }
-})
-
+watch(() => `${route.name || ''}:${route.params.id || 'new'}`, () => {
+  void initializeForm()
+}, { immediate: true })
 watch(() => form.premises_type, (value) => {
   if (value === 'office' || value === 'warehouse') {
     form.rooms_count = null

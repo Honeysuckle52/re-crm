@@ -144,13 +144,16 @@
     <div class="panel panel--light">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <h2 class="h3">Подборка вариантов ({{ request.matches?.length || 0 }})</h2>
-        <div v-if="auth.isStaff" class="row" style="gap: 8px">
-          <select class="select select--sm" v-model.number="attachPropertyId">
-            <option :value="null" disabled>— выберите объект —</option>
-            <option v-for="propertyItem in availableProperties" :key="propertyItem.id" :value="propertyItem.id">
-              {{ propertyItem.title || 'Объект №' + propertyItem.id }} · {{ formatMoney(propertyItem.price) }} ₽
-            </option>
-          </select>
+        <div v-if="auth.isStaff" class="request-attach">
+          <div class="request-attach__picker">
+            <button
+              type="button"
+              class="btn btn--sm btn--ghost request-attach__trigger"
+              @click="propertyPickerOpen = true"
+            >
+              {{ attachPropertyId ? 'Заменить объект' : 'Выбрать объект' }}
+            </button>
+          </div>
           <input class="input"
                  v-model="attachNote"
                  placeholder="Комментарий агента" />
@@ -159,6 +162,9 @@
                   @click="attachProperty">
             + Добавить
           </button>
+          <div class="muted request-attach__hint">
+            {{ attachPropertyLabel || 'Откройте модальное окно и выберите объект для подбора.' }}
+          </div>
         </div>
       </div>
 
@@ -246,6 +252,14 @@
       :page-size="12"
     />
   </section>
+  <PropertyPickerModal
+    v-if="propertyPickerOpen"
+    title="Выбор объекта для подбора"
+    :selected-id="attachPropertyId"
+    :params="{ ordering: '-created_at' }"
+    @close="propertyPickerOpen = false"
+    @select="selectAttachProperty"
+  />
   <RequestCloseDialog
     v-if="closeDialogOpen && request"
     :request-id="request.id"
@@ -257,11 +271,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '../api'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
 import InfoRow from '../components/InfoRow.vue'
+import PropertyPickerModal from '../components/PropertyPickerModal.vue'
 import RequestCloseDialog from '../components/RequestCloseDialog.vue'
 import { useVisibilityRefresh } from '../composables/useVisibilityRefresh'
 import { useAuthStore } from '../store/auth'
@@ -290,14 +305,16 @@ const workload = useWorkloadStore()
 const toasts = useToastsStore()
 
 const request = ref(null)
-const availableProperties = ref([])
 const requestTasks = ref([])
 const relatedDeal = ref(null)
 const attachPropertyId = ref(null)
+const attachPropertyLabel = ref('')
 const attachNote = ref('')
+const propertyPickerOpen = ref(false)
 const confirmingId = ref(null)
 const closeDialogOpen = ref(false)
 const closeLoading = ref(false)
+let loadSeq = 0
 
 const statusClass = computed(() => {
   const code = request.value?.status_code
@@ -322,6 +339,19 @@ const hasPendingDealContract = computed(() => (
   ['pending', 'processing'].includes(relatedDeal.value?.contract_status)
 ))
 
+function resetDetailState () {
+  request.value = null
+  requestTasks.value = []
+  relatedDeal.value = null
+  attachPropertyId.value = null
+  attachPropertyLabel.value = ''
+  attachNote.value = ''
+  propertyPickerOpen.value = false
+  confirmingId.value = null
+  closeDialogOpen.value = false
+  closeLoading.value = false
+}
+
 function matchBadgeLabel (match) {
   if (match.state === 'confirmed') return 'Подтверждён'
   if (match.state === 'rejected') return 'Отклонён'
@@ -345,12 +375,26 @@ function taskResultLabel (task) {
   return task.result.summary || task.result.detail || 'Результат сохранён'
 }
 
-async function load () {
+function selectAttachProperty (property) {
+  attachPropertyId.value = property.id
+  attachPropertyLabel.value = `${property.title || `Объект №${property.id}`}${property.full_address ? ` · ${property.full_address}` : ''}`
+  propertyPickerOpen.value = false
+}
+
+async function load ({ reset = false } = {}) {
   const requestId = Number(route.params.id)
+  const seq = ++loadSeq
+
+  if (reset) {
+    resetDetailState()
+  }
+  if (!Number.isFinite(requestId)) {
+    return
+  }
+
   try {
     const calls = [
       api.get(`/requests/${requestId}/`),
-      api.get('/properties/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
       api.get('/deals/', {
         params: { request: requestId, page_size: 1 },
       }).catch(() => ({ data: [] })),
@@ -361,9 +405,10 @@ async function load () {
       })
         .catch(() => ({ data: [] })))
     }
-    const [requestResponse, propertiesResponse, dealsResponse, tasksResponse] = await Promise.all(calls)
+    const [requestResponse, dealsResponse, tasksResponse] = await Promise.all(calls)
+    if (seq !== loadSeq) return
+
     request.value = requestResponse.data
-    availableProperties.value = unpackPaginated(propertiesResponse.data).items
     const allDeals = unpackPaginated(dealsResponse.data).items
     relatedDeal.value = allDeals[0] || null
     if (tasksResponse) {
@@ -373,10 +418,15 @@ async function load () {
       requestTasks.value = []
     }
   } catch (err) {
-    toasts.error(extractError(err, 'Не удалось загрузить заявку'))
+    if (seq !== loadSeq) return
+    if (reset) {
+      request.value = null
+      requestTasks.value = []
+      relatedDeal.value = null
+    }
+    toasts.error(extractError(err, 'Failed to load request.'))
   }
 }
-
 async function takeRequest () {
   const result = await takeRequestAction(route.params.id)
   if (!result.ok) {
@@ -414,6 +464,7 @@ async function attachProperty () {
       agent_note: attachNote.value,
     })
     attachPropertyId.value = null
+    attachPropertyLabel.value = ''
     attachNote.value = ''
     toasts.success('Объект добавлен в подборку')
     await load()
@@ -473,10 +524,12 @@ async function downloadDealContract (deal) {
 useVisibilityRefresh({
   enabled: () => hasPendingDealContract.value,
   interval: 5_000,
-  onRefresh: () => load(),
+  onRefresh: () => { void load() },
 })
 
-onMounted(load)
+watch(() => route.params.id, () => {
+  void load({ reset: true })
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -585,6 +638,58 @@ onMounted(load)
   font-size: 13px;
 }
 
+.request-attach {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(240px, 1fr) auto;
+  gap: 8px 10px;
+  align-items: end;
+  justify-content: end;
+  width: min(100%, 840px);
+}
+
+.request-attach__picker {
+  display: flex;
+  min-width: 0;
+}
+
+.request-attach__trigger {
+  min-height: 40px;
+  justify-content: center;
+  width: 100%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 20px rgba(16, 55, 52, 0.08);
+}
+
+.request-attach__trigger:hover {
+  border-color: rgba(21, 56, 57, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 12px 22px rgba(16, 55, 52, 0.12);
+}
+
+.request-attach__hint {
+  grid-column: 1 / -1;
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: -2px;
+}
+
+.request-attach > .input {
+  min-width: 0;
+  width: 100%;
+  min-height: 40px;
+}
+
+.request-attach > .btn {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
 .match-badge {
   display: inline-flex;
   align-items: center;
@@ -656,6 +761,11 @@ onMounted(load)
   .task-row,
   .deal-summary {
     flex-direction: column;
+  }
+
+  .request-attach {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .match-actions {

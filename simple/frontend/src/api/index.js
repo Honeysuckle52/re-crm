@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { useAuthStore } from '../store/auth'
 
 const api = axios.create({
   baseURL: '/api',
@@ -24,13 +25,20 @@ api.interceptors.response.use(
         refreshing = refreshing || axios.post('/api/auth/refresh/', { refresh })
         const { data } = await refreshing
         refreshing = null
+        const auth = useAuthStore()
         localStorage.setItem('access', data.access)
-        if (data.refresh) localStorage.setItem('refresh', data.refresh)
+        auth.access = data.access
+        if (data.refresh) {
+          localStorage.setItem('refresh', data.refresh)
+          auth.refresh = data.refresh
+        }
+        original.headers = original.headers || {}
         original.headers.Authorization = `Bearer ${data.access}`
         return api(original)
       } catch (e) {
-        localStorage.removeItem('access')
-        localStorage.removeItem('refresh')
+        refreshing = null
+        const auth = useAuthStore()
+        auth.clearSession()
         window.dispatchEvent(new Event('auth:expired'))
         throw e
       }

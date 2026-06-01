@@ -197,7 +197,7 @@
         </div>
       </div>
 
-      <div class="row task-export-actions" style="gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px">
+      <div v-if="auth.canCreateRequestTaskReport" class="row task-export-actions" style="gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px">
         <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('csv')">
           CSV
         </button>

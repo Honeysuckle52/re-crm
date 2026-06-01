@@ -124,6 +124,16 @@
               v-model="filters.search"
               placeholder="Название или описание" />
           </div>
+
+          <div class="field">
+            <label>Дата отчёта от</label>
+            <input class="input" type="date" v-model="filters.date_from" />
+          </div>
+
+          <div class="field">
+            <label>Дата отчёта до</label>
+            <input class="input" type="date" v-model="filters.date_to" />
+          </div>
         </div>
 
         <div class="row properties-filter__actions">
@@ -276,7 +286,7 @@ const auth = useAuthStore()
 const route = useRoute()
 const confirm = useConfirmStore()
 const toasts = useToastsStore()
-const canManageProperties = computed(() => auth.isManager)
+const canManageProperties = computed(() => auth.canCreatePropertyReport)
 const isMyProperties = computed(() => route.name === 'client-properties')
 
 function defaultFilters() {
@@ -291,6 +301,8 @@ function defaultFilters() {
     max_area: null,
     min_price: null,
     max_price: null,
+    date_from: '',
+    date_to: '',
     search: '',
     owner: '',
   }

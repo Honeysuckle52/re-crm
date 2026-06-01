@@ -16,6 +16,16 @@ class IsAdminOrManager(BasePermission):
         return request.user.is_admin_or_manager
 
 
+class IsClientOrAdminOrManager(BasePermission):
+    """Клиент или руководитель может создавать объект; агент - нет."""
+    message = 'Создание доступно только клиентам, администраторам и менеджерам.'
+
+    def has_permission(self, request, view):
+        if not _authenticated(request):
+            return False
+        return request.user.is_client or request.user.is_admin_or_manager
+
+
 class IsEmployee(BasePermission):
     """Любой сотрудник агентства."""
     message = 'Действие доступно только сотрудникам агентства.'

@@ -7,14 +7,17 @@ import './styles/main.css'
 
 async function bootstrap () {
   const app = createApp(App)
-  app.use(createPinia())
-  app.use(router)
+  const pinia = createPinia()
+  app.use(pinia)
 
   const auth = useAuthStore()
   await auth.initialize()
 
+  app.use(router)
+  await router.isReady()
+
   window.addEventListener('auth:expired', async () => {
-    await auth.clearSession()
+    auth.clearSession()
     if (router.currentRoute.value.name !== 'login') {
       await router.replace('/login')
     }

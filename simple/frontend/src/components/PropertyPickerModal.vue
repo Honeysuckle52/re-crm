@@ -161,23 +161,22 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 24px;
   background: rgba(7, 16, 22, 0.34);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
 
 .property-picker__dialog {
-  width: 100%;
-  height: 100%;
-  max-height: none;
+  width: min(100%, 1120px);
+  max-height: min(82vh, 860px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 24px;
-  border-radius: 0;
-  box-shadow: none;
+  border-radius: 24px;
+  box-shadow: var(--shadow-glow);
 }
 
 .property-picker__head {
@@ -234,8 +233,14 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .property-picker {
+    padding: 12px;
+  }
+
   .property-picker__dialog {
     padding: 18px;
+    border-radius: 20px;
+    max-height: calc(100vh - 24px);
   }
 }
 </style>

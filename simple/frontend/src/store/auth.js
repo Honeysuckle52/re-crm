@@ -17,6 +17,7 @@ export const useAuthStore = defineStore('auth', {
         || (s.user.user_type === 'client' ? 'Клиент' : 'Сотрудник')
     },
     isSuperuser: (s) => !!s.user?.is_superuser,
+    isEmployee: (s) => s.user?.user_type === 'employee' || !!s.user?.is_superuser,
     isStaff: (s) =>
       s.user?.user_type === 'employee' || !!s.user?.is_superuser,
     isClient: (s) =>
@@ -24,10 +25,51 @@ export const useAuthStore = defineStore('auth', {
     isAdmin: (s) =>
       !!s.user?.is_superuser || s.user?.role_code === 'admin'
       || !!s.user?.is_admin,
-    isManager: (s) =>
-      !!s.user?.is_superuser || !!s.user?.is_manager
+    isModerator: (s) =>
+      !!s.user?.is_superuser
+      || s.user?.role_code === 'manager'
+      || s.user?.role_code === 'moderator'
+      || !!s.user?.is_manager,
+    isAdminOrManager: (s) =>
+      !!s.user?.is_superuser
+      || !!s.user?.is_admin
+      || !!s.user?.is_manager
+      || s.user?.role_code === 'moderator'
       || s.user?.role_code === 'admin'
       || s.user?.role_code === 'manager',
+    isManager: (s) =>
+      !!s.user?.is_superuser || !!s.user?.is_manager
+      || s.user?.role_code === 'moderator'
+      || s.user?.role_code === 'admin'
+      || s.user?.role_code === 'manager',
+    isAdminOrModerator: (s) =>
+      !!s.user?.is_superuser
+      || !!s.user?.is_admin
+      || !!s.user?.is_manager
+      || s.user?.role_code === 'admin'
+      || s.user?.role_code === 'manager'
+      || s.user?.role_code === 'moderator',
+    canCreateDealReport: (s) =>
+      !!s.user?.is_superuser
+      || !!s.user?.is_admin
+      || !!s.user?.is_manager
+      || s.user?.role_code === 'admin'
+      || s.user?.role_code === 'manager'
+      || s.user?.role_code === 'moderator',
+    canCreateRequestTaskReport: (s) =>
+      !!s.user?.is_superuser
+      || !!s.user?.is_admin
+      || !!s.user?.is_manager
+      || s.user?.role_code === 'admin'
+      || s.user?.role_code === 'manager'
+      || s.user?.role_code === 'moderator',
+    canCreatePropertyReport: (s) =>
+      !!s.user?.is_superuser
+      || !!s.user?.is_admin
+      || !!s.user?.is_manager
+      || s.user?.role_code === 'admin'
+      || s.user?.role_code === 'manager'
+      || s.user?.role_code === 'moderator',
   },
   actions: {
     clearSession() {

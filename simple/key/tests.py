@@ -1400,16 +1400,28 @@ class ReportApiTests(TestCase):
         self.assertEqual(len(response.data['rows']), 1)
         self.assertEqual(response.data['rows'][0]['deal_number'], 'REP-001')
 
-    def test_tasks_report_limits_employee_to_own_tasks(self):
-        self.api.force_authenticate(user=self.employee)
+    def test_tasks_report_returns_full_dataset_for_manager(self):
+        self.api.force_authenticate(user=self.manager)
 
         response = self.api.get('/api/reports/tasks/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['report_code'], 'tasks')
-        self.assertEqual(response.data['summary']['Всего задач'], 1)
-        self.assertEqual(len(response.data['rows']), 1)
-        self.assertEqual(response.data['rows'][0]['assignee_username'], self.employee.username)
+        self.assertEqual(response.data['summary']['Всего задач'], 2)
+        self.assertEqual(len(response.data['rows']), 2)
+        self.assertEqual(
+            {row['assignee_username'] for row in response.data['rows']},
+            {self.employee.username, self.other_employee.username},
+        )
+
+    def test_agent_cannot_access_reports(self):
+        self.api.force_authenticate(user=self.employee)
+
+        deals_response = self.api.get('/api/reports/deals/')
+        tasks_response = self.api.get('/api/reports/tasks/')
+
+        self.assertEqual(deals_response.status_code, 403)
+        self.assertEqual(tasks_response.status_code, 403)
 
     def test_deals_report_can_export_csv(self):
         self.api.force_authenticate(user=self.manager)
@@ -1627,6 +1639,8 @@ class DataExchangeApiTests(TestCase):
         self.assertIn('application/json', response['Content-Type'])
         self.assertIn('"items"', response.content.decode('utf-8'))
         self.assertIn('Тестовый объект', response.content.decode('utf-8'))
+        payload = json.loads(response.content.decode('utf-8'))
+        self.assertIn(self.manager.username, payload['title'])
 
     def test_request_export_json_respects_filters(self):
         models.Request.objects.create(
@@ -1647,7 +1661,19 @@ class DataExchangeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = json.loads(response.content.decode('utf-8'))
         self.assertEqual(payload['count'], 1)
+        self.assertIn('Заявки', payload['title'])
+        self.assertIn(self.manager.username, payload['title'])
         self.assertEqual(payload['items'][0]['description'], 'Экспортная заявка')
+
+    def test_request_export_is_forbidden_for_employee(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/requests/export/', {
+            'export_format': 'json',
+            'date_from': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 403)
 
     def test_task_export_xlsx_returns_rows(self):
         self.api.force_authenticate(user=self.manager)
@@ -1660,8 +1686,20 @@ class DataExchangeApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content, sheet_name='Задачи')
-        self.assertEqual(rows[0][1], 'title')
-        self.assertTrue(any('Экспортная задача' in row for row in rows[1:]))
+        self.assertIn('Задачи', rows[0][0])
+        self.assertIn(self.manager.username, rows[0][0])
+        self.assertEqual(rows[2][1], 'title')
+        self.assertTrue(any('Экспортная задача' in row for row in rows[3:]))
+
+    def test_task_export_is_forbidden_for_employee(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/tasks/export/', {
+            'export_format': 'xlsx',
+            'date_from': timezone.localdate().isoformat(),
+        })
+
+        self.assertEqual(response.status_code, 403)
 
     def test_deal_export_csv_returns_rows(self):
         self.api.force_authenticate(user=self.manager)
@@ -1698,8 +1736,38 @@ class DataExchangeApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content)
-        self.assertEqual(rows[0][1], 'title')
-        self.assertTrue(any('Тестовый объект' in row for row in rows[1:]))
+        self.assertIn('Объекты', rows[0][0])
+        self.assertIn(self.manager.username, rows[0][0])
+        self.assertEqual(rows[2][1], 'title')
+        self.assertTrue(any('Тестовый объект' in row for row in rows[3:]))
+
+    def test_agent_cannot_create_property(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Недоступный объект',
+                'operation_type': self.operation_sale.pk,
+                'status': self.status_active.pk,
+                'premises_type': 'apartment',
+                'price': '5100000',
+                'address_data': {
+                    'value': 'Иркутск, ул. Ленина, д. 1',
+                    'city': 'Иркутск',
+                    'region': 'Иркутская область',
+                    'street': 'Ленина',
+                    'street_type': 'ул.',
+                    'house': '1',
+                    'flat': '1',
+                    'postal_code': '664000',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(models.Property.objects.filter(title='Недоступный объект').exists())
 
     def test_property_import_csv_creates_property(self):
         self.api.force_authenticate(user=self.manager)
@@ -1757,6 +1825,24 @@ class DataExchangeApiTests(TestCase):
         created = models.Property.objects.get(title='Новый объект XLSX')
         self.assertEqual(created.status.code, 'active')
         self.assertEqual(created.operation_type.code, 'sale')
+
+    def test_agent_cannot_import_properties(self):
+        self.api.force_authenticate(user=self.employee)
+        upload = self._csv_upload(
+            '\n'.join([
+                'id;title;operation_type_code;status_code;city;region;street;street_type;house;block;flat;postal_code;price',
+                ';"Запрещенный импорт";sale;active;Иркутск;Иркутская область;Советская;ул.;15;;12;664000;6200000',
+            ]),
+        )
+
+        response = self.api.post(
+            '/api/properties/import-csv/',
+            {'file': upload},
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(models.Property.objects.filter(title='Запрещенный импорт').exists())
 
     def test_property_import_csv_updates_existing_property(self):
         self.api.force_authenticate(user=self.manager)
@@ -3545,6 +3631,16 @@ class DealPermissionTests(TestCase):
 
     def test_client_cannot_export_deals(self):
         self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get(
+            '/api/deals/export/',
+            {'export_format': 'csv'},
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_employee_cannot_export_deals(self):
+        self.api.force_authenticate(user=self.employee)
 
         response = self.api.get(
             '/api/deals/export/',

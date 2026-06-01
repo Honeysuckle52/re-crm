@@ -365,11 +365,15 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_manager_role(self) -> bool:
-        return self.role_code == 'manager'
+        return self.role_code in {'manager', 'moderator'}
+
+    @property
+    def is_moderator_role(self) -> bool:
+        return self.role_code in {'manager', 'moderator'}
 
     @property
     def is_admin_or_manager(self) -> bool:
-        return self.is_admin_role or self.is_manager_role
+        return self.is_admin_role or self.is_moderator_role
 
     @property
     def is_employee(self) -> bool:

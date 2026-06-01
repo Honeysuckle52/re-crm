@@ -32,22 +32,6 @@
         <div class="audit-log__message">
           {{ entry.message || entry.action_label }}
         </div>
-        <div v-if="fieldChanges(entry).length" class="audit-log__diff">
-          <div
-            v-for="change in fieldChanges(entry)"
-            :key="change.key"
-            class="audit-log__diff-row"
-          >
-            <span class="audit-log__diff-label">{{ change.label }}</span>
-            <span class="audit-log__diff-value audit-log__diff-value--old">
-              {{ formatDiffValue(change.old) }}
-            </span>
-            <span class="audit-log__diff-arrow">→</span>
-            <span class="audit-log__diff-value audit-log__diff-value--new">
-              {{ formatDiffValue(change.new) }}
-            </span>
-          </div>
-        </div>
       </article>
     </div>
     <div v-else class="muted" style="margin-top: 12px">
@@ -92,33 +76,6 @@ const paramsKey = computed(() => JSON.stringify(props.params || {}))
 function formatDateTime (value) {
   if (!value) return '—'
   return new Date(value).toLocaleString('ru-RU')
-}
-
-function fieldChanges (entry) {
-  const changes = entry?.metadata?.field_changes || {}
-  return Object.entries(changes).map(([key, value]) => ({
-    key,
-    label: value?.label || key,
-    old: value?.old,
-    new: value?.new,
-  }))
-}
-
-function formatDiffValue (value) {
-  if (value === null || value === undefined || value === '') return '—'
-  if (Array.isArray(value)) {
-    return value.map(formatDiffValue).join(', ')
-  }
-  if (typeof value === 'object') {
-    if ('label' in value && 'id' in value) {
-      return `${value.label} (#${value.id})`
-    }
-    if ('label' in value) {
-      return value.label
-    }
-    return JSON.stringify(value)
-  }
-  return String(value)
 }
 
 async function load () {
@@ -207,45 +164,6 @@ watch(paramsKey, () => {
   line-height: 1.5;
 }
 
-.audit-log__diff {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(21, 56, 57, 0.12);
-}
-
-.audit-log__diff-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-  font-size: 13px;
-  color: var(--c-page-text);
-}
-
-.audit-log__diff-label {
-  font-weight: 700;
-}
-
-.audit-log__diff-arrow {
-  color: rgba(21, 56, 57, 0.52);
-}
-
-.audit-log__diff-value {
-  min-width: 0;
-  word-break: break-word;
-}
-
-.audit-log__diff-value--old {
-  color: #8a5d56;
-}
-
-.audit-log__diff-value--new {
-  color: #295f54;
-}
-
 .audit-log__error {
   margin-top: 12px;
   padding: 12px 14px;
@@ -264,8 +182,5 @@ watch(paramsKey, () => {
     white-space: normal;
   }
 
-  .audit-log__diff-row {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

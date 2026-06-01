@@ -27,6 +27,7 @@ from .mailing import (
 )
 from .permissions import (
     IsAdminOrManager,
+    IsClientOrAdminOrManager,
     IsEmployee,
     IsEmployeeOrReadOnly,
     IsAdminOrManagerOrReadOnly,
@@ -148,6 +149,11 @@ def _apply_property_filters(qs, params):
         if search.isdigit():
             search_filter |= Q(pk=int(search))
         qs = qs.filter(search_filter)
+    qs = _apply_date_range_filter(
+        qs,
+        params,
+        field_name='created_at',
+    )
     ordering = (params.get('ordering') or '').strip()
     if ordering in {
         'price', '-price',
@@ -516,7 +522,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action == 'create':
-            return [IsAuthenticated()]
+            return [IsClientOrAdminOrManager()]
         if self.action in {
             'update', 'partial_update', 'destroy',
             'change_status', 'import_csv', 'bulk_archive',
@@ -823,7 +829,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         methods=['post'],
         url_path='upload_photo',
         parser_classes=[MultiPartParser, FormParser, JSONParser],
-        permission_classes=[IsEmployee],
+        permission_classes=[IsAdminOrManager],
     )
     def upload_photo(self, request, pk=None):
         """Загрузить фото объекта."""
@@ -1162,7 +1168,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=['get'],
         url_path='export',
-        permission_classes=[IsEmployee],
+        permission_classes=[IsAdminOrManager],
     )
     def export(self, request):
         """Экспорт списка заявок в CSV, JSON или XLSX."""
@@ -1172,7 +1178,14 @@ class RequestViewSet(viewsets.ModelViewSet):
             or 'csv'
         )
         queryset = self.filter_queryset(self.get_queryset())
-        return data_exchange.export_requests(queryset, export_format)
+        return data_exchange.export_requests(
+            queryset,
+            export_format,
+            title=data_exchange._export_title(
+                data_exchange.REQUEST_EXPORT_DEFINITION,
+                request.user,
+            ),
+        )
 
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
@@ -1499,7 +1512,7 @@ class DealViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=['get'],
         url_path='export',
-        permission_classes=[IsEmployee],
+        permission_classes=[IsAdminOrManager],
     )
     def export(self, request):
         """Экспорт списка сделок в CSV, JSON или XLSX."""
@@ -1509,7 +1522,14 @@ class DealViewSet(viewsets.ModelViewSet):
             or 'csv'
         )
         queryset = self.filter_queryset(self.get_queryset())
-        return data_exchange.export_deals(queryset, export_format)
+        return data_exchange.export_deals(
+            queryset,
+            export_format,
+            title=data_exchange._export_title(
+                data_exchange.DEAL_EXPORT_DEFINITION,
+                request.user,
+            ),
+        )
 
     @action(detail=True, methods=['post'], url_path='change_status')
     def change_status(self, request, pk=None):
@@ -1774,7 +1794,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         )
         super().perform_destroy(instance)
 
-    @action(detail=False, methods=['get'], url_path='export')
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='export',
+        permission_classes=[IsAdminOrManager],
+    )
     def export(self, request):
         """Экспорт списка задач в CSV, JSON или XLSX."""
         export_format = (
@@ -1783,7 +1808,14 @@ class TaskViewSet(viewsets.ModelViewSet):
             or 'csv'
         )
         queryset = self.filter_queryset(self.get_queryset())
-        return data_exchange.export_tasks(queryset, export_format)
+        return data_exchange.export_tasks(
+            queryset,
+            export_format,
+            title=data_exchange._export_title(
+                data_exchange.TASK_EXPORT_DEFINITION,
+                request.user,
+            ),
+        )
 
     @action(detail=False, methods=['post'], url_path='bulk-action')
     def bulk_action(self, request):
@@ -2247,11 +2279,18 @@ class PropertyExportView(APIView):
         ).prefetch_related('photos').all()
         queryset = _apply_property_filters(queryset, request.query_params)
         export_format = request.query_params.get('export_format', 'csv')
-        return data_exchange.export_properties(queryset, export_format)
+        return data_exchange.export_properties(
+            queryset,
+            export_format,
+            title=data_exchange._export_title(
+                data_exchange.PROPERTY_EXPORT_DEFINITION,
+                request.user,
+            ),
+        )
 
 
 class DealsReportView(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [IsAdminOrManager]
 
     def get(self, request):
         payload = reports.build_deals_report(
@@ -2266,10 +2305,11 @@ class DealsReportView(APIView):
                 payload['rows'],
                 export_format,
                 ordering=payload.get('ordering'),
+                title=payload.get('title'),
             )
         return Response({
             'report_code': payload['definition'].code,
-            'title': payload['definition'].title,
+            'title': payload['title'],
             'columns': [
                 {'key': key, 'label': label}
                 for key, label in payload['definition'].columns
@@ -2293,7 +2333,7 @@ class DictionaryExportView(APIView):
 
 
 class TasksReportView(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [IsAdminOrManager]
 
     def get(self, request):
         payload = reports.build_tasks_report(
@@ -2308,10 +2348,11 @@ class TasksReportView(APIView):
                 payload['rows'],
                 export_format,
                 ordering=payload.get('ordering'),
+                title=payload.get('title'),
             )
         return Response({
             'report_code': payload['definition'].code,
-            'title': payload['definition'].title,
+            'title': payload['title'],
             'columns': [
                 {'key': key, 'label': label}
                 for key, label in payload['definition'].columns

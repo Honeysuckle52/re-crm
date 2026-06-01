@@ -5,26 +5,47 @@
     <main class="layout">
       <router-view v-slot="{ Component, route }">
         <transition name="fade" mode="out-in">
-          <component :is="Component" :key="route.fullPath" />
+          <component
+            v-if="Component && !viewError"
+            :is="Component"
+            :key="`${route.fullPath}:${routeViewNonce}`"
+          />
+          <div
+            v-else-if="viewError"
+            :key="`error:${route.fullPath}:${routeViewNonce}`"
+            class="panel panel--light app-error"
+          >
+            <div class="surface-head">
+              <div class="surface-head__meta">
+                <h2 class="h3">Page render error</h2>
+                <div class="muted">The route component crashed during render. The page state was reset.</div>
+              </div>
+            </div>
+            <p class="app-error__text">{{ viewError }}</p>
+            <div class="row" style="gap: 8px; flex-wrap: wrap">
+              <button class="btn btn--accent" type="button" @click="retryCurrentRoute">
+                Retry page
+              </button>
+              <button class="btn" type="button" @click="clearViewError">
+                Dismiss
+              </button>
+            </div>
+          </div>
+          <div
+            v-else
+            :key="`missing:${route.fullPath}:${routeViewNonce}`"
+            class="panel panel--light app-error"
+          >
+            <div class="surface-head">
+              <div class="surface-head__meta">
+                <h2 class="h3">Route component missing</h2>
+                <div class="muted">The route matched, but RouterView did not receive a page component.</div>
+              </div>
+            </div>
+            <p class="app-error__text">Path: {{ route.fullPath }}</p>
+          </div>
         </transition>
       </router-view>
-      <div v-if="viewError" class="panel panel--light app-error">
-        <div class="surface-head">
-          <div class="surface-head__meta">
-            <h2 class="h3">Ошибка отображения страницы</h2>
-            <div class="muted">Компонент маршрута упал при рендере. Состояние страницы было сброшено.</div>
-          </div>
-        </div>
-        <p class="app-error__text">{{ viewError }}</p>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <button class="btn btn--accent" type="button" @click="retryCurrentRoute">
-            Повторить открытие
-          </button>
-          <button class="btn" type="button" @click="clearViewError">
-            Закрыть сообщение
-          </button>
-        </div>
-      </div>
     </main>
     <ToastHost />
     <ConfirmHost />
@@ -33,8 +54,8 @@
 </template>
 
 <script setup>
-import { onErrorCaptured, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onErrorCaptured, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from './store/auth'
 import TopBar from './components/TopBar.vue'
 import AppFooter from './components/AppFooter.vue'
@@ -43,22 +64,22 @@ import ConfirmHost from './components/ConfirmHost.vue'
 import ToastHost from './components/ToastHost.vue'
 
 const auth = useAuthStore()
-const router = useRouter()
 const route = useRoute()
 const viewError = ref('')
+const routeViewNonce = ref(0)
 
 function clearViewError () {
   viewError.value = ''
 }
 
-async function retryCurrentRoute () {
+function retryCurrentRoute () {
+  routeViewNonce.value += 1
   clearViewError()
-  await router.replace({
-    path: route.fullPath,
-    query: { ...route.query },
-    hash: route.hash,
-  })
 }
+
+watch(() => route.fullPath, () => {
+  clearViewError()
+})
 
 onErrorCaptured((err, _instance, info) => {
   console.error('Route render error:', err, info)

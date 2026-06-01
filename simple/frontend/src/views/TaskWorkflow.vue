@@ -276,7 +276,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
@@ -301,6 +301,7 @@ const operationTypes = ref([])
 const busy = ref(false)
 const contactNote = ref('')
 const completionSummary = ref('')
+let loadSeq = 0
 
 const newRequest = reactive({
   operation_type: null,
@@ -380,54 +381,112 @@ const activeRequestId = computed(() => (
 
 const clientContacts = ref(null)
 
-async function load () {
-  const taskId = route.params.id
-  const { data } = await api.get(`/tasks/${taskId}/`)
-  task.value = data
+function resetNewRequestState () {
+  Object.assign(newRequest, {
+    operation_type: null,
+    property_type: '',
+    min_price: null,
+    max_price: null,
+    rooms_count: null,
+    address_preferences: '',
+    description: '',
+  })
+}
 
-  if (task.value.assignee !== auth.user?.id && !auth.isManager) {
-    router.replace('/tasks')
+function resetWorkflowState () {
+  task.value = null
+  linkedRequest.value = null
+  clientActiveRequest.value = null
+  clientContacts.value = null
+  operationTypes.value = []
+  busy.value = false
+  contactNote.value = ''
+  completionSummary.value = ''
+  resetNewRequestState()
+}
+
+async function load ({ reset = false } = {}) {
+  const taskId = Number(route.params.id)
+  const seq = ++loadSeq
+
+  if (reset) {
+    resetWorkflowState()
+  }
+  if (!Number.isFinite(taskId)) {
     return
   }
-  completionSummary.value = taskResultText(data)
 
-  const extra = []
-  extra.push(api.get('/operation-types/', {
-    params: { page_size: LOOKUP_PAGE_SIZE },
-  }).then((r) => {
-    operationTypes.value = unpackPaginated(r.data).items
-  }).catch(() => {}))
+  try {
+    const { data } = await api.get(`/tasks/${taskId}/`)
+    if (seq != loadSeq) return
 
-  if (task.value.client) {
-    extra.push(api.get(`/users/${task.value.client}/`).then((r) => {
-      clientContacts.value = {
-        phone: r.data.phone || null,
-        email: r.data.email || null,
-      }
-    }).catch(() => {}))
-  }
+    if (data.assignee !== auth.user?.id && !auth.isManager) {
+      await router.replace('/tasks')
+      return
+    }
 
-  if (task.value.request) {
-    extra.push(api.get(`/requests/${task.value.request}/`).then((r) => {
-      linkedRequest.value = r.data
-      clientContacts.value = {
-        phone: r.data.client_phone || clientContacts.value?.phone || null,
-        email: r.data.client_email || clientContacts.value?.email || null,
-      }
-    }).catch(() => {}))
-  } else if (task.value.client) {
-    extra.push(api.get('/requests/', {
-      params: {
-        client: task.value.client,
-        status_code: activeRequestStatusCodes.join(','),
-        page_size: 1,
-      },
+    task.value = data
+    completionSummary.value = taskResultText(data)
+
+    let nextOperationTypes = []
+    let nextLinkedRequest = null
+    let nextClientActiveRequest = null
+    let directoryContacts = null
+    let requestContacts = null
+
+    const extra = []
+    extra.push(api.get('/operation-types/', {
+      params: { page_size: LOOKUP_PAGE_SIZE },
     }).then((r) => {
-      clientActiveRequest.value = unpackPaginated(r.data).items[0] || null
+      nextOperationTypes = unpackPaginated(r.data).items
     }).catch(() => {}))
-  }
 
-  await Promise.all(extra)
+    if (data.client) {
+      extra.push(api.get(`/users/${data.client}/`).then((r) => {
+        directoryContacts = {
+          phone: r.data.phone || null,
+          email: r.data.email || null,
+        }
+      }).catch(() => {}))
+    }
+
+    if (data.request) {
+      extra.push(api.get(`/requests/${data.request}/`).then((r) => {
+        nextLinkedRequest = r.data
+        requestContacts = {
+          phone: r.data.client_phone || null,
+          email: r.data.client_email || null,
+        }
+      }).catch(() => {}))
+    } else if (data.client) {
+      extra.push(api.get('/requests/', {
+        params: {
+          client: data.client,
+          status_code: activeRequestStatusCodes.join(','),
+          page_size: 1,
+        },
+      }).then((r) => {
+        nextClientActiveRequest = unpackPaginated(r.data).items[0] || null
+      }).catch(() => {}))
+    }
+
+    await Promise.all(extra)
+    if (seq != loadSeq) return
+
+    operationTypes.value = nextOperationTypes
+    linkedRequest.value = nextLinkedRequest
+    clientActiveRequest.value = nextClientActiveRequest
+    clientContacts.value = {
+      phone: requestContacts?.phone || directoryContacts?.phone || null,
+      email: requestContacts?.email || directoryContacts?.email || null,
+    }
+  } catch (err) {
+    if (seq != loadSeq) return
+    if (reset) {
+      resetWorkflowState()
+    }
+    toasts.error(extractError(err, 'Failed to load task.'))
+  }
 }
 
 const STEP_LABELS = {
@@ -583,7 +642,9 @@ async function submitComplete () {
   }
 }
 
-onMounted(load)
+watch(() => route.params.id, () => {
+  void load({ reset: true })
+}, { immediate: true })
 </script>
 
 <style scoped>

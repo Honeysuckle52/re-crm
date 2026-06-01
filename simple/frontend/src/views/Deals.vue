@@ -63,7 +63,7 @@
           <h2 class="h3">Сделки в работе</h2>
           <div class="muted">Показано {{ filtered.length }} из {{ filteredTotalCount }} записей по текущему фильтру.</div>
         </div>
-        <div v-if="auth.isStaff" class="row" style="gap: 8px; flex-wrap: wrap">
+        <div v-if="auth.canCreateDealReport" class="row" style="gap: 8px; flex-wrap: wrap">
           <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('csv')">CSV</button>
           <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('xlsx')">XLSX</button>
           <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('json')">JSON</button>

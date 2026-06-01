@@ -17,11 +17,11 @@
                   @click="showRequestForm = true">
             Оставить заявку
           </button>
-          <router-link v-if="auth.isStaff"
+          <router-link v-if="auth.isAdminOrManager"
                        :to="`/properties/${property.id}/edit`" class="btn btn--sm">
             Редактировать
           </router-link>
-          <button v-if="auth.isStaff" class="btn btn--danger btn--sm"
+          <button v-if="auth.isAdminOrManager" class="btn btn--danger btn--sm"
                   @click="remove">Удалить</button>
         </div>
       </div>
@@ -87,7 +87,7 @@
           <div class="surface-head__meta">Медиа</div>
           <h2 class="h3">Фотографии</h2>
         </div>
-        <label v-if="auth.isStaff" class="btn btn--sm">
+        <label v-if="auth.isAdminOrManager" class="btn btn--sm">
           Загрузить фото
           <input type="file" accept="image/*" multiple @change="uploadPhotos" hidden />
         </label>
@@ -103,7 +103,7 @@
             <span v-if="ph.is_cover" class="gallery__badge is-cover">Обложка</span>
             <span v-if="ph.is_hidden" class="gallery__badge is-hidden">Скрыто</span>
           </div>
-          <div v-if="auth.isStaff" class="gallery__toolbar">
+          <div v-if="auth.isAdminOrManager" class="gallery__toolbar">
             <!-- Обложка -->
             <button class="gallery__btn"
                     :class="{ 'gallery__btn--active': ph.is_cover }"
@@ -200,7 +200,7 @@
       </div>
     </div>
 
-    <div v-if="auth.isStaff" class="panel panel--light">
+    <div v-if="auth.isAdminOrManager" class="panel panel--light">
       <div class="surface-head property-surface-head">
         <div class="surface-head__meta">Управление</div>
         <div class="surface-head__caption">{{ property.status_name }}</div>
