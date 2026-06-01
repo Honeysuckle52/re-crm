@@ -1,47 +1,5 @@
-<template>
-  <div class="panel panel--light">
-    <div class="surface-head audit-log__head">
-      <div>
-        <div v-if="caption" class="surface-head__meta">{{ caption }}</div>
-        <h2 class="h3">{{ title }}</h2>
-      </div>
-      <div v-if="entries.length" class="surface-head__caption">
-        {{ entries.length }} записей
-      </div>
-    </div>
-
-    <div v-if="loading" class="muted" style="margin-top: 12px">
-      Загрузка истории…
-    </div>
-    <div v-else-if="errorText" class="audit-log__error">
-      {{ errorText }}
-    </div>
-    <div v-else-if="entries.length" class="audit-log__list">
-      <article v-for="entry in entries" :key="entry.id" class="audit-log__item">
-        <div class="audit-log__item-head">
-          <div class="audit-log__meta">
-            <span class="audit-log__badge">{{ entry.action_label }}</span>
-            <span class="muted">
-              {{ entry.actor_username || 'Система' }}
-            </span>
-          </div>
-          <time class="audit-log__time">
-            {{ formatDateTime(entry.created_at) }}
-          </time>
-        </div>
-        <div class="audit-log__message">
-          {{ entry.message || entry.action_label }}
-        </div>
-      </article>
-    </div>
-    <div v-else class="muted" style="margin-top: 12px">
-      {{ emptyText }}
-    </div>
-  </div>
-</template>
-
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { listAuditLogs } from '@/api/audit'
 
 const props = defineProps({
@@ -70,6 +28,7 @@ const props = defineProps({
 const entries = ref([])
 const loading = ref(false)
 const errorText = ref('')
+const isMounted = ref(true) // Добавляем флаг
 
 const paramsKey = computed(() => JSON.stringify(props.params || {}))
 
@@ -79,10 +38,15 @@ function formatDateTime (value) {
 }
 
 async function load () {
+  // Проверяем, жив ли компонент
+  if (!isMounted.value) return
+
   const params = { ...(props.params || {}) }
   if (!Object.keys(params).length) {
-    entries.value = []
-    errorText.value = ''
+    if (isMounted.value) {
+      entries.value = []
+      errorText.value = ''
+    }
     return
   }
 
@@ -93,18 +57,37 @@ async function load () {
       ...params,
       page_size: props.pageSize,
     })
-    entries.value = payload.items
+    if (isMounted.value) {
+      entries.value = payload.items
+    }
   } catch {
-    entries.value = []
-    errorText.value = 'Не удалось загрузить журнал действий.'
+    if (isMounted.value) {
+      entries.value = []
+      errorText.value = 'Не удалось загрузить журнал действий.'
+    }
   } finally {
-    loading.value = false
+    if (isMounted.value) {
+      loading.value = false
+    }
   }
 }
 
-watch(paramsKey, () => {
+// Сохраняем ссылку на watcher
+let stopWatcher = null
+
+// Создаем watcher с возможностью остановки
+stopWatcher = watch(paramsKey, () => {
   load()
 }, { immediate: true })
+
+// Останавливаем watcher при размонтировании
+onBeforeUnmount(() => {
+  isMounted.value = false
+  if (stopWatcher) {
+    stopWatcher()
+    stopWatcher = null
+  }
+})
 </script>
 
 <style scoped>

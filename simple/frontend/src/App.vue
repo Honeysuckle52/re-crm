@@ -4,47 +4,43 @@
     <NetworkBanner />
     <main class="layout">
       <router-view v-slot="{ Component, route }">
-        <transition name="fade" mode="out-in">
-          <component
-            v-if="Component && !viewError"
-            :is="Component"
-            :key="`${route.fullPath}:${routeViewNonce}`"
-          />
-          <div
-            v-else-if="viewError"
-            :key="`error:${route.fullPath}:${routeViewNonce}`"
-            class="panel panel--light app-error"
-          >
-            <div class="surface-head">
-              <div class="surface-head__meta">
-                <h2 class="h3">Page render error</h2>
-                <div class="muted">The route component crashed during render. The page state was reset.</div>
-              </div>
-            </div>
-            <p class="app-error__text">{{ viewError }}</p>
-            <div class="row" style="gap: 8px; flex-wrap: wrap">
-              <button class="btn btn--accent" type="button" @click="retryCurrentRoute">
-                Retry page
-              </button>
-              <button class="btn" type="button" @click="clearViewError">
-                Dismiss
-              </button>
+        <component
+          v-if="Component && !viewError"
+          :is="Component"
+          :key="`${route.fullPath}:${routeViewNonce}`"
+        />
+        <div
+          v-else-if="viewError"
+          class="panel panel--light app-error"
+        >
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h2 class="h3">Page render error</h2>
+              <div class="muted">The route component crashed during render. The page state was reset.</div>
             </div>
           </div>
-          <div
-            v-else
-            :key="`missing:${route.fullPath}:${routeViewNonce}`"
-            class="panel panel--light app-error"
-          >
-            <div class="surface-head">
-              <div class="surface-head__meta">
-                <h2 class="h3">Route component missing</h2>
-                <div class="muted">The route matched, but RouterView did not receive a page component.</div>
-              </div>
-            </div>
-            <p class="app-error__text">Path: {{ route.fullPath }}</p>
+          <p class="app-error__text">{{ viewError }}</p>
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <button class="btn btn--accent" type="button" @click="retryCurrentRoute">
+              Retry page
+            </button>
+            <button class="btn" type="button" @click="clearViewError">
+              Dismiss
+            </button>
           </div>
-        </transition>
+        </div>
+        <div
+          v-else
+          class="panel panel--light app-error"
+        >
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h2 class="h3">Route component missing</h2>
+              <div class="muted">The route matched, but RouterView did not receive a page component.</div>
+            </div>
+          </div>
+          <p class="app-error__text">Path: {{ route.fullPath }}</p>
+        </div>
       </router-view>
     </main>
     <ToastHost />
@@ -89,8 +85,13 @@ onErrorCaptured((err, _instance, info) => {
 </script>
 
 <style>
-.fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.fade-enter-active, .fade-leave-active {
+  transition: opacity .2s ease;
+}
+
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
 
 .app-shell {
   min-height: 100vh;
@@ -98,8 +99,16 @@ onErrorCaptured((err, _instance, info) => {
   flex-direction: column;
   overflow-x: clip;
 }
-.app-shell > .layout { flex: 1 1 auto; min-width: 0; }
-.app-shell > .footer { flex-shrink: 0; }
+
+.app-shell > .layout {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-top: 40px; /* Отступ для диагностической панели */
+}
+
+.app-shell > .footer {
+  flex-shrink: 0;
+}
 
 .app-error {
   margin: 18px auto 0;
@@ -110,5 +119,36 @@ onErrorCaptured((err, _instance, info) => {
   margin: 0 0 16px;
   color: var(--c-page-text);
   white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 12px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* Стили для диагностики */
+.layout {
+  position: relative;
+}
+
+.layout::after {
+  content: '';
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0f0;
+  z-index: 9999;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 </style>
