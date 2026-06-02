@@ -1110,6 +1110,26 @@ class RequestOwnPropertyTests(TestCase):
         self.assertEqual(request_obj.client_id, self.other_client.id)
         self.assertEqual(request_obj.property_id, self.property_obj.id)
 
+    def test_apartment_request_does_not_require_floor_preferences(self):
+        self.api.force_authenticate(user=self.other_client)
+
+        response = self.api.post(
+            '/api/requests/',
+            {
+                'operation_type': self.operation_type.pk,
+                'status': self.request_status_open.pk,
+                'property_type': models.Property.PREMISES_APARTMENT,
+                'rooms_count': 2,
+                'description': 'Looking for an apartment',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        request_obj = models.Request.objects.get(pk=response.data['id'])
+        self.assertEqual(request_obj.property_type, models.Property.PREMISES_APARTMENT)
+        self.assertEqual(request_obj.rooms_count, 2)
+
 
 class RequestEditingRulesTests(TestCase):
     def setUp(self):
@@ -1614,8 +1634,7 @@ class ReportApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content, sheet_name='Данные')
-        self.assertIn('Отчёт по задачам', rows[0][0])
-        self.assertTrue(any('Задача' in row for row in rows))
+        self.assertEqual(rows[0][1], 'Задача')
         self.assertTrue(any('Prepare documents' in row for row in rows))
 
     def test_tasks_report_can_export_pdf(self):
@@ -1809,13 +1828,12 @@ class DataExchangeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('application/json', response['Content-Type'])
-        self.assertIn('"Данные"', response.content.decode('utf-8'))
+        self.assertIn('properties_exchange-manager_', response['Content-Disposition'])
         self.assertIn('Тестовый объект', response.content.decode('utf-8'))
         payload = json.loads(response.content.decode('utf-8'))
-        self.assertIn(self.manager.username, payload['Название'])
-        self.assertEqual(payload['Количество'], 2)
-        self.assertIn('Идентификатор', payload['Данные'][0])
-        self.assertNotIn('description', payload['Данные'][0])
+        self.assertEqual(len(payload), 2)
+        self.assertIn('Идентификатор', payload[0])
+        self.assertNotIn('description', payload[0])
 
     def test_request_export_json_respects_filters(self):
         models.Request.objects.create(
@@ -1835,10 +1853,9 @@ class DataExchangeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = json.loads(response.content.decode('utf-8'))
-        self.assertEqual(payload['Количество'], 1)
-        self.assertIn('Заявки', payload['Название'])
-        self.assertIn(self.manager.username, payload['Название'])
-        self.assertEqual(payload['Данные'][0]['Описание'], 'Экспортная заявка')
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]['Описание'], 'Экспортная заявка')
+        self.assertIn('requests_exchange-manager_', response['Content-Disposition'])
 
     def test_request_export_is_forbidden_for_employee(self):
         self.api.force_authenticate(user=self.employee)
@@ -1861,10 +1878,9 @@ class DataExchangeApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content, sheet_name='Задачи')
-        self.assertIn('Задачи', rows[0][0])
-        self.assertIn(self.manager.username, rows[0][0])
-        self.assertEqual(rows[2][1], 'Название')
-        self.assertTrue(any('Экспортная задача' in row for row in rows[3:]))
+        self.assertEqual(rows[0][1], 'Название')
+        self.assertTrue(any('Экспортная задача' in row for row in rows[1:]))
+        self.assertIn('tasks_exchange-manager_', response['Content-Disposition'])
 
     def test_task_export_is_forbidden_for_employee(self):
         self.api.force_authenticate(user=self.employee)
@@ -1897,7 +1913,7 @@ class DataExchangeApiTests(TestCase):
 
         self.assertEqual(allowed.status_code, 200)
         body = allowed.content.decode('utf-8')
-        self.assertIn('"Данные"', body)
+        self.assertIn('"Логин"', body)
         self.assertIn('exchange-employee', body)
         self.assertIn('clients_exchange-manager_', allowed['Content-Disposition'])
 
@@ -1912,10 +1928,9 @@ class DataExchangeApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content)
-        self.assertIn('Объекты', rows[0][0])
-        self.assertIn(self.manager.username, rows[0][0])
-        self.assertEqual(rows[2][1], 'Название')
-        self.assertTrue(any('Тестовый объект' in row for row in rows[3:]))
+        self.assertEqual(rows[0][1], 'Название')
+        self.assertTrue(any('Тестовый объект' in row for row in rows[1:]))
+        self.assertIn('properties_exchange-manager_', response['Content-Disposition'])
 
     def test_agent_cannot_create_property(self):
         self.api.force_authenticate(user=self.employee)
@@ -2076,9 +2091,10 @@ class DataExchangeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('application/json', response['Content-Type'])
         body = response.content.decode('utf-8')
-        self.assertIn('"Данные"', body)
         self.assertIn('Типы операций', body)
         self.assertIn('Роли пользователей', body)
+        payload = json.loads(body)
+        self.assertTrue(any(item['Код'] == 'sale' for item in payload))
 
     def test_dictionary_export_xlsx_returns_reference_bundle(self):
         self.api.force_authenticate(user=self.manager)
@@ -2091,9 +2107,8 @@ class DataExchangeApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content, sheet_name='Справочники')
-        self.assertIn('Справочники', rows[0][0])
-        self.assertEqual(rows[2][0], 'Справочник')
-        self.assertTrue(any('sale' in row for row in rows[3:]))
+        self.assertEqual(rows[0][0], 'Справочник')
+        self.assertTrue(any('sale' in row for row in rows[1:]))
 
 
 class PropertyClientVisibilityTests(TestCase):
@@ -2342,6 +2357,29 @@ class PropertyClientVisibilityTests(TestCase):
         self.assertIn('rooms_count', response.data)
         self.assertIn('floor_number', response.data)
         self.assertIn('total_floors', response.data)
+
+    def test_apartment_allows_empty_floor_fields(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Apartment without floor',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PREMISES_APARTMENT,
+                'address': self.address.pk,
+                'price': 5_000_000,
+                'area_total': '45.00',
+                'rooms_count': 2,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        property_obj = models.Property.objects.get(pk=response.data['id'])
+        self.assertIsNone(property_obj.floor_number)
+        self.assertIsNone(property_obj.total_floors)
 
     def test_house_rejects_separate_floor_number(self):
         self.api.force_authenticate(user=self.manager)

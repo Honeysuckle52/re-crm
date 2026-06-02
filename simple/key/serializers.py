@@ -936,10 +936,7 @@ class PropertySerializer(serializers.ModelSerializer):
 
         errors = {}
         if premises_type == models.Property.PREMISES_APARTMENT:
-            if floor_number in (None, ''):
-                errors['floor_number'] = 'Для квартиры укажите этаж.'
-            if total_floors in (None, ''):
-                errors['total_floors'] = 'Для квартиры укажите общее количество этажей.'
+            pass
         elif premises_type == models.Property.PREMISES_HOUSE:
             if floor_number not in (None, ''):
                 errors['floor_number'] = 'Для дома отдельный этаж не указывается.'
@@ -1121,14 +1118,6 @@ class RequestSerializer(serializers.ModelSerializer):
             'rooms_count',
             getattr(instance, 'rooms_count', None),
         )
-        floor_number = attrs.get(
-            'floor_number',
-            getattr(instance, 'floor_number', None),
-        )
-        total_floors = attrs.get(
-            'total_floors',
-            getattr(instance, 'total_floors', None),
-        )
         min_area = attrs.get(
             'min_area',
             getattr(instance, 'min_area', None),
@@ -1139,13 +1128,7 @@ class RequestSerializer(serializers.ModelSerializer):
         )
 
         errors = {}
-        if property_type == models.Property.PREMISES_APARTMENT:
-            if floor_number in (None, ''):
-                errors['floor_number'] = 'Для квартиры укажите этаж.'
-        elif property_type == models.Property.PREMISES_HOUSE:
-            if total_floors in (None, ''):
-                errors['total_floors'] = 'Для дома укажите количество этажей.'
-        elif property_type in {
+        if property_type in {
             models.Property.PREMISES_OFFICE,
             models.Property.PREMISES_WAREHOUSE,
         }:

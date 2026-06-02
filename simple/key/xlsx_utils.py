@@ -30,12 +30,20 @@ CELL_REF_RE = re.compile(r'([A-Z]+)(\d+)')
 class WorkbookSheet:
     name: str
     rows: tuple[tuple[object, ...], ...]
+    header_rows: int = 1
 
     @classmethod
-    def from_rows(cls, name: str, rows: Iterable[Iterable[object]]) -> 'WorkbookSheet':
+    def from_rows(
+        cls,
+        name: str,
+        rows: Iterable[Iterable[object]],
+        *,
+        header_rows: int = 1,
+    ) -> 'WorkbookSheet':
         return cls(
             name=name,
             rows=tuple(tuple(row) for row in rows),
+            header_rows=header_rows,
         )
 
 
@@ -80,26 +88,52 @@ def _column_index_from_ref(cell_ref: str) -> int:
     return max(value - 1, 0)
 
 
-def _worksheet_xml(rows: tuple[tuple[object, ...], ...]) -> str:
+def _column_widths(rows: tuple[tuple[object, ...], ...]) -> list[int]:
+    widths: list[int] = []
+    for row in rows:
+        for index, value in enumerate(row):
+            text = _safe_text(value)
+            width = min(max(len(text) + 2, 10), 60)
+            if index >= len(widths):
+                widths.append(width)
+            else:
+                widths[index] = max(widths[index], width)
+    return widths
+
+
+def _worksheet_xml(sheet: WorkbookSheet) -> str:
+    rows = sheet.rows
+    widths = _column_widths(rows)
+    cols = ''.join(
+        (
+            f'<col min="{index}" max="{index}" '
+            f'width="{width}" customWidth="1"/>'
+        )
+        for index, width in enumerate(widths, start=1)
+    )
     parts = [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-        f'<worksheet xmlns="{MAIN_NS}"><sheetData>',
+        f'<worksheet xmlns="{MAIN_NS}">',
     ]
+    if cols:
+        parts.append(f'<cols>{cols}</cols>')
+    parts.append('<sheetData>')
     for row_index, row in enumerate(rows, start=1):
         parts.append(f'<row r="{row_index}">')
         for column_index, value in enumerate(row, start=1):
             cell_ref = f'{_column_name(column_index)}{row_index}'
+            style = ' s="1"' if row_index <= sheet.header_rows else ''
             if isinstance(value, bool):
                 parts.append(
-                    f'<c r="{cell_ref}" t="b"><v>{1 if value else 0}</v></c>',
+                    f'<c r="{cell_ref}"{style} t="b"><v>{1 if value else 0}</v></c>',
                 )
                 continue
             if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
-                parts.append(f'<c r="{cell_ref}"><v>{value}</v></c>')
+                parts.append(f'<c r="{cell_ref}"{style}><v>{value}</v></c>')
                 continue
             text = escape(_safe_text(value))
             parts.append(
-                f'<c r="{cell_ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>',
+                f'<c r="{cell_ref}"{style} t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>',
             )
         parts.append('</row>')
     parts.append('</sheetData></worksheet>')
@@ -121,6 +155,8 @@ def _content_types_xml(sheet_count: int) -> str:
         '<Default Extension="xml" ContentType="application/xml"/>'
         '<Override PartName="/xl/workbook.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
         f'{overrides}'
         '<Override PartName="/docProps/core.xml" '
         'ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
@@ -172,9 +208,34 @@ def _workbook_relationships_xml(sheet_count: int) -> str:
         )
         for index in range(1, sheet_count + 1)
     )
+    relationships += (
+        f'<Relationship Id="rId{sheet_count + 1}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>'
+    )
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<Relationships xmlns="{PKG_REL_NS}">{relationships}</Relationships>'
+    )
+
+
+def _styles_xml() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<styleSheet xmlns="{MAIN_NS}">'
+        '<fonts count="2">'
+        '<font><sz val="11"/><name val="Calibri"/></font>'
+        '<font><b/><sz val="11"/><name val="Calibri"/></font>'
+        '</fonts>'
+        '<fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+        '<borders count="1"><border/></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="2">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        '</cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        '</styleSheet>'
     )
 
 
@@ -223,11 +284,12 @@ def build_xlsx_bytes(sheets: Iterable[WorkbookSheet]) -> bytes:
         archive.writestr('docProps/core.xml', _core_properties_xml())
         archive.writestr('docProps/app.xml', _app_properties_xml(normalized))
         archive.writestr('xl/workbook.xml', _workbook_xml(normalized))
+        archive.writestr('xl/styles.xml', _styles_xml())
         archive.writestr('xl/_rels/workbook.xml.rels', _workbook_relationships_xml(len(normalized)))
         for index, sheet in enumerate(normalized, start=1):
             archive.writestr(
                 f'xl/worksheets/sheet{index}.xml',
-                _worksheet_xml(sheet.rows),
+                _worksheet_xml(sheet),
             )
     return buffer.getvalue()
 

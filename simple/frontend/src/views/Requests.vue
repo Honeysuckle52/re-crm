@@ -109,14 +109,6 @@
             <option value="warehouse">Склад</option>
           </select>
         </div>
-        <div v-if="form.property_type === 'apartment'" class="field">
-          <label>Этаж</label>
-          <input v-model.number="form.floor_number" class="input" type="number" />
-        </div>
-        <div v-if="form.property_type === 'house'" class="field">
-          <label>Этажей в доме</label>
-          <input v-model.number="form.total_floors" class="input" type="number" />
-        </div>
         <div v-if="form.property_type === 'office' || form.property_type === 'warehouse'" class="field">
           <label>Площадь от</label>
           <input v-model.number="form.min_area" class="input" type="number" />
@@ -513,8 +505,6 @@ function defaultForm() {
     operation_type: null,
     property: null,
     property_type: '',
-    floor_number: null,
-    total_floors: null,
     min_area: null,
     max_area: null,
     rooms_count: null,
@@ -717,8 +707,6 @@ function populateFormFromRequest(requestItem) {
     operation_type: requestItem.operation_type ?? operations.value[0]?.id ?? null,
     property: requestItem.property ?? null,
     property_type: requestItem.property_type || '',
-    floor_number: requestItem.floor_number ?? null,
-    total_floors: requestItem.total_floors ?? null,
     min_area: requestItem.min_area ?? null,
     max_area: requestItem.max_area ?? null,
     rooms_count: requestItem.rooms_count ?? null,
