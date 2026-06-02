@@ -4,14 +4,32 @@ from pathlib import Path
 import os
 
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-key-change-me')
-DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+
+def env_bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def env_list(name: str, default: str = '') -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(',') if item.strip()]
+
+
+SECRET_KEY = os.getenv('SECRET_KEY', '')
+DEBUG = env_bool('DEBUG', False)
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1' if DEBUG else '')
+
+if not SECRET_KEY:
+    raise ImproperlyConfigured('SECRET_KEY must be set in environment.')
+if not DEBUG and SECRET_KEY.startswith('django-insecure'):
+    raise ImproperlyConfigured('Use a strong SECRET_KEY when DEBUG=False.')
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured('ALLOWED_HOSTS must be set when DEBUG=False.')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -137,18 +155,19 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.1.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
+ENABLE_API_DOCS = env_bool('ENABLE_API_DOCS', DEBUG)
 
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:8000',
-    'http://127.0.0.1:8000',
-]
-CORS_ALLOW_CREDENTIALS = True
+default_cors_origins = (
+    'http://localhost:5173,http://127.0.0.1:5173,'
+    'http://localhost:8000,http://127.0.0.1:8000'
+) if DEBUG else ''
+CORS_ALLOWED_ORIGINS = env_list('CORS_ALLOWED_ORIGINS', default_cors_origins)
+CORS_ALLOW_CREDENTIALS = env_bool('CORS_ALLOW_CREDENTIALS', True)
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
 
 DJANGO_VITE = {
     'default': {
-        'dev_mode': os.getenv('DJANGO_VITE_DEV_MODE', 'True').lower() == 'true',
+        'dev_mode': env_bool('DJANGO_VITE_DEV_MODE', DEBUG),
         'dev_server_host': os.getenv('DJANGO_VITE_DEV_SERVER_HOST', '127.0.0.1'),
         'dev_server_port': int(os.getenv('DJANGO_VITE_DEV_SERVER_PORT', '5173')),
         'manifest_path': BASE_DIR / 'frontend' / 'dist' / '.vite' / 'manifest.json',
@@ -161,8 +180,8 @@ EMAIL_BACKEND = os.getenv(
 )
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.yandex.ru')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
-EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True').lower() == 'true'
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False').lower() == 'true'
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', True)
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', False)
 
 # SSL приоритетнее TLS, иначе Django падает на старте.
 if EMAIL_USE_SSL and EMAIL_USE_TLS:
@@ -175,9 +194,7 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply
 EMAIL_VERIFICATION_CODE_TTL_MINUTES = int(
     os.getenv('EMAIL_VERIFICATION_CODE_TTL_MINUTES', '15'),
 )
-EMAIL_FALLBACK_ENABLED = os.getenv('EMAIL_FALLBACK_ENABLED', '').lower() in {
-    '1', 'true', 'yes', 'on',
-} if os.getenv('EMAIL_FALLBACK_ENABLED') is not None else EMAIL_USE_SSL
+EMAIL_FALLBACK_ENABLED = env_bool('EMAIL_FALLBACK_ENABLED', EMAIL_USE_SSL)
 EMAIL_FALLBACK_BACKEND = os.getenv('EMAIL_FALLBACK_BACKEND', EMAIL_BACKEND)
 EMAIL_FALLBACK_HOST = os.getenv('EMAIL_FALLBACK_HOST', EMAIL_HOST)
 EMAIL_FALLBACK_PORT = int(
@@ -189,11 +206,11 @@ EMAIL_FALLBACK_PORT = int(
 EMAIL_FALLBACK_USE_SSL = os.getenv(
     'EMAIL_FALLBACK_USE_SSL',
     'False',
-).lower() == 'true'
+).lower() in {'1', 'true', 'yes', 'on'}
 EMAIL_FALLBACK_USE_TLS = os.getenv(
     'EMAIL_FALLBACK_USE_TLS',
     'True' if EMAIL_USE_SSL else str(EMAIL_USE_TLS),
-).lower() == 'true'
+).lower() in {'1', 'true', 'yes', 'on'}
 if EMAIL_FALLBACK_USE_SSL and EMAIL_FALLBACK_USE_TLS:
     EMAIL_FALLBACK_USE_TLS = False
 EMAIL_FALLBACK_TIMEOUT = int(
@@ -207,7 +224,7 @@ EMAIL_FALLBACK_PASSWORD = os.getenv(
 
 AGENCY_NAME = os.getenv('AGENCY_NAME', 'Агентство недвижимости')
 AGENCY_LEGAL_NAME = os.getenv('AGENCY_LEGAL_NAME', AGENCY_NAME)
-AGENCY_PUBLIC_URL = os.getenv('AGENCY_PUBLIC_URL', 'http://127.0.0.1:8000')
+AGENCY_PUBLIC_URL = os.getenv('AGENCY_PUBLIC_URL', '')
 AGENCY_REPLY_TO = os.getenv('AGENCY_REPLY_TO', EMAIL_HOST_USER)
 AGENCY_PHONE = os.getenv('AGENCY_PHONE', '')
 AGENCY_ADDRESS = os.getenv('AGENCY_ADDRESS', '')
@@ -221,6 +238,19 @@ AGENCY_SIGNATORY_BASIS = os.getenv(
     'AGENCY_SIGNATORY_BASIS',
     'внутренних документов Исполнителя',
 )
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', not DEBUG)
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000' if not DEBUG else '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not DEBUG)
+SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = os.getenv('X_FRAME_OPTIONS', 'DENY')
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = env_bool('CSRF_COOKIE_HTTPONLY', False)
+REFERRER_POLICY = os.getenv('REFERRER_POLICY', 'same-origin')
 
 DADATA_API_URL = os.getenv(
     'DADATA_API_URL',

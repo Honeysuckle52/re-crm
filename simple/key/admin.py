@@ -288,7 +288,7 @@ class CrmAdminPermissionsMixin:
 
     list_per_page = 40
     list_max_show_all = 200
-    save_on_top = True
+    save_on_top = False
 
     def __init__(self, model, admin_site):
         super().__init__(model, admin_site)
@@ -378,6 +378,41 @@ class TaskStatusAdmin(CodeNameAdmin):
     ordering = ('order', 'code')
 
 
+@admin.register(models.PropertyType)
+class PropertyTypeAdmin(CodeNameAdmin):
+    pass
+
+
+@admin.register(models.TaskPriority)
+class TaskPriorityAdmin(CodeNameAdmin):
+    pass
+
+
+@admin.register(models.TaskType)
+class TaskTypeAdmin(CodeNameAdmin):
+    pass
+
+
+@admin.register(models.ClientKind)
+class ClientKindAdmin(CodeNameAdmin):
+    pass
+
+
+@admin.register(models.ContactMethod)
+class ContactMethodAdmin(CodeNameAdmin):
+    pass
+
+
+@admin.register(models.ContractStatus)
+class ContractStatusAdmin(CodeNameAdmin):
+    pass
+
+
+@admin.register(models.UserType)
+class UserTypeAdmin(CodeNameAdmin):
+    pass
+
+
 @admin.register(models.UserRole)
 class UserRoleAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = (
@@ -408,10 +443,10 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
         'is_staff',
         'created_at',
     )
-    list_filter = ('user_type', 'role', 'is_active', 'is_staff', 'is_superuser')
+    list_filter = ('user_type_ref', 'role', 'is_active', 'is_staff', 'is_superuser')
     search_fields = ('username', 'email', 'phone')
     ordering = ('-created_at',)
-    list_select_related = ('role',)
+    list_select_related = ('role', 'user_type_ref')
     fieldsets = (
         (
             'Учётная запись',
@@ -430,7 +465,7 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
         (
             'Тип и роль',
             {
-                'fields': ('user_type', 'role'),
+                'fields': ('user_type_ref', 'role'),
                 'description': 'Роль назначается сотрудникам. Клиенты не должны иметь административные роли.',
             },
         ),
@@ -463,7 +498,7 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
                     'email',
                     'password1',
                     'password2',
-                    'user_type',
+                    'user_type_ref',
                     'role',
                 ),
             },
@@ -494,14 +529,6 @@ class HouseAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_select_related = ('street', 'street__city')
 
 
-@admin.register(models.Address)
-class AddressAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('house',)
-    list_filter = ('house__street__city',)
-    search_fields = ('house__street__name', 'house__house_number')
-    list_select_related = ('house', 'house__street', 'house__street__city')
-
-
 @admin.register(models.EmployeeProfile)
 class EmployeeProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = ('user', 'last_name', 'first_name', 'position')
@@ -512,12 +539,15 @@ class EmployeeProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 @admin.register(models.ClientProfile)
 class ClientProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = ('user', 'last_name', 'first_name', 'client_kind', 'preferred_contact_method')
-    list_filter = ('client_kind',)
+    list_filter = ('client_kind_ref', 'contact_method')
     search_fields = (
         'user__username', 'first_name', 'last_name',
         'individual_details__passport_number', 'company_details__company_inn',
     )
-    list_select_related = ('user', 'individual_details', 'company_details')
+    list_select_related = (
+        'user', 'client_kind_ref', 'contact_method',
+        'individual_details', 'company_details',
+    )
 
 
 @admin.register(models.ClientIndividualDetails)
@@ -569,18 +599,32 @@ class PropertyAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         'rooms_count',
         'created_at',
     )
-    list_filter = ('operation_type', 'status', 'rooms_count')
+    list_filter = ('operation_type', 'status', 'property_type_ref', 'rooms_count')
     search_fields = ('title', 'description')
-    list_select_related = ('operation_type', 'status')
+    list_select_related = (
+        'operation_type', 'status', 'property_type_ref', 'house', 'owner',
+    )
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
     inlines = [PropertyPhotoInline]
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = (
+        'price_per_sqm',
+        'twogis_org_id',
+        'twogis_name',
+        'twogis_address_full',
+        'twogis_rubric',
+        'twogis_synced_at',
+        'created_at',
+        'updated_at',
+    )
     fieldsets = (
         (
             'Основная информация',
             {
-                'fields': ('title', 'operation_type', 'status', 'premises_type', 'owner', 'address'),
+                'fields': (
+                    'title', 'operation_type', 'status',
+                    'property_type_ref', 'owner', 'house',
+                ),
                 'description': 'Базовые данные объекта и текущий статус публикации.',
             },
         ),
@@ -699,9 +743,12 @@ class DealAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         'contract_status',
         'deal_date',
     )
-    list_filter = ('status', 'operation_type', 'contract_status')
+    list_filter = ('status', 'operation_type', 'contract_status_ref')
     search_fields = ('deal_number', 'client__username', 'agent__username')
-    list_select_related = ('property', 'client', 'agent', 'status', 'operation_type')
+    list_select_related = (
+        'property', 'client', 'agent', 'status',
+        'operation_type', 'contract_status_ref',
+    )
     date_hierarchy = 'deal_date'
     ordering = ('-deal_date', '-id')
     autocomplete_fields = ('property', 'client', 'agent', 'request')
@@ -730,7 +777,7 @@ class DealAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
             'Договор',
             {
                 'fields': (
-                    'contract_status',
+                    'contract_status_ref',
                     'contract_file',
                     'contract_error_message',
                     'contract_requested_at',
@@ -755,9 +802,9 @@ class TaskAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         'due_date',
         'created_at',
     )
-    list_filter = ('status', 'priority', 'assignee', 'task_type')
+    list_filter = ('status', 'priority_ref', 'assignee', 'task_type_ref')
     search_fields = ('title', 'description', 'assignee__username')
-    list_select_related = ('status', 'assignee')
+    list_select_related = ('status', 'assignee', 'priority_ref', 'task_type_ref')
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
     autocomplete_fields = ('assignee', 'created_by', 'client', 'property', 'request', 'deal')
@@ -766,7 +813,7 @@ class TaskAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         (
             'Задача',
             {
-                'fields': ('title', 'description', 'task_type', 'priority', 'status'),
+                'fields': ('title', 'description', 'task_type_ref', 'priority_ref', 'status'),
                 'description': 'Название обязательно. Тип и приоритет задают сценарий работы сотрудника.',
             },
         ),
@@ -786,13 +833,23 @@ class TaskAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
 @admin.register(models.PropertyStatusHistory)
 class PropertyStatusHistoryAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('property', 'status', 'changed_by', 'changed_at')
-    list_filter = ('status', 'changed_at')
+    list_display = ('property', 'old_status', 'new_status', 'changed_by', 'changed_at')
+    list_filter = ('old_status', 'new_status', 'changed_at')
     search_fields = ('property__title', 'changed_by__username')
-    list_select_related = ('property', 'status', 'changed_by')
+    list_select_related = ('property', 'old_status', 'new_status', 'changed_by')
     date_hierarchy = 'changed_at'
     ordering = ('-changed_at',)
     autocomplete_fields = ('property', 'changed_by')
+
+
+@admin.register(models.PropertyExternalSource)
+class PropertyExternalSourceAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('property', 'source_name', 'external_id', 'synced_at')
+    list_filter = ('source_name', 'synced_at')
+    search_fields = (
+        'property__title', 'external_id', 'source_object_name', 'source_address',
+    )
+    list_select_related = ('property',)
 
 
 @admin.register(models.PropertyViewing)

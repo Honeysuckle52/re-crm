@@ -75,7 +75,7 @@ def queue_contract_generation(
     """Ставит договор сделки в очередь на генерацию."""
     locked = models.Deal.objects.select_for_update().get(pk=deal.pk)
     now = timezone.now()
-    update_fields = ['contract_status', 'contract_error_message',
+    update_fields = ['contract_status_ref', 'contract_error_message',
                      'contract_requested_at', 'contract_processing_started_at']
 
     if force and locked.contract_file:
@@ -91,7 +91,7 @@ def queue_contract_generation(
             locked.contract_status = 'ready'
             locked.contract_error_message = None
             locked.contract_processing_started_at = None
-            update_fields = ['contract_status', 'contract_error_message',
+            update_fields = ['contract_status_ref', 'contract_error_message',
                              'contract_processing_started_at']
             locked.save(update_fields=update_fields)
         return locked
@@ -206,7 +206,7 @@ def process_contract_queue(
         deal.save(update_fields=[
             'contract_file',
             'contract_generated_at',
-            'contract_status',
+            'contract_status_ref',
             'contract_error_message',
             'contract_processing_started_at',
         ])

@@ -37,6 +37,208 @@ company_inn_validator = RegexValidator(
     message='ИНН юридического лица должен состоять из 10 цифр.',
 )
 
+
+LOOKUP_NAME_DEFAULTS = {
+    'PropertyType': {
+        'apartment': 'Квартира',
+        'house': 'Дом',
+        'office': 'Офис',
+        'warehouse': 'Склад',
+    },
+    'TaskPriority': {
+        'low': 'Низкий',
+        'normal': 'Обычный',
+        'high': 'Высокий',
+    },
+    'TaskType': {
+        'contact_client': 'Связаться с клиентом',
+        'property_search': 'Подбор объектов',
+        'showing': 'Показ объекта',
+        'documents': 'Подготовка документов',
+        'call': 'Звонок',
+        'other': 'Прочее',
+    },
+    'ClientKind': {
+        'individual': 'Физическое лицо',
+        'company': 'Юридическое лицо',
+    },
+    'ContactMethod': {
+        'phone': 'Телефон',
+        'email': 'Email',
+        'telegram': 'Telegram',
+        'whatsapp': 'WhatsApp',
+    },
+    'ContractStatus': {
+        'not_requested': 'Не запрошен',
+        'pending': 'В очереди',
+        'processing': 'Формируется',
+        'ready': 'Готов',
+        'failed': 'Ошибка',
+    },
+    'UserType': {
+        'employee': 'Сотрудник',
+        'client': 'Клиент',
+    },
+}
+
+
+def _lookup_default_name(model_class, code: str) -> str:
+    return LOOKUP_NAME_DEFAULTS.get(model_class.__name__, {}).get(code, code)
+
+
+def _resolve_lookup_instance(model_class, value):
+    if value in (None, ''):
+        return None
+    if isinstance(value, model_class):
+        return value
+    if isinstance(value, int):
+        return model_class.objects.filter(pk=value).first()
+    code = str(value).strip()
+    if not code:
+        return None
+    instance = model_class.objects.filter(code=code).first()
+    if instance is not None:
+        return instance
+    return model_class.objects.create(
+        code=code,
+        name=_lookup_default_name(model_class, code),
+    )
+
+
+def _rewrite_legacy_update_fields(instance, kwargs):
+    update_fields = kwargs.get('update_fields')
+    if not update_fields:
+        return
+
+    alias_map = getattr(instance, 'QUERY_ALIASES', {})
+    concrete_names = {field.name for field in instance._meta.concrete_fields}
+    concrete_names.update(field.attname for field in instance._meta.concrete_fields)
+
+    rewritten = []
+    for field_name in update_fields:
+        if field_name in concrete_names:
+            rewritten.append(field_name)
+            continue
+        target = alias_map.get(field_name, field_name)
+        concrete_name = target.split('__', 1)[0]
+        rewritten.append(concrete_name if concrete_name in concrete_names else field_name)
+
+    kwargs['update_fields'] = list(dict.fromkeys(rewritten))
+
+
+class CodeNameLookup(models.Model):
+    code = models.CharField(max_length=50, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=100, verbose_name='Название')
+
+    class Meta:
+        abstract = True
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.code == other
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash((self.__class__, self.pk, self.code))
+
+
+class AliasQuerySet(models.QuerySet):
+    def _alias_map(self):
+        return getattr(self.model, 'QUERY_ALIASES', {})
+
+    def _rewrite_key(self, key: str) -> str:
+        alias_map = self._alias_map()
+        for alias, target in sorted(alias_map.items(), key=lambda item: len(item[0]), reverse=True):
+            if key == alias:
+                return target
+            if key.startswith(f'{alias}__'):
+                return f'{target}{key[len(alias):]}'
+        return key
+
+    def _rewrite_q(self, node):
+        if not isinstance(node, models.Q):
+            return node
+        rewritten_children = []
+        for child in node.children:
+            if isinstance(child, tuple):
+                key, value = child
+                rewritten_children.append((self._rewrite_key(key), value))
+            else:
+                rewritten_children.append(self._rewrite_q(child))
+        clone = models.Q()
+        clone.connector = node.connector
+        clone.negated = node.negated
+        clone.children = rewritten_children
+        return clone
+
+    def _rewrite_kwargs(self, kwargs):
+        return {self._rewrite_key(key): value for key, value in kwargs.items()}
+
+    def _rewrite_update_kwargs(self, kwargs):
+        rewritten = {}
+        alias_map = self._alias_map()
+        for key, value in kwargs.items():
+            target = alias_map.get(key)
+            if target is None:
+                rewritten[key] = value
+                continue
+
+            if '__' not in target:
+                rewritten[target] = value
+                continue
+
+            field_name, lookup = target.split('__', 1)
+            try:
+                field = self.model._meta.get_field(field_name)
+            except Exception:
+                rewritten[field_name] = value
+                continue
+
+            if lookup == 'code' and getattr(field, 'remote_field', None):
+                related_model = field.remote_field.model
+                resolved = _resolve_lookup_instance(related_model, value)
+                rewritten[field.attname] = getattr(resolved, 'pk', None)
+                continue
+
+            rewritten[field_name] = value
+        return rewritten
+
+    def filter(self, *args, **kwargs):
+        rewritten_args = tuple(self._rewrite_q(arg) for arg in args)
+        return super().filter(*rewritten_args, **self._rewrite_kwargs(kwargs))
+
+    def exclude(self, *args, **kwargs):
+        rewritten_args = tuple(self._rewrite_q(arg) for arg in args)
+        return super().exclude(*rewritten_args, **self._rewrite_kwargs(kwargs))
+
+    def get(self, *args, **kwargs):
+        rewritten_args = tuple(self._rewrite_q(arg) for arg in args)
+        return super().get(*rewritten_args, **self._rewrite_kwargs(kwargs))
+
+    def order_by(self, *field_names):
+        rewritten = []
+        for field_name in field_names:
+            prefix = '-' if field_name.startswith('-') else ''
+            raw = field_name[1:] if prefix else field_name
+            rewritten.append(prefix + self._rewrite_key(raw))
+        return super().order_by(*rewritten)
+
+    def select_related(self, *fields):
+        return super().select_related(*(self._rewrite_key(field) for field in fields))
+
+    def update(self, **kwargs):
+        return super().update(**self._rewrite_update_kwargs(kwargs))
+
+
+class AliasManager(models.Manager):
+    def get_queryset(self):
+        return AliasQuerySet(self.model, using=self._db, hints=self._hints)
+
+
 class OperationType(models.Model):
     """Тип операции с недвижимостью (продажа / аренда)."""
     code = models.CharField(max_length=10, unique=True, verbose_name='Код')
@@ -109,6 +311,55 @@ class TaskStatus(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class PropertyType(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'property_types'
+        verbose_name = 'Тип помещения'
+        verbose_name_plural = 'Типы помещений'
+
+
+class TaskPriority(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'task_priorities'
+        verbose_name = 'Приоритет задачи'
+        verbose_name_plural = 'Приоритеты задач'
+
+
+class TaskType(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'task_types'
+        verbose_name = 'Тип задачи'
+        verbose_name_plural = 'Типы задач'
+
+
+class ClientKind(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'client_kinds'
+        verbose_name = 'Вид клиента'
+        verbose_name_plural = 'Виды клиентов'
+
+
+class ContactMethod(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'contact_methods'
+        verbose_name = 'Способ связи'
+        verbose_name_plural = 'Способы связи'
+
+
+class ContractStatus(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'contract_statuses'
+        verbose_name = 'Статус договора'
+        verbose_name_plural = 'Статусы договоров'
+
+
+class UserType(CodeNameLookup):
+    class Meta(CodeNameLookup.Meta):
+        db_table = 'user_types'
+        verbose_name = 'Тип пользователя'
+        verbose_name_plural = 'Типы пользователей'
 
 
 class UserRole(models.Model):
@@ -207,24 +458,85 @@ class House(models.Model):
         verbose_name_plural = 'Дома'
 
     def __str__(self):
-        parts = [f'д. {self.house_number}']
-        return ' '.join(parts)
+        return f'{self.street.city}, {self.street}, д. {self.house_number}'
+
+    @property
+    def house(self):
+        return self
 
 
-class Address(models.Model):
-    """Полный адрес: город, улица и дом."""
-    house = models.ForeignKey(House, on_delete=models.CASCADE, related_name='addresses', verbose_name='Дом')
+class AddressCompatibilityManager:
+    """Совместимость со старым API Address после удаления сущности."""
 
-    class Meta:
-        db_table = 'addresses'
-        verbose_name = 'Адрес'
-        verbose_name_plural = 'Адреса'
+    model = House
 
-    def __str__(self):
-        return f'{self.house.street.city}, {self.house.street}, {self.house}'
+    @staticmethod
+    def _rewrite_key(key: str) -> str:
+        if key == 'house':
+            return 'pk'
+        if key.startswith('house__'):
+            return key[len('house__'):]
+        return key
+
+    def _rewrite_kwargs(self, kwargs):
+        rewritten = {}
+        for key, value in kwargs.items():
+            target_key = self._rewrite_key(key)
+            if target_key == 'pk' and isinstance(value, House):
+                rewritten[target_key] = value.pk
+            else:
+                rewritten[target_key] = value
+        return rewritten
+
+    def get_queryset(self):
+        return House.objects.all()
+
+    def all(self):
+        return self.get_queryset()
+
+    def select_related(self, *fields):
+        rewritten = []
+        for field in fields:
+            mapped = self._rewrite_key(field)
+            if mapped:
+                rewritten.append(mapped)
+        return self.get_queryset().select_related(*rewritten)
+
+    def filter(self, *args, **kwargs):
+        return self.get_queryset().filter(*args, **self._rewrite_kwargs(kwargs))
+
+    def get(self, *args, **kwargs):
+        return self.get_queryset().get(*args, **self._rewrite_kwargs(kwargs))
+
+    def create(self, **kwargs):
+        house = kwargs.get('house')
+        if isinstance(house, House):
+            return house
+        if house not in (None, ''):
+            return self.get(pk=house)
+        raise TypeError('Address compatibility layer requires house=House(...) or house=<id>.')
+
+    def get_or_create(self, defaults=None, **kwargs):
+        house = kwargs.get('house')
+        if isinstance(house, House):
+            return house, False
+        if house not in (None, ''):
+            return self.get(pk=house), False
+        raise TypeError('Address compatibility layer requires house=House(...) or house=<id>.')
+
+
+class Address:
+    """Немигрируемая совместимость: старый Address теперь указывает на House."""
+
+    objects = AddressCompatibilityManager()
+    DoesNotExist = House.DoesNotExist
+    MultipleObjectsReturned = House.MultipleObjectsReturned
 
 class UserManager(BaseUserManager):
     """Менеджер кастомной модели пользователя."""
+
+    def get_queryset(self):
+        return AliasQuerySet(self.model, using=self._db, hints=self._hints)
 
     def create_user(self, username, email, password=None, **extra):
         if not username:
@@ -268,9 +580,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         verbose_name='Телефон',
     )
 
-    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES,
-                                     verbose_name='Код типа пользователя',
-                                 default='client')
+    user_type_ref = models.ForeignKey(
+        UserType,
+        on_delete=models.PROTECT,
+        related_name='users',
+        verbose_name='Тип пользователя',
+        default=1,
+    )
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL,
                                  verbose_name='Роль',
                              blank=True, null=True, related_name='users')
@@ -289,20 +605,25 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = 'username'
     REQUIRED_FIELDS = ['email']
+    QUERY_ALIASES = {
+        'user_type': 'user_type_ref__code',
+        'user_type_id': 'user_type_ref_id',
+    }
 
     class Meta:
         db_table = 'users'
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(user_type__in=['employee', 'client']),
-                name='user_type_valid',
-            ),
-        ]
 
     def __str__(self):
         return f'{self.username} ({self.get_user_type_display()})'
+
+    def __init__(self, *args, **kwargs):
+        legacy_user_type = kwargs.pop('user_type', None)
+        has_user_type_ref = 'user_type_ref' in kwargs or 'user_type_ref_id' in kwargs
+        super().__init__(*args, **kwargs)
+        if legacy_user_type not in (None, '') and not has_user_type_ref:
+            self.user_type = legacy_user_type
 
     def clean(self):
         super().clean()
@@ -327,6 +648,23 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def role_code(self) -> str | None:
         return self.role.code if self.role_id else None
+
+    @property
+    def user_type(self) -> str | None:
+        return self.user_type_ref.code if self.user_type_ref_id else None
+
+    @user_type.setter
+    def user_type(self, value):
+        self.user_type_ref = _resolve_lookup_instance(UserType, value)
+
+    def get_user_type_display(self) -> str:
+        if not self.user_type_ref_id:
+            return ''
+        return self.user_type_ref.name
+
+    def save(self, *args, **kwargs):
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
 
     @property
     def is_admin_role(self) -> bool:
@@ -370,6 +708,12 @@ class EmployeeProfile(models.Model):
         verbose_name = 'Профиль сотрудника'
         verbose_name_plural = 'Профили сотрудников'
 
+    def __init__(self, *args, **kwargs):
+        self._legacy_middle_name = kwargs.pop('middle_name', None)
+        self._legacy_department = kwargs.pop('department', None)
+        self._legacy_notes = kwargs.pop('notes', None)
+        super().__init__(*args, **kwargs)
+
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
 
@@ -377,6 +721,30 @@ class EmployeeProfile(models.Model):
         super().clean()
         if self.user_id and self.user.user_type != 'employee':
             raise ValidationError({'user': 'Профиль сотрудника можно привязать только к пользователю типа "Сотрудник".'})
+
+    @property
+    def middle_name(self):
+        return self._legacy_middle_name
+
+    @middle_name.setter
+    def middle_name(self, value):
+        self._legacy_middle_name = value
+
+    @property
+    def department(self):
+        return self._legacy_department
+
+    @department.setter
+    def department(self, value):
+        self._legacy_department = value
+
+    @property
+    def notes(self):
+        return self._legacy_notes
+
+    @notes.setter
+    def notes(self, value):
+        self._legacy_notes = value
 
 
 class ClientProfile(models.Model):
@@ -394,14 +762,21 @@ class ClientProfile(models.Model):
     first_name = models.CharField(max_length=50, verbose_name='First name')
     last_name = models.CharField(max_length=50, verbose_name='Last name')
     middle_name = models.CharField(max_length=50, blank=True, null=True, verbose_name='Middle name')
-    client_kind = models.CharField(
-        max_length=20,
-        choices=CLIENT_KIND_CHOICES,
-        default=CLIENT_KIND_INDIVIDUAL,
-        verbose_name='Client kind',
+    client_kind_ref = models.ForeignKey(
+        ClientKind,
+        on_delete=models.PROTECT,
+        related_name='profiles',
+        verbose_name='Вид клиента',
+        default=1,
     )
-
-    preferred_contact_method = models.CharField(max_length=20, blank=True, null=True, verbose_name='Preferred contact method')
+    contact_method = models.ForeignKey(
+        ContactMethod,
+        on_delete=models.SET_NULL,
+        related_name='profiles',
+        blank=True,
+        null=True,
+        verbose_name='Предпочтительный способ связи',
+    )
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
@@ -409,20 +784,79 @@ class ClientProfile(models.Model):
         db_table = 'client_profiles'
         verbose_name = 'Профиль клиента'
         verbose_name_plural = 'Профили клиентов'
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(client_kind__in=['individual', 'company']),
-                name='client_profile_kind_valid',
-            ),
-        ]
+    QUERY_ALIASES = {
+        'client_kind': 'client_kind_ref__code',
+        'client_kind_id': 'client_kind_ref_id',
+        'preferred_contact_method': 'contact_method__code',
+        'preferred_contact_method_id': 'contact_method_id',
+    }
+    objects = AliasManager()
 
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
+
+    def __init__(self, *args, **kwargs):
+        legacy_client_kind = kwargs.pop('client_kind', None)
+        legacy_contact_method = kwargs.pop('preferred_contact_method', None)
+        self._legacy_registration_address = kwargs.pop('registration_address', None)
+        self._legacy_actual_address = kwargs.pop('actual_address', None)
+        self._legacy_notes = kwargs.pop('notes', None)
+        has_client_kind_ref = 'client_kind_ref' in kwargs or 'client_kind_ref_id' in kwargs
+        has_contact_method = 'contact_method' in kwargs or 'contact_method_id' in kwargs
+        super().__init__(*args, **kwargs)
+        if legacy_client_kind not in (None, '') and not has_client_kind_ref:
+            self.client_kind = legacy_client_kind
+        if legacy_contact_method not in (None, '') and not has_contact_method:
+            self.preferred_contact_method = legacy_contact_method
 
     def clean(self):
         super().clean()
         if self.user_id and self.user.user_type != 'client':
             raise ValidationError({'user': 'Профиль клиента можно привязать только к пользователю типа "Клиент".'})
+
+    @property
+    def client_kind(self) -> str | None:
+        return self.client_kind_ref.code if self.client_kind_ref_id else None
+
+    @client_kind.setter
+    def client_kind(self, value):
+        self.client_kind_ref = _resolve_lookup_instance(ClientKind, value)
+
+    @property
+    def preferred_contact_method(self) -> str | None:
+        return self.contact_method.code if self.contact_method_id else None
+
+    @preferred_contact_method.setter
+    def preferred_contact_method(self, value):
+        self.contact_method = _resolve_lookup_instance(ContactMethod, value)
+
+    @property
+    def registration_address(self):
+        return self._legacy_registration_address
+
+    @registration_address.setter
+    def registration_address(self, value):
+        self._legacy_registration_address = value
+
+    @property
+    def actual_address(self):
+        return self._legacy_actual_address
+
+    @actual_address.setter
+    def actual_address(self, value):
+        self._legacy_actual_address = value
+
+    @property
+    def notes(self):
+        return self._legacy_notes
+
+    @notes.setter
+    def notes(self, value):
+        self._legacy_notes = value
+
+    def save(self, *args, **kwargs):
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
 
 
 class ClientIndividualDetails(models.Model):
@@ -512,16 +946,41 @@ class Property(models.Model):
 
     """Объект недвижимости."""
     title = models.CharField(max_length=255, blank=True, null=True, verbose_name='Название')
-    operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
-                                           verbose_name='Тип операции',
-                                       related_name='properties')
-    status = models.ForeignKey(PropertyStatus, on_delete=models.PROTECT,
-                                   verbose_name='Статус',
-                               related_name='properties', default=1)
-    address = models.ForeignKey(Address, on_delete=models.PROTECT,
-                                    verbose_name='Адрес',
-                                related_name='properties')
-
+    operation_type = models.ForeignKey(
+        OperationType,
+        on_delete=models.PROTECT,
+        verbose_name='Тип операции',
+        related_name='properties',
+    )
+    status = models.ForeignKey(
+        PropertyStatus,
+        on_delete=models.PROTECT,
+        verbose_name='Статус',
+        related_name='properties',
+        default=1,
+    )
+    house = models.ForeignKey(
+        House,
+        on_delete=models.PROTECT,
+        verbose_name='Дом',
+        related_name='properties',
+    )
+    property_type_ref = models.ForeignKey(
+        PropertyType,
+        on_delete=models.PROTECT,
+        verbose_name='Тип помещения',
+        related_name='properties',
+        default=1,
+    )
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='owned_properties',
+        limit_choices_to={'user_type_ref__code': 'client'},
+        blank=True,
+        null=True,
+        verbose_name='Владелец',
+    )
     coordinates_lat = models.DecimalField(
         max_digits=10,
         decimal_places=8,
@@ -538,47 +997,34 @@ class Property(models.Model):
         validators=[MinValueValidator(Decimal('-180')), MaxValueValidator(Decimal('180'))],
         verbose_name='Долгота',
     )
-    twogis_org_id = models.CharField(max_length=128, blank=True, null=True, db_index=True, verbose_name='ID организации 2ГИС')
-    twogis_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='Название 2ГИС')
-    twogis_address_full = models.TextField(blank=True, null=True, verbose_name='Адрес 2ГИС')
-    twogis_rubric = models.CharField(max_length=255, blank=True, null=True, verbose_name='Рубрика 2ГИС')
-    twogis_synced_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата синхронизации 2ГИС')
-    premises_type = models.CharField(
-        max_length=20,
-        choices=PREMISES_TYPE_CHOICES,
-        default=PREMISES_APARTMENT,
-        verbose_name='Тип помещения',
-    )
-    owner = models.ForeignKey(
-        User,
-        on_delete=models.PROTECT,
-        related_name='owned_properties',
-        limit_choices_to={'user_type': 'client'},
+    price = models.FloatField(validators=[MinValueValidator(0)], verbose_name='Цена')
+    area_total = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
         blank=True,
         null=True,
-        verbose_name='Владелец',
+        verbose_name='Общая площадь',
+        validators=[MinValueValidator(Decimal('0.01'))],
     )
-
-    price = models.FloatField(validators=[MinValueValidator(0)], verbose_name='Цена')
-    price_per_sqm = models.FloatField(blank=True, null=True, validators=[MinValueValidator(0)], verbose_name='Цена за м2')
-
-    area_total = models.DecimalField(max_digits=8, decimal_places=2,
-                                     blank=True, null=True,
-                                         verbose_name='Общая площадь',
-                                     validators=[MinValueValidator(Decimal('0.01'))])
-
-    rooms_count = models.IntegerField(blank=True, null=True,
-                                          verbose_name='Количество комнат',
-                                      validators=[MinValueValidator(0), MaxValueValidator(100)])
-    floor_number = models.IntegerField(blank=True, null=True,
-                                           verbose_name='Этаж',
-                                       validators=[MinValueValidator(-5), MaxValueValidator(300)])
-    total_floors = models.IntegerField(blank=True, null=True,
-                                           verbose_name='Всего этажей',
-                                       validators=[MinValueValidator(0), MaxValueValidator(300)])
-
+    rooms_count = models.IntegerField(
+        blank=True,
+        null=True,
+        verbose_name='Количество комнат',
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    floor_number = models.IntegerField(
+        blank=True,
+        null=True,
+        verbose_name='Этаж',
+        validators=[MinValueValidator(-5), MaxValueValidator(300)],
+    )
+    total_floors = models.IntegerField(
+        blank=True,
+        null=True,
+        verbose_name='Всего этажей',
+        validators=[MinValueValidator(0), MaxValueValidator(300)],
+    )
     description = models.TextField(blank=True, null=True, verbose_name='Описание')
-
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
@@ -589,10 +1035,6 @@ class Property(models.Model):
         ordering = ['-created_at']
         constraints = [
             models.CheckConstraint(condition=models.Q(price__gte=0), name='property_price_non_negative'),
-            models.CheckConstraint(
-                condition=models.Q(price_per_sqm__isnull=True) | models.Q(price_per_sqm__gte=0),
-                name='property_price_per_sqm_non_negative',
-            ),
             models.CheckConstraint(
                 condition=models.Q(area_total__isnull=True) | models.Q(area_total__gt=0),
                 name='property_area_total_positive',
@@ -610,10 +1052,6 @@ class Property(models.Model):
                 name='property_floor_not_above_total',
             ),
             models.CheckConstraint(
-                condition=models.Q(premises_type__in=['apartment', 'house', 'office', 'warehouse']),
-                name='property_premises_type_valid',
-            ),
-            models.CheckConstraint(
                 condition=(
                     models.Q(coordinates_lat__isnull=True)
                     | (models.Q(coordinates_lat__gte=Decimal('-90')) & models.Q(coordinates_lat__lte=Decimal('90')))
@@ -628,36 +1066,223 @@ class Property(models.Model):
                 name='property_longitude_range',
             ),
         ]
+    QUERY_ALIASES = {
+        'address': 'house',
+        'address_id': 'house_id',
+        'address__house': 'house',
+        'address__house__street': 'house__street',
+        'address__house__street__city': 'house__street__city',
+        'premises_type': 'property_type_ref__code',
+        'premises_type_id': 'property_type_ref_id',
+    }
+    objects = AliasManager()
+
+    def __init__(self, *args, **kwargs):
+        legacy_premises_type = kwargs.pop('premises_type', None)
+        legacy_address = kwargs.pop('address', None)
+        has_property_type_ref = 'property_type_ref' in kwargs or 'property_type_ref_id' in kwargs
+        has_house = 'house' in kwargs or 'house_id' in kwargs
+        kwargs.pop('price_per_sqm', None)
+        legacy_twogis = {
+            'twogis_org_id': kwargs.pop('twogis_org_id', None),
+            'twogis_name': kwargs.pop('twogis_name', None),
+            'twogis_address_full': kwargs.pop('twogis_address_full', None),
+            'twogis_rubric': kwargs.pop('twogis_rubric', None),
+            'twogis_synced_at': kwargs.pop('twogis_synced_at', None),
+        }
+        super().__init__(*args, **kwargs)
+        if legacy_premises_type not in (None, '') and not has_property_type_ref:
+            self.premises_type = legacy_premises_type
+        if legacy_address is not None and not has_house:
+            self.address = legacy_address
+        for attr, value in legacy_twogis.items():
+            if value not in (None, ''):
+                setattr(self, attr, value)
 
     def __str__(self):
         return self.title or f'Объект №{self.pk}'
+
+    @property
+    def address(self):
+        return self.house
+
+    @address.setter
+    def address(self, value):
+        if isinstance(value, House):
+            self.house = value
+            return
+        if hasattr(value, 'house'):
+            self.house = value.house
+            return
+        if value in (None, ''):
+            self.house = None
+            return
+        self.house = House.objects.filter(pk=value).first()
+
+    @property
+    def premises_type(self) -> str | None:
+        return self.property_type_ref.code if self.property_type_ref_id else None
+
+    @premises_type.setter
+    def premises_type(self, value):
+        self.property_type_ref = _resolve_lookup_instance(PropertyType, value)
+
+    @property
+    def price_per_sqm(self) -> float | None:
+        if not self.area_total:
+            return None
+        try:
+            area = Decimal(str(self.area_total))
+            if area <= 0:
+                return None
+            return float(Decimal(str(self.price)) / area)
+        except Exception:
+            return None
+
+    @price_per_sqm.setter
+    def price_per_sqm(self, value):
+        # Поле больше не хранится в БД; старые вызовы create/update игнорируем.
+        return
+
+    def _twogis_source(self):
+        if hasattr(self, '_prefetched_objects_cache') and 'external_sources' in getattr(self, '_prefetched_objects_cache', {}):
+            for source in self.external_sources.all():
+                if source.source_name == '2gis':
+                    return source
+            return None
+        return self.external_sources.filter(source_name='2gis').first()
+
+    @property
+    def twogis_org_id(self):
+        source = self._twogis_source()
+        return source.external_id if source else None
+
+    @twogis_org_id.setter
+    def twogis_org_id(self, value):
+        source = self._twogis_source()
+        if source is None and value not in (None, ''):
+            source = PropertyExternalSource(property=self, source_name='2gis', external_id=str(value))
+        if source is not None:
+            source.external_id = str(value) if value not in (None, '') else ''
+            self._pending_twogis_source = source
+
+    @property
+    def twogis_name(self):
+        source = self._twogis_source()
+        return source.source_object_name if source else None
+
+    @twogis_name.setter
+    def twogis_name(self, value):
+        source = self._twogis_source() or getattr(self, '_pending_twogis_source', None)
+        if source is None and value not in (None, ''):
+            source = PropertyExternalSource(property=self, source_name='2gis', external_id='')
+        if source is not None:
+            source.source_object_name = value
+            self._pending_twogis_source = source
+
+    @property
+    def twogis_address_full(self):
+        source = self._twogis_source()
+        return source.source_address if source else None
+
+    @twogis_address_full.setter
+    def twogis_address_full(self, value):
+        source = self._twogis_source() or getattr(self, '_pending_twogis_source', None)
+        if source is None and value not in (None, ''):
+            source = PropertyExternalSource(property=self, source_name='2gis', external_id='')
+        if source is not None:
+            source.source_address = value
+            self._pending_twogis_source = source
+
+    @property
+    def twogis_rubric(self):
+        source = self._twogis_source()
+        return source.source_rubric if source else None
+
+    @twogis_rubric.setter
+    def twogis_rubric(self, value):
+        source = self._twogis_source() or getattr(self, '_pending_twogis_source', None)
+        if source is None and value not in (None, ''):
+            source = PropertyExternalSource(property=self, source_name='2gis', external_id='')
+        if source is not None:
+            source.source_rubric = value
+            self._pending_twogis_source = source
+
+    @property
+    def twogis_synced_at(self):
+        source = self._twogis_source()
+        return source.synced_at if source else None
+
+    @twogis_synced_at.setter
+    def twogis_synced_at(self, value):
+        source = self._twogis_source() or getattr(self, '_pending_twogis_source', None)
+        if source is None and value not in (None, ''):
+            source = PropertyExternalSource(property=self, source_name='2gis', external_id='')
+        if source is not None:
+            source.synced_at = value
+            self._pending_twogis_source = source
 
     def clean(self):
         super().clean()
         errors = {}
         if self.price is not None and self.price < 0:
             errors['price'] = 'Цена не может быть отрицательной.'
-        if self.price_per_sqm is not None and self.price_per_sqm < 0:
-            errors['price_per_sqm'] = 'Цена за м² не может быть отрицательной.'
         if self.area_total is not None and self.area_total <= 0:
             errors['area_total'] = 'Площадь должна быть больше нуля.'
-        if (
-            self.premises_type in {self.PREMISES_OFFICE, self.PREMISES_WAREHOUSE}
-            and self.rooms_count is not None
-        ):
+        if self.premises_type in {self.PREMISES_OFFICE, self.PREMISES_WAREHOUSE} and self.rooms_count is not None:
             errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
         if self.rooms_count is not None and self.rooms_count < 0:
             errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
-        if (
-            self.floor_number is not None
-            and self.total_floors is not None
-            and self.floor_number > self.total_floors
-        ):
+        if self.floor_number is not None and self.total_floors is not None and self.floor_number > self.total_floors:
             errors['floor_number'] = 'Этаж объекта не может быть выше общего количества этажей.'
         if self.owner_id and self.owner.user_type != 'client':
             errors['owner'] = 'Owner must be a client user.'
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        _rewrite_legacy_update_fields(self, kwargs)
+        super().save(*args, **kwargs)
+        pending_source = getattr(self, '_pending_twogis_source', None)
+        if pending_source is not None:
+            pending_source.property = self
+            if any([
+                pending_source.external_id,
+                pending_source.source_object_name,
+                pending_source.source_address,
+                pending_source.source_rubric,
+                pending_source.synced_at,
+            ]):
+                pending_source.save()
+
+
+class PropertyExternalSource(models.Model):
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name='external_sources',
+        verbose_name='Объект',
+    )
+    source_name = models.CharField(max_length=50, verbose_name='Источник')
+    external_id = models.CharField(max_length=128, verbose_name='Внешний идентификатор')
+    source_object_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='Название объекта')
+    source_address = models.TextField(blank=True, null=True, verbose_name='Адрес источника')
+    source_rubric = models.CharField(max_length=255, blank=True, null=True, verbose_name='Рубрика источника')
+    synced_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата синхронизации')
+
+    class Meta:
+        db_table = 'property_external_sources'
+        verbose_name = 'Внешний источник объекта'
+        verbose_name_plural = 'Внешние источники объектов'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['property', 'source_name', 'external_id'],
+                name='property_external_source_unique',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.source_name}: {self.external_id}'
 
 
 
@@ -750,12 +1375,12 @@ class Request(models.Model):
     client = models.ForeignKey(User, on_delete=models.PROTECT,
                                related_name='client_requests',
                                    verbose_name='Клиент',
-                               limit_choices_to={'user_type': 'client'})
+                               limit_choices_to={'user_type_ref__code': 'client'})
     agent = models.ForeignKey(User, on_delete=models.PROTECT,
                               related_name='agent_requests',
                               blank=True, null=True,
                                   verbose_name='Агент',
-                              limit_choices_to={'user_type': 'employee'})
+                              limit_choices_to={'user_type_ref__code': 'employee'})
     property = models.ForeignKey('Property', on_delete=models.PROTECT,
                                  related_name='direct_requests',
                                      verbose_name='Объект',
@@ -824,6 +1449,7 @@ class Request(models.Model):
                 name='request_rooms_non_negative',
             ),
         ]
+    objects = AliasManager()
 
     def __str__(self):
         return f'Заявка №{self.pk} от {self.client.username}'
@@ -913,7 +1539,7 @@ class RequestPropertyMatch(models.Model):
     agent = models.ForeignKey(User, on_delete=models.PROTECT,
                               related_name='proposed_matches',
                                   verbose_name='Агент',
-                              limit_choices_to={'user_type': 'employee'})
+                              limit_choices_to={'user_type_ref__code': 'employee'})
     agent_note = models.TextField(blank=True, null=True, verbose_name='Заметка агента')
     is_offered = models.BooleanField(default=True,
                                          verbose_name='Предложено клиенту',
@@ -929,7 +1555,7 @@ class RequestPropertyMatch(models.Model):
         User, on_delete=models.SET_NULL,
         blank=True, null=True,
         related_name='confirmed_request_matches',
-        limit_choices_to={'user_type': 'employee'},
+        limit_choices_to={'user_type_ref__code': 'employee'},
         verbose_name='Подтвердил',
     )
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
@@ -988,11 +1614,11 @@ class Deal(models.Model):
     agent = models.ForeignKey(User, on_delete=models.PROTECT,
                               related_name='agent_deals',
                                   verbose_name='Агент',
-                              limit_choices_to={'user_type': 'employee'})
+                              limit_choices_to={'user_type_ref__code': 'employee'})
     client = models.ForeignKey(User, on_delete=models.PROTECT,
                                related_name='client_deals',
                                    verbose_name='Клиент',
-                               limit_choices_to={'user_type': 'client'})
+                               limit_choices_to={'user_type_ref__code': 'client'})
     operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
                                            verbose_name='Тип операции',
                                        related_name='deals')
@@ -1021,12 +1647,12 @@ class Deal(models.Model):
         upload_to='contracts/%Y/%m/', blank=True, null=True,
         verbose_name='Файл договора',
     )
-    contract_status = models.CharField(
-        max_length=20,
-        choices=CONTRACT_STATUS_CHOICES,
-        default='not_requested',
-        db_index=True,
-        verbose_name='Код статуса договора',
+    contract_status_ref = models.ForeignKey(
+        ContractStatus,
+        on_delete=models.PROTECT,
+        related_name='deals',
+        verbose_name='Статус договора',
+        default=1,
     )
     contract_error_message = models.TextField(blank=True, null=True, verbose_name='Ошибка договора')
     contract_requested_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата запроса договора')
@@ -1052,9 +1678,23 @@ class Deal(models.Model):
                 name='deal_commission_amount_non_negative',
             ),
         ]
+    QUERY_ALIASES = {
+        'contract_status': 'contract_status_ref__code',
+        'contract_status_id': 'contract_status_ref_id',
+    }
+    objects = AliasManager()
 
     def __str__(self):
         return f'Сделка {self.deal_number}'
+
+    def __init__(self, *args, **kwargs):
+        legacy_contract_status = kwargs.pop('contract_status', None)
+        has_contract_status_ref = (
+            'contract_status_ref' in kwargs or 'contract_status_ref_id' in kwargs
+        )
+        super().__init__(*args, **kwargs)
+        if legacy_contract_status not in (None, '') and not has_contract_status_ref:
+            self.contract_status = legacy_contract_status
 
     def clean(self):
         super().clean()
@@ -1076,18 +1716,46 @@ class Deal(models.Model):
         if errors:
             raise ValidationError(errors)
 
+    @_property
+    def contract_status(self) -> str | None:
+        return self.contract_status_ref.code if self.contract_status_ref_id else None
+
+    @contract_status.setter
+    def contract_status(self, value):
+        self.contract_status_ref = _resolve_lookup_instance(ContractStatus, value)
+
+    def get_contract_status_display(self) -> str:
+        if not self.contract_status_ref_id:
+            return ''
+        return self.contract_status_ref.name
+
+    def save(self, *args, **kwargs):
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
+
 
 class PropertyStatusHistory(models.Model):
     """История изменения статусов объектов."""
     property = models.ForeignKey(Property, on_delete=models.CASCADE,
                                      verbose_name='Объект',
                                  related_name='status_history')
-    status = models.ForeignKey(PropertyStatus, on_delete=models.PROTECT,
-                                   verbose_name='Статус',
-                               related_name='history_records')
+    old_status = models.ForeignKey(
+        PropertyStatus,
+        on_delete=models.PROTECT,
+        verbose_name='Старый статус',
+        related_name='history_old_records',
+        blank=True,
+        null=True,
+    )
+    new_status = models.ForeignKey(
+        PropertyStatus,
+        on_delete=models.PROTECT,
+        verbose_name='Новый статус',
+        related_name='history_new_records',
+    )
     changed_by = models.ForeignKey(User, on_delete=models.PROTECT,
                                        verbose_name='Изменил',
-                                   related_name='status_changes')
+                                    related_name='status_changes')
     changed_at = models.DateTimeField(default=timezone.now, verbose_name='Дата изменения')
 
     class Meta:
@@ -1095,11 +1763,34 @@ class PropertyStatusHistory(models.Model):
         verbose_name = 'История статусов'
         verbose_name_plural = 'История статусов'
         ordering = ['-changed_at']
+    QUERY_ALIASES = {
+        'status': 'new_status',
+        'status_id': 'new_status_id',
+    }
+    objects = AliasManager()
 
     def clean(self):
         super().clean()
         if self.changed_by_id and self.changed_by.user_type != 'employee':
             raise ValidationError({'changed_by': 'Статус объекта может менять только сотрудник.'})
+
+    def __init__(self, *args, **kwargs):
+        legacy_status = kwargs.pop('status', None)
+        super().__init__(*args, **kwargs)
+        if legacy_status is not None and not self.new_status_id:
+            self.status = legacy_status
+
+    @_property
+    def status(self):
+        return self.new_status
+
+    @status.setter
+    def status(self, value):
+        self.new_status = value
+
+    def save(self, *args, **kwargs):
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
 
 
 class PropertyViewing(models.Model):
@@ -1110,11 +1801,11 @@ class PropertyViewing(models.Model):
     client = models.ForeignKey(User, on_delete=models.PROTECT,
                                related_name='client_viewings',
                                    verbose_name='Клиент',
-                               limit_choices_to={'user_type': 'client'})
+                               limit_choices_to={'user_type_ref__code': 'client'})
     agent = models.ForeignKey(User, on_delete=models.PROTECT,
                               related_name='agent_viewings',
                                   verbose_name='Агент',
-                              limit_choices_to={'user_type': 'employee'})
+                              limit_choices_to={'user_type_ref__code': 'employee'})
     scheduled_date = models.DateTimeField(verbose_name='Дата просмотра')
     notes = models.TextField(blank=True, null=True, verbose_name='Примечания')
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
@@ -1157,12 +1848,20 @@ class Task(models.Model):
 
     title = models.CharField(max_length=255, verbose_name='Название')
     description = models.TextField(blank=True, null=True, verbose_name='Описание')
-    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES,
-                                    verbose_name='Приоритет',
-                                default='normal')
-    task_type = models.CharField(max_length=30, choices=TASK_TYPE_CHOICES,
-                                     verbose_name='Тип задач',
-                                 default='other', db_index=True)
+    priority_ref = models.ForeignKey(
+        TaskPriority,
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        verbose_name='Приоритет',
+        default=2,
+    )
+    task_type_ref = models.ForeignKey(
+        TaskType,
+        on_delete=models.PROTECT,
+        related_name='tasks',
+        verbose_name='Тип задач',
+        default=6,
+    )
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
                                    verbose_name='Статус',
                                related_name='tasks')
@@ -1170,7 +1869,7 @@ class Task(models.Model):
     assignee = models.ForeignKey(User, on_delete=models.PROTECT,
                                  related_name='assigned_tasks',
                                      verbose_name='Исполнитель',
-                                 limit_choices_to={'user_type': 'employee'})
+                                 limit_choices_to={'user_type_ref__code': 'employee'})
     created_by = models.ForeignKey(User, on_delete=models.PROTECT,
                                        verbose_name='Создатель',
                                    related_name='created_tasks')
@@ -1179,7 +1878,7 @@ class Task(models.Model):
                                blank=True, null=True,
                                related_name='client_tasks',
                                    verbose_name='Клиент',
-                               limit_choices_to={'user_type': 'client'})
+                               limit_choices_to={'user_type_ref__code': 'client'})
     property = models.ForeignKey(Property, on_delete=models.SET_NULL,
                                      verbose_name='Объект',
                                  blank=True, null=True, related_name='tasks')
@@ -1212,26 +1911,27 @@ class Task(models.Model):
         verbose_name = 'Задача'
         verbose_name_plural = 'Задачи'
         ordering = ['-created_at']
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(priority__in=['low', 'normal', 'high']),
-                name='task_priority_valid',
-            ),
-            models.CheckConstraint(
-                condition=models.Q(task_type__in=[
-                    'contact_client',
-                    'property_search',
-                    'showing',
-                    'documents',
-                    'call',
-                    'other',
-                ]),
-                name='task_type_valid',
-            ),
-        ]
+    QUERY_ALIASES = {
+        'priority': 'priority_ref__code',
+        'priority_id': 'priority_ref_id',
+        'task_type': 'task_type_ref__code',
+        'task_type_id': 'task_type_ref_id',
+    }
+    objects = AliasManager()
 
     def __str__(self):
         return self.title
+
+    def __init__(self, *args, **kwargs):
+        legacy_priority = kwargs.pop('priority', None)
+        legacy_task_type = kwargs.pop('task_type', None)
+        has_priority_ref = 'priority_ref' in kwargs or 'priority_ref_id' in kwargs
+        has_task_type_ref = 'task_type_ref' in kwargs or 'task_type_ref_id' in kwargs
+        super().__init__(*args, **kwargs)
+        if legacy_priority not in (None, '') and not has_priority_ref:
+            self.priority = legacy_priority
+        if legacy_task_type not in (None, '') and not has_task_type_ref:
+            self.task_type = legacy_task_type
 
     def clean(self):
         super().clean()
@@ -1260,7 +1960,39 @@ class Task(models.Model):
     @_property
     def task_type_display(self):
         """Человекочитаемое название типа задачи."""
-        return dict(self.TASK_TYPE_CHOICES).get(self.task_type, self.task_type)
+        if not self.task_type_ref_id:
+            return self.task_type or ''
+        return self.task_type_ref.name
+
+    @_property
+    def priority(self) -> str | None:
+        return self.priority_ref.code if self.priority_ref_id else None
+
+    @priority.setter
+    def priority(self, value):
+        self.priority_ref = _resolve_lookup_instance(TaskPriority, value)
+
+    def get_priority_display(self) -> str:
+        if not self.priority_ref_id:
+            return ''
+        return self.priority_ref.name
+
+    @_property
+    def task_type(self) -> str | None:
+        return self.task_type_ref.code if self.task_type_ref_id else None
+
+    @task_type.setter
+    def task_type(self, value):
+        self.task_type_ref = _resolve_lookup_instance(TaskType, value)
+
+    def get_task_type_display(self) -> str:
+        if not self.task_type_ref_id:
+            return ''
+        return self.task_type_ref.name
+
+    def save(self, *args, **kwargs):
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
 
 
 class OutgoingEmail(models.Model):
@@ -1280,7 +2012,7 @@ class OutgoingEmail(models.Model):
                                blank=True, null=True,
                                related_name='sent_emails',
                                    verbose_name='Отправитель',
-                               limit_choices_to={'user_type': 'employee'})
+                               limit_choices_to={'user_type_ref__code': 'employee'})
     subject = models.CharField(max_length=255, verbose_name='Тема')
     body = models.TextField(verbose_name='Текст письма')
     html_body = models.TextField(blank=True, default='', verbose_name='HTML-текст')

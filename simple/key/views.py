@@ -340,6 +340,48 @@ class UserRoleViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
+class PropertyTypeViewSet(viewsets.ModelViewSet):
+    queryset = models.PropertyType.objects.all()
+    serializer_class = serializers.PropertyTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class TaskPriorityViewSet(viewsets.ModelViewSet):
+    queryset = models.TaskPriority.objects.all()
+    serializer_class = serializers.TaskPrioritySerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class TaskTypeViewSet(viewsets.ModelViewSet):
+    queryset = models.TaskType.objects.all()
+    serializer_class = serializers.TaskTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class ClientKindViewSet(viewsets.ModelViewSet):
+    queryset = models.ClientKind.objects.all()
+    serializer_class = serializers.ClientKindSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class ContactMethodViewSet(viewsets.ModelViewSet):
+    queryset = models.ContactMethod.objects.all()
+    serializer_class = serializers.ContactMethodSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class ContractStatusViewSet(viewsets.ModelViewSet):
+    queryset = models.ContractStatus.objects.all()
+    serializer_class = serializers.ContractStatusSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class UserTypeViewSet(viewsets.ModelViewSet):
+    queryset = models.UserType.objects.all()
+    serializer_class = serializers.UserTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
 class CityViewSet(viewsets.ModelViewSet):
     queryset = models.City.objects.all()
     serializer_class = serializers.CitySerializer
@@ -377,8 +419,7 @@ class HouseViewSet(viewsets.ModelViewSet):
 
 
 class AddressViewSet(viewsets.ModelViewSet):
-    queryset = models.Address.objects.select_related(
-        'house__street__city').all()
+    queryset = models.House.objects.select_related('street__city').all()
     serializer_class = serializers.AddressSerializer
     permission_classes = [IsEmployeeOrReadOnly]
 
@@ -586,13 +627,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'create':
             return [IsClientOrAdminOrManager()]
-        if self.action in {
-            'update', 'partial_update', 'destroy',
-            'change_status', 'import_csv', 'bulk_archive',
-            'upload_photo', 'moderation', 'approve', 'reject',
-        }:
-            if self.action == 'upload_photo':
-                return [IsAuthenticated()]
+        if self.action in {'update', 'partial_update', 'destroy', 'upload_photo'}:
+            return [IsAuthenticated()]
+        if self.action == 'change_status':
+            return [IsEmployee()]
+        if self.action == 'bulk_archive':
+            return [IsEmployee()]
+        if self.action in {'import_csv', 'moderation', 'approve', 'reject'}:
             return [IsAdminOrManager()]
         return [IsAuthenticated()]
 
@@ -722,7 +763,8 @@ class PropertyViewSet(viewsets.ModelViewSet):
         property_obj.save(update_fields=['status', 'updated_at'])
         models.PropertyStatusHistory.objects.create(
             property=property_obj,
-            status=next_status,
+            old_status=previous_status,
+            new_status=next_status,
             changed_by=request.user,
         )
         audit_service.log_event(
@@ -871,7 +913,8 @@ class PropertyViewSet(viewsets.ModelViewSet):
             property_obj.save(update_fields=['status', 'updated_at'])
             models.PropertyStatusHistory.objects.create(
                 property=property_obj,
-                status=archived_status,
+                old_status=previous_status,
+                new_status=archived_status,
                 changed_by=request.user,
             )
             audit_service.log_event(
@@ -931,7 +974,8 @@ class PropertyViewSet(viewsets.ModelViewSet):
         property_obj.save(update_fields=['status', 'updated_at'])
         models.PropertyStatusHistory.objects.create(
             property=property_obj,
-            status=next_status,
+            old_status=previous_status,
+            new_status=next_status,
             changed_by=request.user,
         )
         audit_service.log_event(
@@ -957,7 +1001,9 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def history(self, request, pk=None):
         """История смен статусов объекта."""
         property_obj = self.get_object()
-        qs = property_obj.status_history.select_related('status', 'changed_by')
+        qs = property_obj.status_history.select_related(
+            'old_status', 'new_status', 'changed_by',
+        )
         return Response(
             serializers.PropertyStatusHistorySerializer(qs, many=True).data
         )

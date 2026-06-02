@@ -71,8 +71,7 @@ export const useWorkloadStore = defineStore('workload', {
         this.workload = nextWorkload
         this.currentTask = currentTask
         this.lastSyncAt = new Date()
-      } catch (err) {
-        console.warn('[workload] refresh failed', err)
+      } catch (_err) {
       } finally {
         this.loading = false
       }

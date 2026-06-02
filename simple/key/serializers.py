@@ -183,6 +183,46 @@ class UserRoleSerializer(serializers.ModelSerializer):
         ]
 
 
+class CodeNameLookupSerializer(serializers.ModelSerializer):
+    class Meta:
+        fields = ['id', 'code', 'name']
+
+
+class PropertyTypeSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.PropertyType
+
+
+class TaskPrioritySerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.TaskPriority
+
+
+class TaskTypeSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.TaskType
+
+
+class ClientKindSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.ClientKind
+
+
+class ContactMethodSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.ContactMethod
+
+
+class ContractStatusSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.ContractStatus
+
+
+class UserTypeSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.UserType
+
+
 class CitySerializer(serializers.ModelSerializer):
     class Meta:
         model = models.City
@@ -204,10 +244,11 @@ class HouseSerializer(serializers.ModelSerializer):
 
 
 class AddressSerializer(serializers.ModelSerializer):
+    house = serializers.IntegerField(source='id', read_only=True)
     full_address = serializers.SerializerMethodField()
 
     class Meta:
-        model = models.Address
+        model = models.House
         fields = ['id', 'house', 'full_address']
 
     def get_full_address(self, obj) -> str:
@@ -219,6 +260,7 @@ class UserSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, max_length=20,
     )
+    user_type = serializers.CharField(read_only=True)
     role_name = serializers.CharField(source='role.name', read_only=True)
     role_code = serializers.CharField(source='role.code', read_only=True)
     user_type_display = serializers.CharField(source='get_user_type_display',
@@ -505,6 +547,16 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
 
 class ClientProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
+    client_kind = serializers.ChoiceField(
+        choices=models.ClientProfile.CLIENT_KIND_CHOICES,
+        required=False,
+    )
+    preferred_contact_method = serializers.ChoiceField(
+        choices=list(models.LOOKUP_NAME_DEFAULTS['ContactMethod'].items()),
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
     passport_series = serializers.CharField(
         max_length=4, required=False, allow_blank=True, allow_null=True,
         write_only=True,
@@ -798,9 +850,16 @@ class PropertySerializer(serializers.ModelSerializer):
     owner_username = serializers.CharField(source='owner.username', read_only=True)
     owner_email = serializers.EmailField(source='owner.email', read_only=True)
     owner_phone = serializers.CharField(source='owner.phone', read_only=True)
+    premises_type = serializers.ChoiceField(
+        choices=models.Property.PREMISES_TYPE_CHOICES,
+        required=False,
+    )
+    price_per_sqm = serializers.FloatField(read_only=True)
     address_data = AddressNestedWriteSerializer(required=False, write_only=True)
     address = serializers.PrimaryKeyRelatedField(
-        queryset=models.Address.objects.all(), required=False,
+        queryset=models.House.objects.all(),
+        source='house',
+        required=False,
     )
 
     class Meta:
@@ -820,7 +879,9 @@ class PropertySerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def get_full_address(self, obj) -> str:
-        return str(obj.address)
+        if obj.house_id is None:
+            return ''
+        return str(obj.house)
 
     def get_allowed_status_ids(self, obj) -> list[int]:
         statuses_by_code = self.context.setdefault(
@@ -903,8 +964,8 @@ class PropertySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(errors)
         return attrs
 
-    def _resolve_address(self, address_data: dict) -> models.Address:
-        """Найти или создать Address → House → Street → City по данным DaData."""
+    def _resolve_address(self, address_data: dict) -> models.House:
+        """Найти или создать House → Street → City по данным DaData."""
         city_name = (address_data.get('city') or '').strip() or 'Не указан'
         region = (address_data.get('region') or '').strip() or None
         city_ext = address_data.get('city_external_id') or None
@@ -946,28 +1007,24 @@ class PropertySerializer(serializers.ModelSerializer):
         if house_ext and not house.external_id:
             house.external_id = house_ext
         house.save()
-
-        address = models.Address.objects.filter(house=house).first()
-        if address is None:
-            address = models.Address.objects.create(house=house)
-        return address
+        return house
 
     def create(self, validated_data):
         address_data = validated_data.pop('address_data', None)
-        if address_data and not validated_data.get('address'):
-            validated_data['address'] = self._resolve_address(address_data)
+        if address_data and not validated_data.get('house'):
+            validated_data['house'] = self._resolve_address(address_data)
             if address_data.get('geo_lat') is not None and not validated_data.get('coordinates_lat'):
                 validated_data['coordinates_lat'] = address_data['geo_lat']
             if address_data.get('geo_lon') is not None and not validated_data.get('coordinates_lon'):
                 validated_data['coordinates_lon'] = address_data['geo_lon']
-        if not validated_data.get('address'):
+        if not validated_data.get('house'):
             raise serializers.ValidationError({'address': 'Адрес обязателен.'})
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
         address_data = validated_data.pop('address_data', None)
         if address_data:
-            validated_data['address'] = self._resolve_address(address_data)
+            validated_data['house'] = self._resolve_address(address_data)
         return super().update(instance, validated_data)
 
 
@@ -1148,6 +1205,7 @@ class DealSerializer(serializers.ModelSerializer):
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
     contract_url = serializers.SerializerMethodField()
+    contract_status = serializers.CharField(read_only=True)
     contract_status_display = serializers.CharField(
         source='get_contract_status_display', read_only=True,
     )
@@ -1196,13 +1254,20 @@ class DealSerializer(serializers.ModelSerializer):
 
 
 class PropertyStatusHistorySerializer(serializers.ModelSerializer):
-    status_name = serializers.CharField(source='status.name', read_only=True)
+    status = serializers.IntegerField(source='new_status_id', read_only=True)
+    old_status = serializers.IntegerField(source='old_status_id', read_only=True)
+    new_status = serializers.IntegerField(source='new_status_id', read_only=True)
+    status_name = serializers.CharField(source='new_status.name', read_only=True)
+    old_status_name = serializers.CharField(source='old_status.name', read_only=True)
+    new_status_name = serializers.CharField(source='new_status.name', read_only=True)
     changed_by_username = serializers.CharField(source='changed_by.username',
                                                 read_only=True)
 
     class Meta:
         model = models.PropertyStatusHistory
         fields = ['id', 'property', 'status', 'status_name',
+                  'old_status', 'old_status_name',
+                  'new_status', 'new_status_name',
                   'changed_by', 'changed_by_username', 'changed_at']
 
 
@@ -1215,6 +1280,14 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
 
 
 class TaskSerializer(serializers.ModelSerializer):
+    priority = serializers.ChoiceField(
+        choices=models.Task.PRIORITY_CHOICES,
+        required=False,
+    )
+    task_type = serializers.ChoiceField(
+        choices=models.Task.TASK_TYPE_CHOICES,
+        required=False,
+    )
     status_name = serializers.CharField(source='status.name', read_only=True)
     status_code = serializers.CharField(source='status.code', read_only=True)
     assignee_username = serializers.CharField(source='assignee.username',

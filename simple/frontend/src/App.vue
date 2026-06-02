@@ -15,17 +15,17 @@
         >
           <div class="surface-head">
             <div class="surface-head__meta">
-              <h2 class="h3">Page render error</h2>
-              <div class="muted">The route component crashed during render. The page state was reset.</div>
+              <h2 class="h3">Не удалось загрузить страницу</h2>
+              <div class="muted">Обновите страницу или вернитесь позже.</div>
             </div>
           </div>
-          <p class="app-error__text">{{ viewError }}</p>
+          <p v-if="isDev" class="app-error__text">{{ viewError }}</p>
           <div class="row" style="gap: 8px; flex-wrap: wrap">
             <button class="btn btn--accent" type="button" @click="retryCurrentRoute">
-              Retry page
+              Повторить
             </button>
             <button class="btn" type="button" @click="clearViewError">
-              Dismiss
+              Закрыть
             </button>
           </div>
         </div>
@@ -35,11 +35,11 @@
         >
           <div class="surface-head">
             <div class="surface-head__meta">
-              <h2 class="h3">Route component missing</h2>
-              <div class="muted">The route matched, but RouterView did not receive a page component.</div>
+              <h2 class="h3">Страница недоступна</h2>
+              <div class="muted">Попробуйте обновить страницу.</div>
             </div>
           </div>
-          <p class="app-error__text">Path: {{ route.fullPath }}</p>
+          <p v-if="isDev" class="app-error__text">Path: {{ route.fullPath }}</p>
         </div>
       </router-view>
     </main>
@@ -63,6 +63,7 @@ const auth = useAuthStore()
 const route = useRoute()
 const viewError = ref('')
 const routeViewNonce = ref(0)
+const isDev = import.meta.env.DEV
 
 function clearViewError () {
   viewError.value = ''
@@ -77,8 +78,7 @@ watch(() => route.fullPath, () => {
   clearViewError()
 })
 
-onErrorCaptured((err, _instance, info) => {
-  console.error('Route render error:', err, info)
+onErrorCaptured((err) => {
   viewError.value = err instanceof Error ? err.message : String(err || 'Unknown render error')
   return false
 })

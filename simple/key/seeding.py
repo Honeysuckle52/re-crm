@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
@@ -16,12 +17,22 @@ from .dadata import DadataClient
 from .models import (
     Address,
     City,
+    ClientCompanyDetails,
+    ClientIndividualDetails,
     ClientProfile,
     Deal,
     EmployeeProfile,
     House,
     OperationType,
     Property,
+    PropertyType,
+    TaskPriority,
+    TaskType,
+    ClientKind,
+    ContactMethod,
+    ContractStatus,
+    UserType,
+    PropertyExternalSource,
     PropertyPhoto,
     PropertyStatus,
     Request,
@@ -103,6 +114,49 @@ USER_ROLES = [
         'max_in_progress_tasks': 1,
         'max_active_requests': 2,
     },
+]
+
+LOOKUP_TABLES = [
+    (PropertyType, [
+        {'code': 'apartment', 'name': 'Квартира'},
+        {'code': 'house', 'name': 'Дом'},
+        {'code': 'office', 'name': 'Офис'},
+        {'code': 'warehouse', 'name': 'Склад'},
+    ]),
+    (TaskPriority, [
+        {'code': 'low', 'name': 'Низкий'},
+        {'code': 'normal', 'name': 'Обычный'},
+        {'code': 'high', 'name': 'Высокий'},
+    ]),
+    (TaskType, [
+        {'code': 'contact_client', 'name': 'Связаться с клиентом'},
+        {'code': 'property_search', 'name': 'Подбор объектов'},
+        {'code': 'showing', 'name': 'Показ объекта'},
+        {'code': 'documents', 'name': 'Подготовка документов'},
+        {'code': 'call', 'name': 'Звонок'},
+        {'code': 'other', 'name': 'Прочее'},
+    ]),
+    (ClientKind, [
+        {'code': 'individual', 'name': 'Физическое лицо'},
+        {'code': 'company', 'name': 'Юридическое лицо'},
+    ]),
+    (ContactMethod, [
+        {'code': 'phone', 'name': 'Телефон'},
+        {'code': 'email', 'name': 'Email'},
+        {'code': 'whatsapp', 'name': 'WhatsApp'},
+        {'code': 'telegram', 'name': 'Telegram'},
+    ]),
+    (ContractStatus, [
+        {'code': 'not_requested', 'name': 'Не запрошен'},
+        {'code': 'pending', 'name': 'В очереди'},
+        {'code': 'processing', 'name': 'Формируется'},
+        {'code': 'ready', 'name': 'Готов'},
+        {'code': 'failed', 'name': 'Ошибка'},
+    ]),
+    (UserType, [
+        {'code': 'employee', 'name': 'Сотрудник'},
+        {'code': 'client', 'name': 'Клиент'},
+    ]),
 ]
 
 DEMO_IMAGE_COLORS = [
@@ -210,6 +264,12 @@ class SeedDataService:
             'Статусы задач': self._seed_rows(TaskStatus, TASK_STATUSES, key='code'),
             'Роли пользователей': self._seed_rows(UserRole, USER_ROLES, key='code'),
         }
+        for model, rows in LOOKUP_TABLES:
+            created_counts[str(model._meta.verbose_name_plural)] = self._seed_rows(
+                model,
+                rows,
+                key='code',
+            )
         self.log.success('Справочники успешно заполнены:')
         for title, (created, updated) in created_counts.items():
             self.log.info(f'  {title:>22}: создано {created}, обновлено {updated}')
@@ -230,42 +290,52 @@ class SeedDataService:
         if flush:
             self.flush_demo()
 
-        self._ensure_demo_images(force=force_images)
+        stats = {
+            'users': {'created': 0, 'updated': 0},
+            'properties': {'created': 0, 'updated': 0},
+            'requests': {'created': 0, 'updated': 0},
+            'tasks': {'created': 0, 'updated': 0},
+            'deals': {'created': 0, 'updated': 0},
+        }
 
-        users = self._seed_users()
-        self.log.success(f'   Пользователи: {len(users)} (admin/manager/agents/clients).')
+        users, user_stats = self._seed_real_users()
+        stats['users'] = user_stats
+        self.log.success(
+            f"   Пользователи: создано {user_stats['created']}, обновлено {user_stats['updated']}."
+        )
 
-        addresses = self._seed_demo_addresses()
-        properties = self._seed_demo_properties(addresses)
-        self.log.success(f'   Объекты недвижимости: {len(properties)}.')
+        properties, property_stats = self._seed_real_properties(users)
+        stats['properties'] = property_stats
+        self.log.success(
+            f"   Объекты: создано {property_stats['created']}, обновлено {property_stats['updated']}."
+        )
 
-        requests = self._seed_demo_requests(users, properties)
-        self.log.success(f'   Заявки: {len(requests)}.')
+        requests, request_stats = self._seed_real_requests(users, properties)
+        stats['requests'] = request_stats
+        self.log.success(
+            f"   Заявки: создано {request_stats['created']}, обновлено {request_stats['updated']}."
+        )
 
-        tasks = self._seed_demo_tasks(users, properties, requests)
-        self.log.success(f'   Задачи: {len(tasks)}.')
+        tasks, task_stats = self._seed_real_tasks(users, properties, requests)
+        stats['tasks'] = task_stats
+        self.log.success(
+            f"   Задачи: создано {task_stats['created']}, обновлено {task_stats['updated']}."
+        )
+
+        deals, deal_stats = self._seed_real_deals(users, properties, requests)
+        stats['deals'] = deal_stats
+        self.log.success(
+            f"   Сделки: создано {deal_stats['created']}, обновлено {deal_stats['updated']}."
+        )
 
         self.log.info('')
-        self.log.success('Демо-данные готовы. Логины/пароли:')
+        self.log.success('Реалистичные CRM-данные готовы. Логины пользователей:')
         for user in users.values():
-            role = user.role.name if user.role_id else '—'
+            role = user.role.name if user.role_id else 'клиент'
             self.log.info(
-                f'    {user.username:<14}  ({user.user_type:<8}, роль: {role})   пароль: demo12345',
+                f'    {user.username:<24} ({user.user_type:<8}, роль: {role}) пароль: RealPass123!',
             )
-        properties_batch = self._create_properties_batch(properties_count=self.properties_count)
-        self.log.success(f'   Дополнительные объекты недвижимости: {len(properties_batch)}.')
-
-        requests_batch = self._create_requests_batch(requests_count=self.requests_count)
-        self.log.success(f'   Дополнительные заявки: {len(requests_batch)}.')
-        return {
-            'users': len(users),
-            'addresses': len(addresses),
-            'properties': len(properties),
-            'requests': len(requests),
-            'tasks': len(tasks),
-            'properties_batch': len(properties_batch),
-            'requests_batch': len(requests_batch),
-        }
+        return stats
 
     @transaction.atomic
     def flush_demo(self) -> dict:
@@ -303,6 +373,524 @@ class SeedDataService:
             else:
                 updated += 1
         return created, updated
+
+    @staticmethod
+    def _bump_stat(stats: dict[str, int], created: bool) -> None:
+        stats['created' if created else 'updated'] += 1
+
+    @staticmethod
+    def _set_model_dates(model, pk, **dates) -> None:
+        clean_dates = {key: value for key, value in dates.items() if value is not None}
+        if clean_dates:
+            model.objects.filter(pk=pk).update(**clean_dates)
+
+    @staticmethod
+    def _get_by_code(model, code: str):
+        return model.objects.get(code=code)
+
+    def _seed_real_users(self) -> tuple[dict[str, User], dict[str, int]]:
+        password = 'RealPass123!'
+        stats = {'created': 0, 'updated': 0}
+        roles = {
+            'admin': UserRole.objects.get(code='admin'),
+            'manager': UserRole.objects.get(code='manager'),
+            'agent': UserRole.objects.get(code='agent'),
+        }
+
+        employees = [
+            ('ivanov.artem', 'artem.ivanov@realty-crm.ru', '+79001111111', 'admin', 'Иванов', 'Артём', 'Дмитриевич', 'Системный администратор', 6),
+            ('petrova.ekaterina', 'ekaterina.petrova@realty-crm.ru', '+79002222222', 'admin', 'Петрова', 'Екатерина', 'Андреевна', 'Руководитель отдела', 8),
+            ('kozlov.dmitry', 'dmitry.kozlov@realty-crm.ru', '+79003333333', 'manager', 'Козлов', 'Дмитрий', 'Сергеевич', 'Старший модератор', 5),
+            ('sokolova.anna', 'anna.sokolova@realty-crm.ru', '+79004444444', 'manager', 'Соколова', 'Анна', 'Владимировна', 'Модератор объектов', 3),
+            ('smirnov.alexey', 'alexey.smirnov@realty-crm.ru', '+79005555551', 'agent', 'Смирнов', 'Алексей', 'Игоревич', 'Агент по продаже, жилая недвижимость', 8),
+            ('volkova.maria', 'maria.volkova@realty-crm.ru', '+79005555552', 'agent', 'Волкова', 'Мария', 'Павловна', 'Агент по продаже, коммерческая недвижимость', 5),
+            ('orlov.nikita', 'nikita.orlov@realty-crm.ru', '+79005555553', 'agent', 'Орлов', 'Никита', 'Алексеевич', 'Агент по продаже, загородная недвижимость', 2),
+            ('morozova.irina', 'irina.morozova@realty-crm.ru', '+79006666661', 'agent', 'Морозова', 'Ирина', 'Викторовна', 'Агент по аренде жилья', 7),
+            ('egorov.pavel', 'pavel.egorov@realty-crm.ru', '+79006666662', 'agent', 'Егоров', 'Павел', 'Николаевич', 'Агент по аренде коммерческой недвижимости', 4),
+            ('lebedeva.olga', 'olga.lebedeva@realty-crm.ru', '+79006666663', 'agent', 'Лебедева', 'Ольга', 'Сергеевна', 'Агент по аренде загородных объектов', 3),
+            ('fedorov.roman', 'roman.fedorov@realty-crm.ru', '+79007777771', 'manager', 'Фёдоров', 'Роман', 'Андреевич', 'Менеджер по работе с клиентами', 4),
+            ('nikitina.alena', 'alena.nikitina@realty-crm.ru', '+79007777772', 'manager', 'Никитина', 'Алёна', 'Михайловна', 'Менеджер по работе с клиентами', 2),
+        ]
+
+        individuals = [
+            ('kuznetsov.sergey', 'sergey.kuznetsov@mail.ru', '+79008880001', 'Кузнецов', 'Сергей', 'Олегович', 'phone', 'Предпочитает утренние звонки.'),
+            ('vasilieva.natalia', 'natalia.vasilieva@yandex.ru', '+79008880002', 'Васильева', 'Наталья', 'Петровна', 'whatsapp', 'Просит отправлять подборки в WhatsApp.'),
+            ('mikhailov.igor', 'igor.mikhailov@gmail.com', '+79008880003', 'Михайлов', 'Игорь', 'Станиславович', 'email', 'Сравнивает варианты для инвестиций.'),
+            ('romanova.elena', 'elena.romanova@mail.ru', '+79008880004', 'Романова', 'Елена', 'Игоревна', 'phone', 'Нужен спокойный район и школа рядом.'),
+            ('andreev.maxim', 'maxim.andreev@yandex.ru', '+79008880005', 'Андреев', 'Максим', 'Юрьевич', 'whatsapp', 'Готов к просмотрам вечером после работы.'),
+            ('zaitseva.daria', 'daria.zaitseva@gmail.com', '+79008880006', 'Зайцева', 'Дарья', 'Александровна', 'email', 'Интересуют только квартиры с ремонтом.'),
+            ('pavlov.kirill', 'kirill.pavlov@mail.ru', '+79008880007', 'Павлов', 'Кирилл', 'Денисович', 'phone', 'Покупает объект для родителей.'),
+            ('belova.oksana', 'oksana.belova@yandex.ru', '+79008880008', 'Белова', 'Оксана', 'Владимировна', 'whatsapp', 'Не звонить до 11:00.'),
+            ('nikolaev.artur', 'artur.nikolaev@gmail.com', '+79008880009', 'Николаев', 'Артур', 'Романович', 'email', 'Нужна ипотечная сделка.'),
+            ('grigorieva.sofia', 'sofia.grigorieva@mail.ru', '+79008880010', 'Григорьева', 'София', 'Максимовна', 'phone', 'Ищет аренду на длительный срок.'),
+        ]
+
+        companies = [
+            ('baikal.logistic', 'office@baikal-logistic.ru', '+79009990001', 'ООО Байкал Логистик', '3811456723', 'Иркутск, ул. Рабочая, д. 18', 'Иркутск, ул. Рабочая, д. 18'),
+            ('angara.dev', 'contact@angara-dev.ru', '+79009990002', 'ООО Ангара Девелопмент', '7704567812', 'Москва, Пресненская наб., д. 10', 'Москва, Пресненская наб., д. 10'),
+            ('east.trade', 'info@east-trade.ru', '+79009990003', 'ООО Восток Трейд', '2723456781', 'Хабаровск, ул. Муравьёва-Амурского, д. 25', 'Хабаровск, ул. Муравьёва-Амурского, д. 25'),
+            ('transbaikalia.retail', 'admin@transbaikalia-retail.ru', '+79009990004', 'ООО Забайкалье Ритейл', '7536123456', 'Чита, ул. Ленина, д. 88', 'Чита, ул. Ленина, д. 88'),
+            ('siberia.service', 'hello@siberia-service.ru', '+79009990005', 'ООО Сибирский Сервис', '3808123450', 'Иркутск, ул. Байкальская, д. 105', 'Иркутск, ул. Байкальская, д. 107'),
+        ]
+
+        users: dict[str, User] = {}
+        for username, email, phone, role_code, last_name, first_name, middle_name, position, experience in employees:
+            user, created = User.objects.update_or_create(
+                username=username,
+                defaults={
+                    'email': email,
+                    'phone': phone,
+                    'user_type': 'employee',
+                    'role': roles[role_code],
+                    'is_staff': True,
+                    'is_active': True,
+                    'is_email_verified': True,
+                    'is_phone_verified': True,
+                },
+            )
+            user.set_password(password)
+            user.save(update_fields=['password'])
+            hire_date = timezone.localdate() - timedelta(days=365 * experience)
+            EmployeeProfile.objects.update_or_create(
+                user=user,
+                defaults={
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'middle_name': middle_name,
+                    'position': position,
+                    'hire_date': hire_date,
+                    'internal_phone': phone[-4:],
+                },
+            )
+            users[username] = user
+            self._bump_stat(stats, created)
+
+        for index, (username, email, phone, last_name, first_name, middle_name, contact, note) in enumerate(individuals, start=1):
+            user, created = User.objects.update_or_create(
+                username=username,
+                defaults={
+                    'email': email,
+                    'phone': phone,
+                    'user_type': 'client',
+                    'role': None,
+                    'is_staff': False,
+                    'is_active': True,
+                    'is_email_verified': True,
+                    'is_phone_verified': True,
+                },
+            )
+            user.set_password(password)
+            user.save(update_fields=['password'])
+            profile, _ = ClientProfile.objects.update_or_create(
+                user=user,
+                defaults={
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'middle_name': middle_name,
+                    'client_kind': 'individual',
+                    'preferred_contact_method': contact,
+                    'notes': note,
+                },
+            )
+            ClientIndividualDetails.objects.update_or_create(
+                profile=profile,
+                defaults={
+                    'passport_series': f'{3800 + index:04d}',
+                    'passport_number': f'{120000 + index:06d}',
+                    'passport_issued_by': 'ГУ МВД России по Иркутской области',
+                    'passport_issued_date': date(2018 + (index % 5), (index % 12) + 1, min(index + 3, 28)),
+                    'passport_code': f'380-{100 + index:03d}',
+                },
+            )
+            users[username] = user
+            self._bump_stat(stats, created)
+
+        for username, email, phone, company_name, inn, registration_address, actual_address in companies:
+            user, created = User.objects.update_or_create(
+                username=username,
+                defaults={
+                    'email': email,
+                    'phone': phone,
+                    'user_type': 'client',
+                    'role': None,
+                    'is_staff': False,
+                    'is_active': True,
+                    'is_email_verified': True,
+                    'is_phone_verified': True,
+                },
+            )
+            user.set_password(password)
+            user.save(update_fields=['password'])
+            profile, _ = ClientProfile.objects.update_or_create(
+                user=user,
+                defaults={
+                    'first_name': company_name,
+                    'last_name': 'Компания',
+                    'middle_name': '',
+                    'client_kind': 'company',
+                    'preferred_contact_method': 'email',
+                    'registration_address': registration_address,
+                    'actual_address': actual_address,
+                    'notes': 'Корпоративный клиент, согласование через бухгалтерию.',
+                },
+            )
+            ClientCompanyDetails.objects.update_or_create(
+                profile=profile,
+                defaults={'company_inn': inn},
+            )
+            users[username] = user
+            self._bump_stat(stats, created)
+
+        return users, stats
+
+    def _real_house(self, city_name: str, region: str, street_name: str, street_type: str, house_number: str, postal_code: str | None = None) -> House:
+        city, _ = City.objects.update_or_create(
+            name=city_name,
+            defaults={'region': region},
+        )
+        street, _ = Street.objects.update_or_create(
+            city=city,
+            name=street_name,
+            defaults={'street_type': street_type},
+        )
+        house, _ = House.objects.update_or_create(
+            street=street,
+            house_number=str(house_number),
+            defaults={'postal_code': postal_code},
+        )
+        return house
+
+    def _seed_real_properties(self, users: dict[str, User]) -> tuple[list[Property], dict[str, int]]:
+        stats = {'created': 0, 'updated': 0}
+        op = {item.code: item for item in OperationType.objects.all()}
+        status = {item.code: item for item in PropertyStatus.objects.all()}
+        owners = [
+            users['kuznetsov.sergey'], users['vasilieva.natalia'], users['mikhailov.igor'],
+            users['romanova.elena'], users['andreev.maxim'], users['zaitseva.daria'],
+            users['pavlov.kirill'], users['belova.oksana'], users['nikolaev.artur'],
+            users['grigorieva.sofia'], users['baikal.logistic'], users['angara.dev'],
+            users['east.trade'], users['transbaikalia.retail'], users['siberia.service'],
+        ]
+        photo_base = [
+            'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2',
+            'https://images.unsplash.com/photo-1560184897-ae75f418493e',
+            'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85',
+            'https://images.unsplash.com/photo-1494526585095-c41746248156',
+            'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab',
+        ]
+        specs = self._real_property_specs()
+        properties: list[Property] = []
+        now = timezone.now()
+
+        for index, spec in enumerate(specs, start=1):
+            house = self._real_house(
+                spec['city'],
+                spec['region'],
+                spec['street'],
+                spec.get('street_type', 'ул.'),
+                spec['house'],
+                spec.get('postal_code'),
+            )
+            defaults = {
+                'operation_type': op[spec['operation']],
+                'status': status[spec['status']],
+                'house': house,
+                'owner': owners[(index - 1) % len(owners)],
+                'coordinates_lat': Decimal(str(spec['lat'])),
+                'coordinates_lon': Decimal(str(spec['lon'])),
+                'premises_type': spec['type'],
+                'price': float(spec['price']),
+                'area_total': Decimal(str(spec['area'])),
+                'rooms_count': spec.get('rooms'),
+                'floor_number': spec.get('floor'),
+                'total_floors': spec.get('floors'),
+                'description': spec['description'],
+            }
+            property_obj, created = Property.objects.update_or_create(
+                title=spec['title'],
+                house=house,
+                defaults=defaults,
+            )
+            PropertyExternalSource.objects.update_or_create(
+                property=property_obj,
+                source_name='2gis',
+                external_id=f'2gis-real-{index:04d}',
+                defaults={
+                    'source_object_name': spec['title'],
+                    'source_address': f"{spec['city']}, {spec.get('street_type', 'ул.')} {spec['street']}, д. {spec['house']}",
+                    'source_rubric': spec['rubric'],
+                    'synced_at': now - timedelta(days=index % 12),
+                },
+            )
+            PropertyPhoto.objects.filter(property=property_obj).delete()
+            photo_count = 2 + (index % 4)
+            for order in range(photo_count):
+                PropertyPhoto.objects.create(
+                    property=property_obj,
+                    url=f"{photo_base[(index + order) % len(photo_base)]}?auto=format&fit=crop&w=1200&q=80&sig={index}-{order}",
+                    caption=f'Фото {order + 1}: {spec["title"]}',
+                    is_cover=(order == 0),
+                    order=order,
+                )
+            self._set_model_dates(
+                Property,
+                property_obj.pk,
+                created_at=now - timedelta(days=80 - index),
+                updated_at=now - timedelta(days=max(1, 20 - (index % 18))),
+            )
+            property_obj.refresh_from_db()
+            properties.append(property_obj)
+            self._bump_stat(stats, created)
+        return properties, stats
+
+    def _real_property_specs(self) -> list[dict]:
+        common = {
+            'Иркутск': ('Иркутская область', '664000'),
+            'Москва': ('Москва', '101000'),
+            'Хабаровск': ('Хабаровский край', '680000'),
+            'Чита': ('Забайкальский край', '672000'),
+        }
+        rows = [
+            ('Иркутск', 'Ленина', '1', 'Квартира с видом на Ангару', 'sale', 'active', 'apartment', 9200000, 58.4, 2, 5, 9, '52.286974', '104.280660'),
+            ('Иркутск', 'Карла Маркса', '23', 'Семейная трёхкомнатная в центре', 'sale', 'reserved', 'apartment', 12800000, 81.2, 3, 7, 12, '52.285780', '104.291420'),
+            ('Иркутск', 'Байкальская', '105', 'Офис open space на Байкальской', 'rent', 'active', 'office', 185000, 142.0, None, 3, 7, '52.267010', '104.333720'),
+            ('Иркутск', 'Депутатская', '45', 'Таунхаус для семьи у зелёной зоны', 'sale', 'active', 'house', 23600000, 168.5, 5, None, 2, '52.255830', '104.315120'),
+            ('Иркутск', 'Рабочая', '18', 'Складской блок у транспортной развязки', 'rent', 'rented', 'warehouse', 240000, 520.0, None, None, None, '52.304110', '104.256810'),
+            ('Иркутск', 'Советская', '55', 'Компактная квартира для аренды', 'rent', 'active', 'apartment', 43000, 34.8, 1, 4, 9, '52.274330', '104.307120'),
+            ('Иркутск', 'Лермонтова', '79', 'Двухкомнатная рядом с университетом', 'sale', 'sold', 'apartment', 7600000, 47.9, 2, 6, 10, '52.246860', '104.269410'),
+            ('Иркутск', 'Седова', '40', 'Кирпичный дом с участком', 'sale', 'archived', 'house', 18400000, 132.0, 4, None, 2, '52.273980', '104.287520'),
+            ('Иркутск', 'Красноярская', '11', 'Помещение под шоурум', 'rent', 'active', 'office', 115000, 86.0, None, 1, 5, '52.276510', '104.296730'),
+            ('Иркутск', 'Трилиссера', '8', 'Светлая студия в новом доме', 'sale', 'active', 'apartment', 5100000, 29.7, 1, 8, 16, '52.275420', '104.318900'),
+            ('Москва', 'Тверская', '12', 'Апартаменты на Тверской', 'sale', 'active', 'apartment', 48500000, 74.5, 3, 9, 14, '55.761590', '37.609460'),
+            ('Москва', 'Арбат', '24', 'Историческая квартира на Арбате', 'sale', 'reserved', 'apartment', 62200000, 91.0, 3, 4, 7, '55.749910', '37.590230'),
+            ('Москва', 'Кутузовский проспект', '30', 'Представительский офис у метро', 'rent', 'active', 'office', 680000, 210.0, None, 8, 18, '55.741260', '37.535950'),
+            ('Москва', 'Ленинский проспект', '64', 'Большая квартира для семьи', 'sale', 'sold', 'apartment', 54800000, 104.2, 4, 12, 20, '55.700940', '37.570970'),
+            ('Москва', 'Профсоюзная', '45', 'Склад last mile на юго-западе', 'rent', 'rented', 'warehouse', 720000, 860.0, None, None, None, '55.666590', '37.552250'),
+            ('Москва', 'Пресненская набережная', '10', 'Офис в Москва-Сити', 'rent', 'active', 'office', 1250000, 248.0, None, 32, 65, '55.749740', '37.537050'),
+            ('Москва', 'Малая Никитская', '18', 'Клубный дом в тихом переулке', 'sale', 'active', 'apartment', 73800000, 118.0, 4, 5, 8, '55.756370', '37.593490'),
+            ('Москва', 'Садовая-Самотёчная', '7', 'Квартира для долгосрочной аренды', 'rent', 'active', 'apartment', 210000, 62.3, 2, 6, 12, '55.771560', '37.614760'),
+            ('Москва', 'Большая Якиманка', '32', 'Пентхаус с террасой', 'sale', 'active', 'apartment', 146000000, 184.0, 5, 14, 15, '55.737840', '37.612430'),
+            ('Москва', 'Варшавское шоссе', '125', 'Складской комплекс у МКАД', 'sale', 'archived', 'warehouse', 98000000, 1240.0, None, None, None, '55.610140', '37.607770'),
+            ('Хабаровск', 'Муравьёва-Амурского', '25', 'Квартира в историческом центре', 'sale', 'active', 'apartment', 11200000, 66.0, 3, 5, 9, '48.472550', '135.057600'),
+            ('Хабаровск', 'Ленина', '38', 'Офис у площади Ленина', 'rent', 'active', 'office', 160000, 118.0, None, 2, 6, '48.480290', '135.068750'),
+            ('Хабаровск', 'Карла Маркса', '90', 'Семейная квартира с лоджией', 'sale', 'reserved', 'apartment', 9400000, 72.4, 3, 8, 12, '48.498270', '135.086780'),
+            ('Хабаровск', 'Амурский бульвар', '46', 'Дом недалеко от набережной', 'sale', 'sold', 'house', 18600000, 148.0, 5, None, 2, '48.484950', '135.061140'),
+            ('Хабаровск', 'Тургенева', '55', 'Склад для региональной доставки', 'rent', 'rented', 'warehouse', 310000, 610.0, None, None, None, '48.469220', '135.072980'),
+            ('Чита', 'Ленина', '88', 'Квартира в центре Читы', 'sale', 'active', 'apartment', 7200000, 54.0, 2, 4, 9, '52.033800', '113.499420'),
+            ('Чита', 'Амурская', '36', 'Помещение под аптеку', 'rent', 'active', 'office', 95000, 74.0, None, 1, 5, '52.035620', '113.505310'),
+            ('Чита', 'Бабушкина', '64', 'Дом с тёплым гаражом', 'sale', 'reserved', 'house', 12800000, 126.0, 4, None, 2, '52.026180', '113.520910'),
+            ('Чита', 'Чкалова', '149', 'Трёхкомнатная для большой семьи', 'sale', 'sold', 'apartment', 8100000, 69.3, 3, 6, 10, '52.030240', '113.513480'),
+            ('Чита', 'Костюшко-Григоровича', '5', 'Склад у железнодорожной ветки', 'rent', 'archived', 'warehouse', 180000, 430.0, None, None, None, '52.041180', '113.492610'),
+        ]
+        specs = []
+        for city, street, house, title, operation, status, p_type, price, area, rooms, floor, floors, lat, lon in rows:
+            region, postal_code = common[city]
+            if p_type == 'warehouse':
+                rubric = 'Складская недвижимость'
+            elif p_type == 'office':
+                rubric = 'Офисная недвижимость'
+            elif p_type == 'house':
+                rubric = 'Загородная недвижимость'
+            else:
+                rubric = 'Жилая недвижимость'
+            description = (
+                f'{title} расположен в востребованной части города {city}. '
+                'Объект подходит для спокойного проживания или устойчивой инвестиции. '
+                'Планировка продумана, основные коммуникации и инфраструктура находятся рядом. '
+                'Документы готовы к проверке, показ можно согласовать в удобное время.'
+            )
+            specs.append({
+                'city': city,
+                'region': region,
+                'street': street,
+                'street_type': 'ул.' if 'проспект' not in street.lower() and 'шоссе' not in street.lower() and 'набережная' not in street.lower() else '',
+                'house': house,
+                'postal_code': postal_code,
+                'title': title,
+                'operation': operation,
+                'status': status,
+                'type': p_type,
+                'price': price,
+                'area': area,
+                'rooms': rooms,
+                'floor': floor,
+                'floors': floors,
+                'lat': lat,
+                'lon': lon,
+                'rubric': rubric,
+                'description': description,
+            })
+        return specs
+
+    def _seed_real_requests(self, users: dict[str, User], properties: list[Property]) -> tuple[list[Request], dict[str, int]]:
+        stats = {'created': 0, 'updated': 0}
+        statuses = {item.code: item for item in RequestStatus.objects.all()}
+        agents = [
+            users['smirnov.alexey'], users['volkova.maria'], users['orlov.nikita'],
+            users['morozova.irina'], users['egorov.pavel'], users['lebedeva.olga'],
+            users['fedorov.roman'], users['nikitina.alena'],
+        ]
+        clients = [
+            users['kuznetsov.sergey'], users['vasilieva.natalia'], users['mikhailov.igor'],
+            users['romanova.elena'], users['andreev.maxim'], users['zaitseva.daria'],
+            users['pavlov.kirill'], users['belova.oksana'], users['nikolaev.artur'],
+            users['grigorieva.sofia'], users['baikal.logistic'], users['angara.dev'],
+            users['east.trade'], users['transbaikalia.retail'], users['siberia.service'],
+        ]
+        now = timezone.now()
+        requests: list[Request] = []
+        for index in range(15):
+            property_obj = properties[index * 2] if index % 4 != 3 else None
+            operation = property_obj.operation_type if property_obj else OperationType.objects.get(code='sale' if index % 2 == 0 else 'rent')
+            status_code = [
+                'open', 'processing', 'completed', 'cancelled', 'completed',
+                'processing', 'open', 'completed', 'cancelled', 'completed',
+                'processing', 'open', 'completed', 'processing', 'cancelled',
+            ][index]
+            created_at = now - timedelta(days=86 - index * 5)
+            closed_at = created_at + timedelta(days=12) if status_code in Request.TERMINAL_STATUS_CODES else None
+            description = [
+                'Клиент хочет сравнить несколько вариантов перед внесением аванса.',
+                'Нужен быстрый просмотр и предварительная проверка документов.',
+                'Клиент готов выйти на сделку после согласования условий.',
+                'Запрос отменён после изменения бюджета.',
+                'Требуется подбор с учётом транспортной доступности.',
+            ][index % 5]
+            defaults = {
+                'agent': agents[index % len(agents)],
+                'property': property_obj,
+                'operation_type': operation,
+                'status': statuses[status_code],
+                'property_type': property_obj.premises_type if property_obj else ('office' if index % 3 == 0 else 'apartment'),
+                'min_price': float((property_obj.price if property_obj else 5_000_000) * 0.85),
+                'max_price': float((property_obj.price if property_obj else 5_000_000) * 1.15),
+                'min_area': property_obj.area_total if property_obj else Decimal('40.00'),
+                'max_area': (property_obj.area_total + Decimal('25.00')) if property_obj and property_obj.area_total else Decimal('90.00'),
+                'rooms_count': property_obj.rooms_count if property_obj and property_obj.rooms_count else (None if index % 3 == 0 else 2),
+                'address_preferences': str(property_obj.address) if property_obj else 'Центральные районы, рядом с транспортом',
+                'description': description,
+                'closed_at': closed_at,
+            }
+            request_obj, created = Request.objects.update_or_create(
+                client=clients[index],
+                description=description,
+                defaults=defaults,
+            )
+            self._set_model_dates(
+                Request,
+                request_obj.pk,
+                created_at=created_at,
+                updated_at=created_at + timedelta(days=3),
+                closed_at=closed_at,
+            )
+            request_obj.refresh_from_db()
+            requests.append(request_obj)
+            self._bump_stat(stats, created)
+        return requests, stats
+
+    def _seed_real_tasks(self, users: dict[str, User], properties: list[Property], requests: list[Request]) -> tuple[list[Task], dict[str, int]]:
+        stats = {'created': 0, 'updated': 0}
+        statuses = {item.code: item for item in TaskStatus.objects.all()}
+        now = timezone.now()
+        task_types = ['call', 'showing', 'property_search', 'documents', 'other']
+        priorities = ['high', 'normal', 'normal', 'high', 'low']
+        results = {
+            'done': 'Клиент получил информацию, следующий шаг согласован.',
+            'cancelled': 'Задача отменена после изменения статуса заявки.',
+        }
+        agents = [
+            users['smirnov.alexey'], users['volkova.maria'], users['orlov.nikita'],
+            users['morozova.irina'], users['egorov.pavel'], users['lebedeva.olga'],
+        ]
+        tasks: list[Task] = []
+        for index in range(20):
+            status_code = ['new', 'in_progress', 'waiting', 'done', 'cancelled'][index % 5]
+            request_obj = requests[index % len(requests)]
+            property_obj = request_obj.property or properties[index % len(properties)]
+            title = f'{index + 1:02d}. {["Позвонить клиенту", "Провести показ", "Подготовить подборку", "Проверить документы", "Обновить карточку"][index % 5]}'
+            due_date = now + timedelta(days=(index % 14) + 1)
+            completed_at = now - timedelta(days=index % 7, hours=2) if status_code in {'done', 'cancelled'} else None
+            defaults = {
+                'description': f'Рабочая задача по заявке №{request_obj.pk}: {request_obj.description}',
+                'task_type': task_types[index % len(task_types)],
+                'priority': priorities[index % len(priorities)],
+                'status': statuses[status_code],
+                'assignee': agents[index % len(agents)],
+                'created_by': users['fedorov.roman'] if index % 2 == 0 else users['nikitina.alena'],
+                'client': request_obj.client,
+                'property': property_obj,
+                'request': request_obj,
+                'due_date': due_date,
+                'completed_at': completed_at,
+                'result': results.get(status_code, ''),
+            }
+            task_obj, created = Task.objects.update_or_create(
+                title=title,
+                request=request_obj,
+                defaults=defaults,
+            )
+            self._set_model_dates(
+                Task,
+                task_obj.pk,
+                created_at=now - timedelta(days=25 - index),
+                updated_at=now - timedelta(days=max(0, 12 - index % 12)),
+            )
+            task_obj.refresh_from_db()
+            tasks.append(task_obj)
+            self._bump_stat(stats, created)
+        return tasks, stats
+
+    def _seed_real_deals(self, users: dict[str, User], properties: list[Property], requests: list[Request]) -> tuple[list[Deal], dict[str, int]]:
+        stats = {'created': 0, 'updated': 0}
+        deal_status = DealStatus.objects.filter(code='completed').first() or DealStatus.objects.filter(code='signed').first() or DealStatus.objects.first()
+        completed_requests = [request for request in requests if request.status_code == 'completed'][:5]
+        deal_numbers = [f'CRM-2026-{index:04d}' for index in range(1, len(completed_requests) + 1)]
+        # Старые версии seed_demo могли привязать эти же номера сделок к другим заявкам.
+        Deal.objects.filter(deal_number__in=deal_numbers).update(request=None)
+        deals: list[Deal] = []
+        for index, request_obj in enumerate(completed_requests, start=1):
+            property_obj = request_obj.property or properties[index - 1]
+            commission_percent = Decimal(['3.00', '3.50', '4.00', '4.50', '5.00'][index - 1])
+            price_final = float(property_obj.price)
+            deal_date = timezone.localdate() - timedelta(days=35 - index * 4)
+            requested_at = timezone.make_aware(datetime.combine(deal_date, time.min)) + timedelta(hours=10)
+            generated_at = requested_at + timedelta(hours=2)
+            defaults = {
+                'property': property_obj,
+                'agent': request_obj.agent or users['smirnov.alexey'],
+                'client': request_obj.client,
+                'operation_type': property_obj.operation_type,
+                'status': deal_status,
+                'request': request_obj,
+                'price_final': price_final,
+                'commission_percent': commission_percent,
+                'commission_amount': round(price_final * float(commission_percent) / 100, 2),
+                'deal_date': deal_date,
+                'notes': 'Сделка закрыта после проверки документов и согласования условий с клиентом.',
+                'contract_status': 'ready',
+                'contract_requested_at': requested_at,
+                'contract_generated_at': generated_at,
+            }
+            Deal.objects.filter(request=request_obj).exclude(deal_number=f'CRM-2026-{index:04d}').update(request=None)
+            deal, created = Deal.objects.update_or_create(
+                deal_number=f'CRM-2026-{index:04d}',
+                defaults=defaults,
+            )
+            if not deal.contract_file:
+                content = (
+                    f'Договор {deal.deal_number}\n'
+                    f'Клиент: {deal.client.username}\n'
+                    f'Объект: {deal.property.title}\n'
+                    f'Сумма сделки: {deal.price_final:.2f}\n'
+                ).encode('utf-8')
+                deal.contract_file.save(
+                    f'contract-{deal.deal_number}.txt',
+                    ContentFile(content),
+                    save=True,
+                )
+            deals.append(deal)
+            self._bump_stat(stats, created)
+        return deals, stats
 
     def _ensure_demo_images(self, *, force: bool = False):
         from PIL import Image, ImageDraw, ImageFont
@@ -438,30 +1026,30 @@ class SeedDataService:
         'Иркутск, ул. Лермонтова, 79',
     ]
 
-    def _seed_demo_addresses(self) -> list[Address]:
-        """Создаёт 5 иркутских адресов через DaData + fallback на синтетику."""
+    def _seed_demo_addresses(self) -> list[House]:
+        """Создаёт 5 иркутских домов через DaData + fallback на синтетику."""
         dadata = DadataClient()
-        addresses: list[Address] = []
+        addresses: list[House] = []
 
         for raw_query in self._IRKUTSK_QUERIES:
             address = self._address_from_dadata(dadata, raw_query)
             if address:
                 addresses.append(address)
 
-        # Если DaData недоступна — создаём синтетические адреса как раньше
+        # Если DaData недоступна — создаём синтетические дома как раньше
         if not addresses:
-            self.log.warning('   DaData недоступна — создаём синтетические иркутские адреса.')
+            self.log.warning('   DaData недоступна — создаём синтетические иркутские дома.')
             addresses = self._seed_synthetic_addresses()
 
-        # Если частично получили адреса — добиваем синтетикой до 5
+        # Если частично получили дома — добиваем синтетикой до 5
         if len(addresses) < 5:
             synthetic = self._seed_synthetic_addresses()
             addresses += synthetic[:5 - len(addresses)]
 
         return addresses
 
-    def _address_from_dadata(self, dadata: DadataClient, query: str) -> Address | None:
-        """Запрашивает один адрес из DaData и создаёт запись Address в БД."""
+    def _address_from_dadata(self, dadata: DadataClient, query: str) -> House | None:
+        """Запрашивает один адрес из DaData и создаёт запись House в БД."""
         try:
             suggestions = dadata.suggest_address(query, count=1)
         except Exception as exc:  # noqa: BLE001
@@ -542,13 +1130,10 @@ class SeedDataService:
                     postal_code=s.get('postal_code') or None,
                 )
 
-        address = Address.objects.filter(house=house).first()
-        if address is None:
-            address = Address.objects.create(house=house)
-        return address
+        return house
 
-    def _seed_synthetic_addresses(self) -> list[Address]:
-        """Синтетические иркутские адреса — fallback при отсутствии DaData."""
+    def _seed_synthetic_addresses(self) -> list[House]:
+        """Синтетические иркутские дома — fallback при отсутствии DaData."""
         city = City.objects.filter(name='Иркутск').first()
         if city is None:
             city = City.objects.create(name='Иркутск', region='Иркутская область')
@@ -556,20 +1141,17 @@ class SeedDataService:
         street = Street.objects.filter(city=city, name='Ленина').first()
         if street is None:
             street = Street.objects.create(city=city, name='Ленина', street_type='ул.')
-        addresses: list[Address] = []
+        addresses: list[House] = []
         for index in range(1, 6):
             house, _ = House.objects.get_or_create(
                 street=street,
                 house_number=str(index),
                 defaults={'postal_code': '664000'},
             )
-            address = Address.objects.filter(house=house).first()
-            if address is None:
-                address = Address.objects.create(house=house)
-            addresses.append(address)
+            addresses.append(house)
         return addresses
 
-    def _seed_demo_properties(self, addresses: list[Address]) -> list[Property]:
+    def _seed_demo_properties(self, addresses: list[House]) -> list[Property]:
         sale = OperationType.objects.get(code='sale')
         rent = OperationType.objects.get(code='rent')
         op_map = {'sale': sale, 'rent': rent}
@@ -896,7 +1478,7 @@ class SeedDataService:
             title = f'{city.name}, {street.name} {house.house_number}, {rooms_count}-комн., {area_total}м²'
             description = (
                 f'Объект в г. {city.name}. '
-                'Создан расширенным заполнением seed_data. __seed_batch__'
+                'Помещение в цене'
             )
 
             info = self._search_batch_twogis(city_name, f'{street.name} {house.house_number}')

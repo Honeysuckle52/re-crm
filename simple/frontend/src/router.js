@@ -158,7 +158,6 @@ router.beforeEach((to) => {
 })
 
 router.onError((error) => {
-  console.error('Router navigation error:', error)
   throw error
 })
 

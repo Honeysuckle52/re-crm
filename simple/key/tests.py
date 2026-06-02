@@ -4882,14 +4882,23 @@ class SeedDataCommandTests(TestCase):
         self.override.enable()
         self.addCleanup(self.override.disable)
 
-    def test_seed_data_default_creates_demo_dataset(self):
+    def test_seed_data_default_creates_realistic_crm_dataset(self):
         call_command('seed_data', stdout=io.StringIO())
 
-        self.assertTrue(models.User.objects.filter(username='demo_admin').exists())
-        self.assertEqual(
-            models.Property.objects.filter(description__contains='__seed_demo__').count(),
-            20,
-        )
-        self.assertEqual(models.Request.objects.count(), 5)
-        self.assertEqual(models.Task.objects.count(), 5)
+        self.assertTrue(models.User.objects.filter(username='ivanov.artem').exists())
+        self.assertFalse(models.User.objects.filter(username__startswith='demo').exists())
+        self.assertEqual(models.Property.objects.count(), 30)
+        self.assertEqual(models.Property.objects.filter(description__contains='__seed_demo__').count(), 0)
+        self.assertEqual(models.Property.objects.filter(description__contains='__seed_batch__').count(), 0)
+        self.assertEqual(models.Request.objects.count(), 15)
+        self.assertEqual(models.Task.objects.count(), 20)
+        self.assertEqual(models.Deal.objects.count(), 5)
+        self.assertGreaterEqual(models.PropertyPhoto.objects.count(), 60)
         self.assertEqual(models.OperationType.objects.count(), 2)
+
+        call_command('seed_data', stdout=io.StringIO())
+        self.assertEqual(models.User.objects.filter(username='ivanov.artem').count(), 1)
+        self.assertEqual(models.Property.objects.count(), 30)
+        self.assertEqual(models.Request.objects.count(), 15)
+        self.assertEqual(models.Task.objects.count(), 20)
+        self.assertEqual(models.Deal.objects.count(), 5)
