@@ -223,15 +223,8 @@ onMounted(load)
 }
 
 .moderation-shell {
-  background:
-    radial-gradient(circle at top right, rgba(120, 216, 206, .16), transparent 32%),
-    var(--grad-card-soft);
+  background: var(--grad-card-soft);
   color: var(--c-text);
-  overflow: hidden;
-}
-
-.moderation-shell .muted {
-  color: var(--c-ink-soft);
 }
 
 .moderation-head {
@@ -239,13 +232,18 @@ onMounted(load)
   gap: 16px;
 }
 
-.moderation-count {
-  border: 1px solid rgba(15, 23, 42, .12);
-  border-radius: 999px;
-  color: #1f2937;
+.moderation-count,
+.moderation-status {
+  align-items: center;
+  background: rgba(120, 216, 206, .12);
+  border: 1px solid rgba(120, 216, 206, .22);
+  border-radius: var(--r-pill);
+  color: #efffff;
+  display: inline-flex;
   font-size: 12px;
-  font-weight: 800;
-  padding: 8px 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  padding: 7px 12px;
   white-space: nowrap;
 }
 
@@ -254,56 +252,48 @@ onMounted(load)
 }
 
 .moderation-card {
-  background:
-    radial-gradient(circle at 88% 8%, rgba(120, 216, 206, .18), transparent 34%),
-    linear-gradient(145deg, #124346 0%, #0d3b3e 52%, #073434 100%);
-  border: 1px solid rgba(120, 216, 206, .24);
-  border-radius: 28px;
-  box-shadow: 0 22px 60px rgba(15, 23, 42, .10);
+  background: var(--grad-card);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  color: var(--c-text);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   overflow: hidden;
   padding: 18px;
   position: relative;
+  transition: background .3s ease, box-shadow .3s ease, transform .3s ease;
 }
 
-.moderation-card::before {
-  background: linear-gradient(90deg, #f59e0b, #14b8a6, #2563eb);
-  content: "";
-  height: 5px;
-  inset: 0 0 auto;
-  position: absolute;
+.moderation-card:hover {
+  background: var(--grad-card-soft);
+  box-shadow: var(--shadow-glow-strong);
+  transform: translateY(-3px);
 }
 
+.moderation-card::before,
 .moderation-card__glow {
-  background: rgba(20, 184, 166, .10);
-  border-radius: 999px;
-  filter: blur(18px);
-  height: 100px;
-  position: absolute;
-  right: -35px;
-  top: 46px;
-  width: 100px;
+  display: none;
 }
 
 .moderation-card__top {
   display: grid;
   gap: 16px;
-  grid-template-columns: 112px 1fr;
+  grid-template-columns: 104px 1fr;
   position: relative;
   z-index: 1;
 }
 
 .moderation-card__media {
   aspect-ratio: 1;
-  background: linear-gradient(135deg, #0f172a, #334155);
-  border-radius: 22px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2);
-  color: #fff;
+  background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.06));
+  border: 1px solid rgba(120, 216, 206, .18);
+  border-radius: var(--r-sm);
+  color: #efffff;
   display: grid;
-  font-size: 40px;
-  font-weight: 900;
+  font-size: 36px;
+  font-weight: 800;
   overflow: hidden;
   place-items: center;
 }
@@ -314,45 +304,37 @@ onMounted(load)
   width: 100%;
 }
 
-.moderation-card__placeholder {
-  opacity: .9;
-}
-
 .moderation-card__intro {
   min-width: 0;
 }
 
 .moderation-card__eyebrow {
   align-items: center;
-  color: rgba(234, 245, 243, .72);
+  color: var(--c-ink-soft);
   display: flex;
   flex-wrap: wrap;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   gap: 8px;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .moderation-status {
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  border-radius: 999px;
-  color: #c2410c;
   letter-spacing: 0;
-  padding: 4px 9px;
+  padding: 5px 10px;
   text-transform: none;
 }
 
 .moderation-card__title {
-  color: #fff;
-  font-size: clamp(20px, 2vw, 26px);
-  line-height: 1.05;
+  color: var(--c-text);
+  font-size: clamp(20px, 2vw, 24px);
+  line-height: 1.2;
   margin: 10px 0 8px;
 }
 
 .moderation-card__address {
-  color: rgba(234, 245, 243, .78);
+  color: var(--c-ink-soft);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -363,49 +345,48 @@ onMounted(load)
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.moderation-stat,
+.moderation-description,
+.moderation-contact {
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(120, 216, 206, .16);
+  border-radius: var(--r-sm);
+}
+
 .moderation-stat {
-  background: rgba(255, 255, 255, .10);
-  border: 1px solid rgba(120, 216, 206, .18);
-  border-radius: 18px;
   padding: 12px;
 }
 
 .moderation-stat span,
 .moderation-description__label,
 .moderation-contact__label {
-  color: rgba(234, 245, 243, .70);
+  color: var(--c-muted);
   display: block;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
 
 .moderation-stat strong {
-  color: #fff;
+  color: var(--c-text);
   display: block;
   font-size: 14px;
   margin-top: 5px;
 }
 
 .moderation-description {
-  background: rgba(255, 255, 255, .08);
-  border: 1px dashed rgba(120, 216, 206, .30);
-  border-radius: 20px;
   padding: 14px 16px;
 }
 
 .moderation-description p {
-  color: rgba(244, 251, 250, .86);
+  color: var(--c-ink-soft);
   line-height: 1.55;
   margin: 8px 0 0;
 }
 
 .moderation-contact {
   align-items: center;
-  background: rgba(255, 255, 255, .10);
-  border: 1px solid rgba(120, 216, 206, .22);
-  border-radius: 22px;
   display: grid;
   gap: 14px;
   grid-template-columns: 44px 1fr;
@@ -414,9 +395,10 @@ onMounted(load)
 
 .moderation-contact__icon {
   align-items: center;
-  background: #0f766e;
+  background: rgba(120, 216, 206, .14);
+  border: 1px solid rgba(120, 216, 206, .22);
   border-radius: 16px;
-  color: #fff;
+  color: #efffff;
   display: flex;
   font-size: 20px;
   height: 44px;
@@ -425,8 +407,8 @@ onMounted(load)
 }
 
 .moderation-contact__name {
-  color: #fff;
-  font-weight: 900;
+  color: var(--c-text);
+  font-weight: 800;
   margin-top: 4px;
 }
 
@@ -439,14 +421,14 @@ onMounted(load)
 
 .moderation-contact__links a,
 .moderation-contact__links span {
-  color: #78d8ce;
+  color: var(--c-accent-2);
   font-size: 13px;
   font-weight: 700;
 }
 
 .moderation-actions {
   align-items: center;
-  border-top: 1px solid rgba(120, 216, 206, .20);
+  border-top: 1px solid rgba(120, 216, 206, .16);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -465,21 +447,18 @@ onMounted(load)
 
 @media (max-width: 560px) {
   .moderation-card {
-    border-radius: 22px;
+    border-radius: var(--r-sm);
     padding: 14px;
   }
 
-  .moderation-card__top {
+  .moderation-card__top,
+  .moderation-card__stats,
+  .moderation-contact {
     grid-template-columns: 1fr;
   }
 
   .moderation-card__media {
     max-height: 180px;
-  }
-
-  .moderation-card__stats,
-  .moderation-contact {
-    grid-template-columns: 1fr;
   }
 
   .moderation-contact__icon {
