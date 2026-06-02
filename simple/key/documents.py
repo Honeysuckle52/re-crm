@@ -284,8 +284,6 @@ def _agent_full_name(agent) -> str:
     profile = getattr(agent, 'employee_profile', None)
     if profile:
         parts = [profile.last_name, profile.first_name]
-        if profile.middle_name:
-            parts.append(profile.middle_name)
         name = ' '.join(p for p in parts if p).strip()
         if profile.position:
             return f'{name} ({profile.position})' if name else profile.position
@@ -359,17 +357,7 @@ def _client_requisites_line(client) -> str:
 
 
 def _client_address_line(client) -> str:
-    profile = getattr(client, 'client_profile', None)
-    if not profile:
-        return '—'
-    if profile.registration_address and profile.actual_address:
-        if profile.registration_address.strip() == profile.actual_address.strip():
-            return profile.registration_address
-        return (
-            f'адрес регистрации: {profile.registration_address}; '
-            f'фактический адрес: {profile.actual_address}'
-        )
-    return profile.registration_address or profile.actual_address or '—'
+    return '\u2014'
 
 
 def _client_contact_line(client) -> str:

@@ -459,14 +459,13 @@ class UserViewSet(viewsets.ModelViewSet):
             return {
                 'first_name': username,
                 'last_name': username,
-                'middle_name': '',
             }
 
-        return {
+        names = {
             'first_name': (profile.first_name or username)[:50],
             'last_name': (profile.last_name or username)[:50],
-            'middle_name': (profile.middle_name or '')[:50],
         }
+        return names
 
     def _ensure_profile_for_user_type(self, target, user_type):
         names = self._profile_names_for(target)

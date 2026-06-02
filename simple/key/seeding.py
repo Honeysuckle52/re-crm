@@ -410,7 +410,6 @@ class SeedDataService:
                         'first_name': first_name,
                         'last_name': last_name,
                         'position': extra.get('position', ''),
-                        'department': 'Основной офис',
                         'hire_date': date(2024, 1, 15),
                     },
                 )
@@ -525,7 +524,6 @@ class SeedDataService:
                     external_id=house_external_id,
                     street=street,
                     house_number=house_number,
-                    building=None,
                     postal_code=s.get('postal_code') or None,
                 )
             else:
@@ -536,19 +534,17 @@ class SeedDataService:
                 )
                 house.refresh_from_db()
         else:
-            house = House.objects.filter(street=street, house_number=house_number, building=None).first()
+            house = House.objects.filter(street=street, house_number=house_number).first()
             if house is None:
                 house = House.objects.create(
                     street=street,
                     house_number=house_number,
-                    building=None,
                     postal_code=s.get('postal_code') or None,
                 )
 
-        flat = (s.get('flat') or '').strip() or None
-        address = Address.objects.filter(house=house, apartment_number=flat).first()
+        address = Address.objects.filter(house=house).first()
         if address is None:
-            address = Address.objects.create(house=house, apartment_number=flat, floor=None, entrance=None)
+            address = Address.objects.create(house=house)
         return address
 
     def _seed_synthetic_addresses(self) -> list[Address]:
@@ -565,14 +561,11 @@ class SeedDataService:
             house, _ = House.objects.get_or_create(
                 street=street,
                 house_number=str(index),
-                building=None,
                 defaults={'postal_code': '664000'},
             )
-            address, _ = Address.objects.get_or_create(
-                house=house,
-                apartment_number=str(10 + index),
-                defaults={'floor': index, 'entrance': 1},
-            )
+            address = Address.objects.filter(house=house).first()
+            if address is None:
+                address = Address.objects.create(house=house)
             addresses.append(address)
         return addresses
 
@@ -886,14 +879,11 @@ class SeedDataService:
             house, _ = House.objects.get_or_create(
                 street=street,
                 house_number=house_number,
-                building=None,
                 defaults={'postal_code': None},
             )
-            address, _ = Address.objects.get_or_create(
-                house=house,
-                apartment_number=None,
-                defaults={'floor': None, 'entrance': None},
-            )
+            address = Address.objects.filter(house=house).first()
+            if address is None:
+                address = Address.objects.create(house=house)
 
             operation_type = rng.choice(operation_types)
             status = rng.choice(statuses)

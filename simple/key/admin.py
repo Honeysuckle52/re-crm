@@ -1,6 +1,8 @@
 """Регистрация моделей и настройка панели администрирования."""
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.core.exceptions import FieldDoesNotExist
+from django.db import models as django_models
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
@@ -228,12 +230,90 @@ def _crm_admin_get_urls():
 admin.site.get_urls = _crm_admin_get_urls
 
 
+def _humanize_admin_name(name):
+    return str(name).replace('_', ' ').capitalize()
+
+
+def _make_admin_display(field_name, description, *, boolean=False):
+    def display(self, obj):
+        return getattr(obj, field_name)
+
+    display.__name__ = f'ru_{field_name}_column'
+    display.short_description = description
+    display.admin_order_field = field_name
+    if boolean:
+        display.boolean = True
+    return display
+
+
+def _install_russian_list_display(admin_class, model):
+    original = getattr(
+        admin_class,
+        '_ru_original_list_display',
+        tuple(getattr(admin_class, 'list_display', ())),
+    )
+    admin_class._ru_original_list_display = original
+
+    editable = set(getattr(admin_class, 'list_editable', ()) or ())
+    resolved = []
+    for item in original:
+        if not isinstance(item, str) or item == '__str__' or item in editable:
+            resolved.append(item)
+            continue
+        if hasattr(admin_class, item):
+            resolved.append(item)
+            continue
+        try:
+            field = model._meta.get_field(item)
+        except FieldDoesNotExist:
+            resolved.append(item)
+            continue
+        method_name = f'ru_{item}_column'
+        if not hasattr(admin_class, method_name):
+            setattr(
+                admin_class,
+                method_name,
+                _make_admin_display(
+                    item,
+                    field.verbose_name or _humanize_admin_name(item),
+                    boolean=isinstance(field, django_models.BooleanField),
+                ),
+            )
+        resolved.append(method_name)
+    admin_class.list_display = tuple(resolved)
+
+
 class CrmAdminPermissionsMixin:
     """Разрешает полный доступ в панели пользователям с ролью администратора."""
 
     list_per_page = 40
     list_max_show_all = 200
     save_on_top = True
+
+    def __init__(self, model, admin_site):
+        super().__init__(model, admin_site)
+        _install_russian_list_display(self.__class__, model)
+
+    def get_fieldsets(self, request, obj=None):
+        if self.fieldsets:
+            return super().get_fieldsets(request, obj)
+        editable_fields = [
+            field.name
+            for field in self.model._meta.fields
+            if field.editable and not field.auto_created
+        ]
+        readonly_fields = [
+            field
+            for field in self.get_readonly_fields(request, obj)
+            if field not in editable_fields
+        ]
+        fieldsets = [('Основное', {'fields': tuple(editable_fields)})]
+        if readonly_fields:
+            fieldsets.append((
+                'Служебные данные',
+                {'classes': ('collapse',), 'fields': tuple(readonly_fields)},
+            ))
+        return tuple(fieldsets)
 
     def _has_crm_access(self, request):
         user = request.user
@@ -371,7 +451,7 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
                 ),
             },
         ),
-        ('Активность', {'fields': ('last_login', 'last_ip')}),
+        ('Активность', {'fields': ('last_login',)}),
     )
     add_fieldsets = (
         (
@@ -408,7 +488,7 @@ class StreetAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
 @admin.register(models.House)
 class HouseAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('street', 'house_number', 'building', 'structure', 'postal_code')
+    list_display = ('street', 'house_number', 'postal_code')
     list_filter = ('street__city',)
     search_fields = ('street__name', 'house_number', 'postal_code')
     list_select_related = ('street', 'street__city')
@@ -416,16 +496,16 @@ class HouseAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
 @admin.register(models.Address)
 class AddressAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('house', 'apartment_number', 'entrance', 'floor')
+    list_display = ('house',)
     list_filter = ('house__street__city',)
-    search_fields = ('house__street__name', 'house__house_number', 'apartment_number')
+    search_fields = ('house__street__name', 'house__house_number')
     list_select_related = ('house', 'house__street', 'house__street__city')
 
 
 @admin.register(models.EmployeeProfile)
 class EmployeeProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('user', 'last_name', 'first_name', 'position', 'department')
-    search_fields = ('user__username', 'first_name', 'last_name', 'position', 'department')
+    list_display = ('user', 'last_name', 'first_name', 'position')
+    search_fields = ('user__username', 'first_name', 'last_name', 'position')
     list_select_related = ('user',)
 
 
@@ -440,10 +520,42 @@ class ClientProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_select_related = ('user', 'individual_details', 'company_details')
 
 
+@admin.register(models.ClientIndividualDetails)
+class ClientIndividualDetailsAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('profile', 'passport_series', 'passport_number', 'passport_issued_date')
+    search_fields = (
+        'profile__user__username',
+        'profile__first_name',
+        'profile__last_name',
+        'passport_series',
+        'passport_number',
+    )
+    list_select_related = ('profile', 'profile__user')
+
+
+@admin.register(models.ClientCompanyDetails)
+class ClientCompanyDetailsAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('profile', 'company_inn', 'created_at', 'updated_at')
+    search_fields = ('profile__user__username', 'profile__first_name', 'profile__last_name', 'company_inn')
+    list_select_related = ('profile', 'profile__user')
+    readonly_fields = ('created_at', 'updated_at')
+
+
 class PropertyPhotoInline(admin.TabularInline):
     model = models.PropertyPhoto
     extra = 0
     fields = ('image', 'url', 'caption', 'is_cover', 'is_hidden', 'order')
+
+
+@admin.register(models.PropertyPhoto)
+class PropertyPhotoAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('property', 'caption', 'is_cover', 'is_hidden', 'order', 'uploaded_at')
+    list_filter = ('is_cover', 'is_hidden', 'uploaded_at')
+    search_fields = ('property__title', 'caption', 'url')
+    list_select_related = ('property',)
+    date_hierarchy = 'uploaded_at'
+    ordering = ('-is_cover', 'order', '-uploaded_at')
+    autocomplete_fields = ('property',)
 
 
 @admin.register(models.Property)
@@ -542,6 +654,37 @@ class RequestAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         ('Пожелания клиента', {'fields': ('address_preferences', 'description')}),
         ('Даты', {'fields': ('created_at', 'updated_at', 'closed_at')}),
     )
+
+
+@admin.register(models.RequestPropertyMatch)
+class RequestPropertyMatchAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = (
+        'request',
+        'property',
+        'agent',
+        'is_offered',
+        'is_rejected',
+        'is_confirmed',
+        'created_at',
+    )
+    list_filter = ('is_offered', 'is_rejected', 'is_confirmed', 'created_at')
+    search_fields = (
+        'request__client__username',
+        'property__title',
+        'agent__username',
+        'agent_note',
+    )
+    list_select_related = (
+        'request',
+        'request__client',
+        'property',
+        'agent',
+        'confirmed_by',
+    )
+    date_hierarchy = 'created_at'
+    ordering = ('-created_at',)
+    autocomplete_fields = ('request', 'property', 'agent', 'confirmed_by')
+    readonly_fields = ('created_at',)
 
 
 @admin.register(models.Deal)
@@ -747,3 +890,17 @@ class AuditLogAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+@admin.register(models.DatabaseBackup)
+class DatabaseBackupAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('filename', 'database_name', 'engine_label', 'size_bytes', 'created_by', 'created_at')
+    list_filter = ('engine_label', 'created_at')
+    search_fields = ('filename', 'database_name', 'engine_label', 'tool_label', 'created_by__username')
+    list_select_related = ('created_by',)
+    date_hierarchy = 'created_at'
+    ordering = ('-created_at', '-id')
+    readonly_fields = ('filename', 'file', 'size_bytes', 'database_name', 'engine_label', 'tool_label', 'created_by', 'created_at')
+
+    def has_add_permission(self, request):
+        return False
+

@@ -134,17 +134,6 @@
           </div>
         </template>
 
-        <div class="field">
-          <label>Адрес регистрации</label>
-          <textarea class="textarea" v-model="form.registration_address"
-                    rows="2"></textarea>
-        </div>
-        <div class="field">
-          <label>Фактический адрес</label>
-          <textarea class="textarea" v-model="form.actual_address"
-                    rows="2" placeholder="Можно оставить пустым, если совпадает"></textarea>
-        </div>
-
         <div v-if="error" class="error">{{ error }}</div>
 
         <div class="row" style="gap: 8px; flex-wrap: wrap">
@@ -218,12 +207,9 @@ const form = reactive({
   passport_issued_date: '',
   passport_code: '',
   company_inn: '',
-  registration_address: '',
-  actual_address: '',
 })
 
 const PERSON_NAME_RE = /[A-Za-zА-Яа-яЁё]/
-const ADDRESS_MIN_LENGTH = 10
 
 function digitsOnly (value) {
   return String(value || '').replace(/\D/g, '')
@@ -276,18 +262,6 @@ function validatePersonName (value, label, { required = true } = {}) {
   return ''
 }
 
-function validateAddress (value, label, { required = false } = {}) {
-  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
-  if (!normalized) return required ? `${label}: заполните адрес.` : ''
-  if (normalized.length < ADDRESS_MIN_LENGTH) {
-    return `${label}: минимум ${ADDRESS_MIN_LENGTH} символов.`
-  }
-  if (!PERSON_NAME_RE.test(normalized) || !/\d/.test(normalized)) {
-    return `${label}: укажите улицу или населённый пункт и номер дома.`
-  }
-  return ''
-}
-
 function validateAccountStep () {
   const phone = normalizeRussianPhone(form.phone)
   const checks = [
@@ -311,13 +285,6 @@ function validateAccountStep () {
 }
 
 function validateContractStep () {
-  const commonChecks = [
-    validateAddress(form.registration_address, 'Адрес регистрации', { required: true }),
-    validateAddress(form.actual_address, 'Фактический адрес'),
-  ]
-  const commonFailed = commonChecks.find(Boolean)
-  if (commonFailed) return commonFailed
-
   if (form.client_kind === 'company') {
     if (!/^\d{10}$/.test(form.company_inn)) {
       return 'ИНН компании должен состоять из 10 цифр.'
@@ -367,8 +334,6 @@ function basePayload () {
 function contractPayload () {
   const requisites = {
     contract_data_required: true,
-    registration_address: form.registration_address,
-    actual_address: form.actual_address,
   }
   if (form.client_kind === 'company') {
     requisites.company_inn = form.company_inn

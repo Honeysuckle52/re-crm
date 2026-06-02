@@ -122,7 +122,6 @@ class DadataClient:
             'street_type': data.get('street_type') or '',
             'street': data.get('street') or '',
             'house': data.get('house') or '',
-            'block': data.get('block') or '',
             'flat': data.get('flat') or '',
             'postal_code': data.get('postal_code') or '',
             'geo_lat': float(lat) if lat else None,

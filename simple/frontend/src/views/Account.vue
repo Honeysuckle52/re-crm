@@ -127,14 +127,6 @@
                    maxlength="10" inputmode="numeric" placeholder="0000000000"
                    @input="limitDigits('company_inn', 10)" />
           </div>
-          <div class="field" style="grid-column: 1 / -1">
-            <label>Адрес регистрации</label>
-            <textarea class="textarea" v-model="profile.registration_address" rows="2"></textarea>
-          </div>
-          <div class="field" style="grid-column: 1 / -1">
-            <label>Фактический адрес</label>
-            <textarea class="textarea" v-model="profile.actual_address" rows="2"></textarea>
-          </div>
         </div>
 
         <div class="row" style="justify-content: flex-end; gap: 8px">
@@ -177,8 +169,6 @@ const profile = reactive({
   passport_issued_date: '',
   passport_code: '',
   company_inn: '',
-  registration_address: '',
-  actual_address: '',
 })
 const clientKindLabel = computed(() => {
   if (profile.client_kind === 'company') return 'Юридическое лицо'
@@ -186,14 +176,13 @@ const clientKindLabel = computed(() => {
   return '—'
 })
 
-const BASE_REQUIRED_FIELDS = ['first_name', 'last_name', 'registration_address']
+const BASE_REQUIRED_FIELDS = ['first_name', 'last_name']
 const INDIVIDUAL_REQUIRED_FIELDS = [
   'passport_series', 'passport_number',
   'passport_issued_by', 'passport_issued_date', 'passport_code',
 ]
 const COMPANY_REQUIRED_FIELDS = ['company_inn']
 const PERSON_NAME_RE = /[A-Za-zА-Яа-яЁё]/
-const ADDRESS_MIN_LENGTH = 10
 
 const completeness = computed(() => {
   const fields = [
@@ -237,25 +226,11 @@ function validatePersonName (value, label, { required = true } = {}) {
   return ''
 }
 
-function validateAddress (value, label, { required = false } = {}) {
-  const normalized = String(value || '').trim().replace(/\s+/g, ' ')
-  if (!normalized) return required ? `${label}: заполните адрес.` : ''
-  if (normalized.length < ADDRESS_MIN_LENGTH) {
-    return `${label}: минимум ${ADDRESS_MIN_LENGTH} символов.`
-  }
-  if (!PERSON_NAME_RE.test(normalized) || !/\d/.test(normalized)) {
-    return `${label}: укажите улицу или населённый пункт и номер дома.`
-  }
-  return ''
-}
-
 function validateProfile () {
   const commonChecks = [
     validatePersonName(profile.last_name, 'Фамилия'),
     validatePersonName(profile.first_name, 'Имя'),
     validatePersonName(profile.middle_name, 'Отчество', { required: false }),
-    validateAddress(profile.registration_address, 'Адрес регистрации', { required: true }),
-    validateAddress(profile.actual_address, 'Фактический адрес'),
   ]
   const commonFailed = commonChecks.find(Boolean)
   if (commonFailed) return commonFailed

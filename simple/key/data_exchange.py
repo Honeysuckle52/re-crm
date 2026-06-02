@@ -28,7 +28,6 @@ PROPERTY_EXPORT_COLUMNS = (
     ('street', 'street'),
     ('street_type', 'street_type'),
     ('house', 'house'),
-    ('block', 'block'),
     ('flat', 'flat'),
     ('postal_code', 'postal_code'),
     ('price', 'price'),
@@ -391,10 +390,6 @@ def _property_payload_from_row(
                 f"{(row.get('street_type') or '').strip()} {street}".strip(),
                 f"д. {house}",
                 (
-                    f"к. {(row.get('block') or '').strip()}"
-                    if (row.get('block') or '').strip() else ''
-                ),
-                (
                     f"кв. {(row.get('flat') or '').strip()}"
                     if (row.get('flat') or '').strip() else ''
                 ),
@@ -405,7 +400,6 @@ def _property_payload_from_row(
         'street': street,
         'street_type': (row.get('street_type') or '').strip(),
         'house': house,
-        'block': (row.get('block') or '').strip(),
         'flat': (row.get('flat') or '').strip(),
         'postal_code': (row.get('postal_code') or '').strip(),
     }
@@ -609,8 +603,7 @@ def _property_export_rows(queryset) -> list[dict]:
             'street': street.name,
             'street_type': street.street_type or '',
             'house': house.house_number,
-            'block': house.building or '',
-            'flat': address.apartment_number or '',
+            'flat': '',
             'postal_code': house.postal_code or '',
             'price': property_obj.price,
             'area_total': str(property_obj.area_total) if property_obj.area_total is not None else '',

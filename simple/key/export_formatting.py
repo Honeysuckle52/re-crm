@@ -38,7 +38,6 @@ EXPORT_COLUMN_LABELS = {
     'street': 'Улица',
     'street_type': 'Тип улицы',
     'house': 'Дом',
-    'block': 'Корпус',
     'flat': 'Квартира',
     'postal_code': 'Почтовый индекс',
     'address': 'Адрес',

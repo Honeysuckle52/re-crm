@@ -200,8 +200,7 @@ class StreetSerializer(serializers.ModelSerializer):
 class HouseSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.House
-        fields = ['id', 'street', 'house_number', 'building',
-                  'structure', 'postal_code', 'external_id']
+        fields = ['id', 'street', 'house_number', 'postal_code', 'external_id']
 
 
 class AddressSerializer(serializers.ModelSerializer):
@@ -209,8 +208,7 @@ class AddressSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Address
-        fields = ['id', 'house', 'apartment_number', 'entrance',
-                  'floor', 'full_address']
+        fields = ['id', 'house', 'full_address']
 
     def get_full_address(self, obj) -> str:
         return str(obj)
@@ -295,16 +293,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         write_only=True, max_length=10, required=False, allow_blank=True,
         validators=[models.company_inn_validator],
     )
-    registration_address = serializers.CharField(
-        write_only=True, required=False, allow_blank=True,
-    )
-    actual_address = serializers.CharField(
-        write_only=True, required=False, allow_blank=True,
-    )
 
     _PROFILE_FIELDS = (
         'first_name', 'last_name', 'middle_name', 'client_kind',
-        'registration_address', 'actual_address',
     )
     _INDIVIDUAL_FIELDS = (
         'passport_series', 'passport_number', 'passport_issued_by',
@@ -322,7 +313,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             'passport_series', 'passport_number', 'passport_issued_by',
             'passport_issued_date', 'passport_code',
             'company_inn',
-            'registration_address', 'actual_address',
         ]
 
     def validate_email(self, value):
@@ -339,12 +329,6 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_middle_name(self, value):
         return validate_optional_person_name(value, field_label='Отчество')
-
-    def validate_registration_address(self, value):
-        return validate_client_address(value, field_label='Адрес регистрации')
-
-    def validate_actual_address(self, value):
-        return validate_client_address(value, field_label='Фактический адрес')
 
     def validate_passport_issued_by(self, value):
         return validate_passport_issuer(value)
@@ -368,17 +352,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         detail_fields = (
             self._INDIVIDUAL_FIELDS
             + self._COMPANY_FIELDS
-            + ('registration_address', 'actual_address')
         )
         has_contract_data = any(attrs.get(field) not in (None, '') for field in detail_fields)
         if not attrs.get('contract_data_required') and not has_contract_data:
             return attrs
 
         errors = {}
-        if not attrs.get('registration_address'):
-            errors['registration_address'] = (
-                f'Адрес регистрации: заполните минимум {ADDRESS_MIN_LENGTH} символов.'
-            )
         if client_kind == models.ClientProfile.CLIENT_KIND_COMPANY:
             if not attrs.get('company_inn'):
                 errors['company_inn'] = 'ИНН компании обязателен для юридического лица.'
@@ -521,8 +500,7 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.EmployeeProfile
         fields = ['id', 'user', 'username', 'first_name', 'last_name',
-                  'middle_name', 'position', 'department', 'hire_date',
-                  'internal_phone', 'notes']
+                  'position', 'hire_date', 'internal_phone']
 
 
 class ClientProfileSerializer(serializers.ModelSerializer):
@@ -568,8 +546,7 @@ class ClientProfileSerializer(serializers.ModelSerializer):
                   'passport_number', 'passport_issued_by',
                   'passport_issued_date', 'passport_code',
                   'company_inn',
-                  'registration_address', 'actual_address',
-                  'preferred_contact_method', 'notes']
+                  'preferred_contact_method']
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -589,15 +566,6 @@ class ClientProfileSerializer(serializers.ModelSerializer):
 
     def validate_middle_name(self, value):
         return validate_optional_person_name(value, field_label='Отчество')
-
-    def validate_registration_address(self, value):
-        return validate_client_address(
-            value,
-            field_label='Адрес регистрации',
-        )
-
-    def validate_actual_address(self, value):
-        return validate_client_address(value, field_label='Фактический адрес')
 
     def validate_passport_issued_by(self, value):
         return validate_passport_issuer(value)
@@ -628,14 +596,6 @@ class ClientProfileSerializer(serializers.ModelSerializer):
                     'client_kind',
                     models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
                 ),
-            ),
-            'registration_address': attrs.get(
-                'registration_address',
-                getattr(instance, 'registration_address', None),
-            ),
-            'actual_address': attrs.get(
-                'actual_address',
-                getattr(instance, 'actual_address', None),
             ),
         }
         individual = getattr(instance, 'individual_details', None)
@@ -683,23 +643,6 @@ class ClientProfileSerializer(serializers.ModelSerializer):
             )
         except serializers.ValidationError as exc:
             errors['middle_name'] = exc.detail
-
-        try:
-            validate_client_address(
-                merged.get('registration_address'),
-                required=True,
-                field_label='Адрес регистрации',
-            )
-        except serializers.ValidationError as exc:
-            errors['registration_address'] = exc.detail
-
-        try:
-            validate_client_address(
-                merged.get('actual_address'),
-                field_label='Фактический адрес',
-            )
-        except serializers.ValidationError as exc:
-            errors['actual_address'] = exc.detail
 
         if merged.get('client_kind') == models.ClientProfile.CLIENT_KIND_COMPANY:
             company_inn = merged.get('company_inn')
@@ -831,7 +774,6 @@ class AddressNestedWriteSerializer(serializers.Serializer):
     street = serializers.CharField(max_length=150, required=False, allow_blank=True)
     street_type = serializers.CharField(max_length=20, required=False, allow_blank=True)
     house = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    block = serializers.CharField(max_length=10, required=False, allow_blank=True)
     flat = serializers.CharField(max_length=20, required=False, allow_blank=True)
     postal_code = serializers.CharField(max_length=10, required=False, allow_blank=True)
     geo_lat = serializers.FloatField(required=False, allow_null=True)
@@ -992,12 +934,11 @@ class PropertySerializer(serializers.ModelSerializer):
         street.save()
 
         house_number = (address_data.get('house') or '').strip() or '—'
-        block = (address_data.get('block') or '').strip() or None
         postal = (address_data.get('postal_code') or '').strip() or None
         house_ext = address_data.get('house_external_id') or None
 
         house, _ = models.House.objects.get_or_create(
-            street=street, house_number=house_number, building=block,
+            street=street, house_number=house_number,
             defaults={'postal_code': postal, 'external_id': house_ext},
         )
         if postal and not house.postal_code:
@@ -1006,10 +947,9 @@ class PropertySerializer(serializers.ModelSerializer):
             house.external_id = house_ext
         house.save()
 
-        flat = (address_data.get('flat') or '').strip() or None
-        address, _ = models.Address.objects.get_or_create(
-            house=house, apartment_number=flat,
-        )
+        address = models.Address.objects.filter(house=house).first()
+        if address is None:
+            address = models.Address.objects.create(house=house)
         return address
 
     def create(self, validated_data):
