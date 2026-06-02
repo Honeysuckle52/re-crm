@@ -659,6 +659,11 @@ class Property(models.Model):
             errors['price_per_sqm'] = 'Цена за м² не может быть отрицательной.'
         if self.area_total is not None and self.area_total <= 0:
             errors['area_total'] = 'Площадь должна быть больше нуля.'
+        if (
+            self.premises_type in {self.PREMISES_OFFICE, self.PREMISES_WAREHOUSE}
+            and self.rooms_count is not None
+        ):
+            errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
         if self.rooms_count is not None and self.rooms_count < 0:
             errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
         if (
@@ -840,6 +845,12 @@ class Request(models.Model):
             errors['min_price'] = 'Минимальная цена не может быть больше максимальной.'
         if self.min_area is not None and self.max_area is not None and self.min_area > self.max_area:
             errors['min_area'] = 'Минимальная площадь не может быть больше максимальной.'
+        if (
+            (self.property_type or '').strip()
+            in {Property.PREMISES_OFFICE, Property.PREMISES_WAREHOUSE}
+            and self.rooms_count is not None
+        ):
+            errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
         if self.rooms_count is not None and self.rooms_count < 0:
             errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
         if self.closed_at and not self.status_id:

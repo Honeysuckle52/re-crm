@@ -11,10 +11,15 @@
           <span class="rstep__label">Аккаунт</span>
         </li>
         <li class="rstep__item"
-            :class="{ 'rstep__item--active': step === 2 }">
+            :class="{ 'rstep__item--active': step === 2, 'rstep__item--done': step > 2 }">
           <span class="rstep__num">2</span>
           <span class="rstep__label">Договорные данные</span>
           <span class="rstep__hint">необязательно</span>
+        </li>
+        <li class="rstep__item"
+            :class="{ 'rstep__item--active': step === 3 }">
+          <span class="rstep__num">3</span>
+          <span class="rstep__label">Подтверждение</span>
         </li>
       </ol>
 
@@ -55,6 +60,11 @@
             Минимум 8 символов. Не должен быть слишком простым.
           </div>
         </div>
+        <div class="field">
+          <label>Подтверждение пароля</label>
+          <input class="input" type="password" v-model="form.password_confirm"
+                 required autocomplete="new-password" minlength="8" />
+        </div>
         <div v-if="error" class="error">{{ error }}</div>
         <button class="btn btn--accent" type="submit">
           Продолжить
@@ -65,7 +75,7 @@
         </router-link>
       </form>
 
-      <form v-else class="stack" @submit.prevent="submit">
+      <form v-else-if="step === 2" class="stack" @submit.prevent="submit">
         <p class="muted" style="color: rgba(255,255,255,.7)">
           Эти данные нужны для автоматического заполнения договора.
           Для физлица укажите паспорт, для юрлица — ИНН компании. Если сейчас нет данных под рукой — пропустите шаг, заполните
@@ -151,6 +161,28 @@
           </button>
         </div>
       </form>
+
+      <form v-else class="stack" @submit.prevent="verifyEmailCode">
+        <p class="muted" style="color: rgba(255,255,255,.7)">
+          Мы отправили код подтверждения на {{ registeredEmail || form.email }}.
+          Введите 6 цифр из письма, чтобы активировать аккаунт.
+        </p>
+        <div class="field">
+          <label>Код из письма</label>
+          <input class="input auth__code-input" v-model.trim="verificationCode"
+                 inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                 required @input="formatVerificationCode" />
+        </div>
+        <div v-if="error" class="error">{{ error }}</div>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button class="btn btn--accent" type="submit" :disabled="loading">
+            {{ loading ? 'Проверяем…' : 'Подтвердить аккаунт' }}
+          </button>
+          <button class="btn" type="button" @click="resendCode" :disabled="loading || resendLoading">
+            {{ resendLoading ? 'Отправляем…' : 'Отправить код ещё раз' }}
+          </button>
+        </div>
+      </form>
     </div>
   </section>
 </template>
@@ -165,12 +197,17 @@ const router = useRouter()
 
 const step = ref(1)
 const loading = ref(false)
+const resendLoading = ref(false)
 const error = ref('')
+const verificationCode = ref('')
+const registeredEmail = ref('')
+const verificationToken = ref('')
 
 const form = reactive({
   email: '',
   phone: '',
   password: '',
+  password_confirm: '',
   last_name: '',
   first_name: '',
   middle_name: '',
@@ -267,6 +304,9 @@ function validateAccountStep () {
   if (form.password.length < 8) {
     return 'Пароль должен быть не короче 8 символов.'
   }
+  if (form.password !== form.password_confirm) {
+    return 'Пароли не совпадают.'
+  }
   return ''
 }
 
@@ -313,6 +353,7 @@ function basePayload () {
   const payload = {
     email: form.email,
     password: form.password,
+    password_confirm: form.password_confirm,
     first_name: form.first_name,
     last_name: form.last_name,
     client_kind: form.client_kind,
@@ -363,8 +404,12 @@ async function doRegister (extended) {
       ...basePayload(),
       ...(extended ? contractPayload() : {}),
     }
-    await auth.register(payload)
-    router.push('/account?welcome=1')
+    const result = await auth.register(payload)
+    registeredEmail.value = payload.email
+    verificationToken.value = result.verification_token || ''
+    verificationCode.value = ''
+    step.value = 3
+    error.value = ''
   } catch (e) {
     const data = e.response?.data || {}
     error.value = flattenErrors(data)
@@ -379,6 +424,45 @@ async function doRegister (extended) {
 
 function submit () { return doRegister(true) }
 function submitWithoutExtras () { return doRegister(false) }
+
+function formatVerificationCode () {
+  verificationCode.value = digitsOnly(verificationCode.value).slice(0, 6)
+}
+
+async function verifyEmailCode () {
+  error.value = ''
+  formatVerificationCode()
+  if (verificationCode.value.length !== 6) {
+    error.value = 'Введите 6 цифр из письма.'
+    return
+  }
+  loading.value = true
+  try {
+    await auth.verifyEmail({
+      token: verificationToken.value,
+      code: verificationCode.value,
+    })
+    await auth.login(form.email, form.password)
+    router.push('/account?welcome=1')
+  } catch (e) {
+    error.value = flattenErrors(e.response?.data) || 'Не удалось подтвердить email.'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function resendCode () {
+  error.value = ''
+  resendLoading.value = true
+  try {
+    await auth.resendEmailCode(verificationToken.value)
+    error.value = 'Новый код отправлен на почту.'
+  } catch (e) {
+    error.value = flattenErrors(e.response?.data) || 'Не удалось отправить код повторно.'
+  } finally {
+    resendLoading.value = false
+  }
+}
 
 function stripEmpty (obj) {
   const out = {}
@@ -448,6 +532,13 @@ function flattenErrors (data) {
   margin: 18px 0 12px;
   font-size: clamp(28px, 4vw, 34px);
   color: var(--c-text);
+}
+
+.auth__code-input {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-align: center;
 }
 
 .rstep {

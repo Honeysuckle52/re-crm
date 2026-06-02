@@ -1,0 +1,14 @@
+{% extends "emails/_base.html" %}
+{% block preheader %}Ваш код подтверждения аккаунта: {{ verification_code }}{% endblock %}
+{% block eyebrow %}Подтверждение email{% endblock %}
+{% block title %}Подтвердите аккаунт{% endblock %}
+{% block subtitle %}Введите код на странице регистрации, чтобы активировать учётную запись.{% endblock %}
+{% block content %}
+  <p>Здравствуйте{% if client_name %}, {{ client_name }}{% endif %}!</p>
+  <p>Ваш код подтверждения аккаунта:</p>
+  <div class="surface" style="text-align:center; margin: 18px 0;">
+    <div style="font-size: 34px; line-height: 1.2; letter-spacing: 0.18em; font-weight: 700; color: #124346;">{{ verification_code }}</div>
+    <p class="meta" style="margin-top: 8px;">Код действует {{ ttl_minutes }} минут.</p>
+  </div>
+  <p class="muted">Если вы не регистрировались в {{ agency_name }}, просто проигнорируйте это письмо.</p>
+{% endblock %}

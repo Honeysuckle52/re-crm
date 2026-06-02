@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36">
   <diagram name="Страница 1" id="GOqsQ83yMCCc8tBVAAom">
-    <mxGraphModel dx="1414" dy="-805" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="2054" dy="-445" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -196,7 +196,7 @@
         <mxCell id="UdnUSK5n67mowr2e_vGY-395" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="1.6. Подтверждение сделки" vertex="1">
           <mxGeometry height="40" width="120" x="835.5441176470588" y="1873.7794117647059" as="geometry" />
         </mxCell>
-        <mxCell id="UdnUSK5n67mowr2e_vGY-396" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="email-почта" vertex="1">
+        <mxCell id="UdnUSK5n67mowr2e_vGY-396" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="yandex-почта" vertex="1">
           <mxGeometry height="40" width="100" x="689.5441176470588" y="2332.779411764706" as="geometry" />
         </mxCell>
         <mxCell id="UdnUSK5n67mowr2e_vGY-397" edge="1" parent="1" source="UdnUSK5n67mowr2e_vGY-399" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0;entryDx=0;entryDy=0;" target="UdnUSK5n67mowr2e_vGY-367">

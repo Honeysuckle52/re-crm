@@ -56,7 +56,7 @@ const routes = [
     path: '/properties/moderation',
     name: 'property-moderation',
     component: PropertyModerationView,
-    meta: { staff: true },
+    meta: { manager: true },
   },
   {
     path: '/properties/:id/edit',

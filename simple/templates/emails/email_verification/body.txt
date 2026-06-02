@@ -1,0 +1,8 @@
+Здравствуйте{% if client_name %}, {{ client_name }}{% endif %}!
+
+Ваш код подтверждения аккаунта: {{ verification_code }}
+
+Код действует {{ ttl_minutes }} минут. Если вы не регистрировались в {{ agency_name }}, просто проигнорируйте это письмо.
+
+{{ agency_name }}
+{{ public_url }}

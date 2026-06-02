@@ -23,7 +23,7 @@
     <div class="card__title">{{ property.title || 'Без названия' }}</div>
     <div class="card__price">{{ formatMoney(property.price) }} ₽</div>
     <div class="card__meta">
-      <span v-if="property.rooms_count" class="tag">{{ property.rooms_count }}-комн.</span>
+      <span v-if="showRooms" class="tag">{{ property.rooms_count }}-комн.</span>
       <span v-if="property.area_total" class="tag">{{ property.area_total }} м²</span>
       <span v-if="property.floor_number" class="tag">
         {{ property.floor_number }}/{{ property.total_floors || '—' }} эт.
@@ -35,7 +35,9 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
+import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
 
 const props = defineProps({
   property: { type: Object, required: true },
@@ -45,6 +47,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select'])
+const showRooms = computed(() => (
+  propertyTypeUsesRooms(props.property.premises_type) && props.property.rooms_count
+))
 
 function handleClick(event) {
   if (!props.selectable) return

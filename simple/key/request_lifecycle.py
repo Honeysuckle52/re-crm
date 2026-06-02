@@ -222,6 +222,17 @@ def create_request_from_serializer(
     elif not serializer.validated_data.get('client'):
         raise ValidationError({'client': 'Укажите клиента заявки.'})
 
+    request_client = extra.get('client') or serializer.validated_data.get('client')
+    property_obj = serializer.validated_data.get('property')
+    if (
+        request_client is not None
+        and property_obj is not None
+        and property_obj.owner_id == request_client.id
+    ):
+        raise ValidationError({
+            'property': 'Нельзя оставить заявку на собственный объект.',
+        })
+
     assigned_agent = serializer.validated_data.get('agent')
     request_status = serializer.validated_data.get('status')
     if assigned_agent and (request_status is None or request_status.code == 'open'):

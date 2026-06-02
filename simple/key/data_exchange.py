@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from . import audit as audit_service
+from .export_formatting import build_export_filename, format_export_data
 from . import models, serializers
 from .xlsx_utils import WorkbookSheet, build_xlsx_bytes, load_xlsx_rows
 
@@ -249,6 +250,30 @@ USER_EXPORT_DEFINITION = TabularExportDefinition(
     filename_prefix='users',
     sheet_title='Пользователи',
     columns=USER_EXPORT_COLUMNS,
+)
+
+
+AUDIT_EXPORT_COLUMNS = (
+    ('id', 'Идентификатор'),
+    ('entity_type', 'Тип сущности'),
+    ('entity_type_display', 'Тип сущности'),
+    ('entity_id', 'Идентификатор сущности'),
+    ('action_code', 'Код действия'),
+    ('action_label', 'Действие'),
+    ('message', 'Сообщение'),
+    ('metadata', 'Метаданные'),
+    ('actor_username', 'Пользователь'),
+    ('property_id', 'Идентификатор объекта'),
+    ('request_id', 'Идентификатор заявки'),
+    ('task_id', 'Идентификатор задачи'),
+    ('deal_id', 'Идентификатор сделки'),
+    ('created_at', 'Дата создания'),
+)
+
+AUDIT_EXPORT_DEFINITION = TabularExportDefinition(
+    filename_prefix='audit',
+    sheet_title='Аудит',
+    columns=AUDIT_EXPORT_COLUMNS,
 )
 
 
@@ -589,7 +614,14 @@ def _property_export_rows(queryset) -> list[dict]:
             'postal_code': house.postal_code or '',
             'price': property_obj.price,
             'area_total': str(property_obj.area_total) if property_obj.area_total is not None else '',
-            'rooms_count': property_obj.rooms_count or '',
+            'rooms_count': (
+                property_obj.rooms_count
+                if property_obj.premises_type not in {
+                    models.Property.PREMISES_OFFICE,
+                    models.Property.PREMISES_WAREHOUSE,
+                }
+                else ''
+            ),
             'floor_number': property_obj.floor_number or '',
             'total_floors': property_obj.total_floors or '',
             'description': property_obj.description or '',
@@ -665,66 +697,67 @@ def _export_tabular(
     fmt: str,
     *,
     title: str | None = None,
+    user=None,
+    action: str | None = None,
+    metadata: dict | None = None,
 ) -> HttpResponse:
     normalized = (fmt or '').strip().lower()
-    suffix = timezone.localdate().strftime('%Y%m%d')
-    prepared_rows = _normalized_export_rows(rows)
-    report_title = title
+    if normalized not in {'csv', 'json', 'xlsx'}:
+        raise ValidationError({'format': ['Поддерживаются только csv, json и xlsx.']})
+
+    generated_at = timezone.now()
+    filename = build_export_filename(
+        action or definition.filename_prefix,
+        user,
+        normalized,
+        generated_at=generated_at,
+    )
+    report_title = title or definition.sheet_title
 
     if normalized == 'csv':
-        response = HttpResponse(content_type='text/csv; charset=utf-8')
-        response['Content-Disposition'] = (
-            f'attachment; filename="{definition.filename_prefix}-{suffix}.csv"'
+        response = HttpResponse(
+            format_export_data(
+                rows,
+                'csv',
+                columns=definition.columns,
+                title=report_title,
+                metadata=metadata,
+                generated_at=generated_at,
+            ),
+            content_type='text/csv; charset=utf-8',
         )
-        response.write('\ufeff')
-        writer = csv.writer(response, delimiter=';')
-        if report_title:
-            writer.writerow([report_title])
-            writer.writerow([])
-        writer.writerow([label for _, label in definition.columns])
-        for row in prepared_rows:
-            writer.writerow([
-                _export_cell_value(row.get(key))
-                for key, _ in definition.columns
-            ])
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
     if normalized == 'json':
         response = HttpResponse(
+            format_export_data(
+                rows,
+                'json',
+                columns=definition.columns,
+                title=report_title,
+                metadata=metadata,
+                generated_at=generated_at,
+            ),
             content_type='application/json; charset=utf-8',
         )
-        response['Content-Disposition'] = (
-            f'attachment; filename="{definition.filename_prefix}-{suffix}.json"'
-        )
-        payload = {
-            'exported_at': timezone.now().isoformat(),
-            'count': len(prepared_rows),
-            'items': prepared_rows,
-        }
-        if report_title:
-            payload['title'] = report_title
-        response.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
     if normalized == 'xlsx':
-        rows_payload = [
-            [label for _, label in definition.columns],
-            *[
-                [
-                    _export_cell_value(row.get(key))
-                    for key, _ in definition.columns
-                ]
-                for row in prepared_rows
-            ],
-        ]
-        if report_title:
-            rows_payload = [[report_title], [], *rows_payload]
         return _xlsx_response(
-            f'{definition.filename_prefix}-{suffix}.xlsx',
+            filename,
             [
                 WorkbookSheet.from_rows(
                     definition.sheet_title,
-                    rows_payload,
+                    format_export_data(
+                        rows,
+                        'xlsx',
+                        columns=definition.columns,
+                        title=report_title,
+                        metadata=metadata,
+                        generated_at=generated_at,
+                    ),
                 ),
             ],
         )
@@ -732,9 +765,36 @@ def _export_tabular(
     raise ValidationError({'format': ['Поддерживаются только csv, json и xlsx.']})
 
 
-def export_properties(queryset, fmt: str, *, title: str | None = None) -> HttpResponse:
+def export_entity_data(
+    action: str,
+    sheet_title: str,
+    columns: tuple[tuple[str, str], ...],
+    rows: list[dict],
+    fmt: str,
+    *,
+    user=None,
+    title: str | None = None,
+    metadata: dict | None = None,
+) -> HttpResponse:
+    definition = TabularExportDefinition(
+        filename_prefix=action,
+        sheet_title=sheet_title,
+        columns=columns,
+    )
+    return _export_tabular(
+        definition,
+        rows,
+        fmt,
+        title=title,
+        user=user,
+        action=action,
+        metadata=metadata,
+    )
+
+
+def export_properties(queryset, fmt: str, *, user=None, title: str | None = None) -> HttpResponse:
     rows = _property_export_rows(queryset)
-    return _export_tabular(PROPERTY_EXPORT_DEFINITION, rows, fmt, title=title)
+    return _export_tabular(PROPERTY_EXPORT_DEFINITION, rows, fmt, title=title, user=user)
 
 
 def _request_export_rows(queryset) -> list[dict]:
@@ -758,7 +818,14 @@ def _request_export_rows(queryset) -> list[dict]:
             'max_price': request_obj.max_price,
             'min_area': request_obj.min_area,
             'max_area': request_obj.max_area,
-            'rooms_count': request_obj.rooms_count,
+            'rooms_count': (
+                request_obj.rooms_count
+                if (request_obj.property_type or '').strip() not in {
+                    models.Property.PREMISES_OFFICE,
+                    models.Property.PREMISES_WAREHOUSE,
+                }
+                else ''
+            ),
             'address_preferences': request_obj.address_preferences or '',
             'description': request_obj.description or '',
             'created_at': request_obj.created_at,
@@ -772,6 +839,7 @@ def export_requests(
     queryset,
     fmt: str,
     *,
+    user=None,
     title: str | None = None,
 ) -> HttpResponse:
     return _export_tabular(
@@ -779,6 +847,7 @@ def export_requests(
         _request_export_rows(queryset),
         fmt,
         title=title,
+        user=user,
     )
 
 
@@ -818,6 +887,7 @@ def export_tasks(
     queryset,
     fmt: str,
     *,
+    user=None,
     title: str | None = None,
 ) -> HttpResponse:
     return _export_tabular(
@@ -825,6 +895,7 @@ def export_tasks(
         _task_export_rows(queryset),
         fmt,
         title=title,
+        user=user,
     )
 
 
@@ -863,6 +934,7 @@ def export_deals(
     queryset,
     fmt: str,
     *,
+    user=None,
     title: str | None = None,
 ) -> HttpResponse:
     return _export_tabular(
@@ -870,6 +942,7 @@ def export_deals(
         _deal_export_rows(queryset),
         fmt,
         title=title,
+        user=user,
     )
 
 
@@ -895,8 +968,47 @@ def _user_export_rows(queryset) -> list[dict]:
     return rows
 
 
-def export_users(queryset, fmt: str) -> HttpResponse:
-    return _export_tabular(USER_EXPORT_DEFINITION, _user_export_rows(queryset), fmt)
+def export_users(queryset, fmt: str, *, user=None, title: str | None = None) -> HttpResponse:
+    return _export_tabular(
+        USER_EXPORT_DEFINITION,
+        _user_export_rows(queryset),
+        fmt,
+        title=title,
+        user=user,
+        action='clients',
+    )
+
+
+def _audit_export_rows(queryset) -> list[dict]:
+    rows: list[dict] = []
+    for item in queryset.select_related('actor', 'property', 'request', 'task', 'deal'):
+        rows.append({
+            'id': item.pk,
+            'entity_type': item.entity_type,
+            'entity_type_display': item.get_entity_type_display(),
+            'entity_id': item.entity_id,
+            'action_code': item.action_code,
+            'action_label': item.action_label,
+            'message': item.message,
+            'metadata': item.metadata,
+            'actor_username': getattr(item.actor, 'username', ''),
+            'property_id': item.property_id,
+            'request_id': item.request_id,
+            'task_id': item.task_id,
+            'deal_id': item.deal_id,
+            'created_at': item.created_at,
+        })
+    return rows
+
+
+def export_audit(queryset, fmt: str, *, user=None, title: str | None = None) -> HttpResponse:
+    return _export_tabular(
+        AUDIT_EXPORT_DEFINITION,
+        _audit_export_rows(queryset),
+        fmt,
+        title=title,
+        user=user,
+    )
 
 
 def _dictionary_payload() -> dict[str, list[dict]]:
@@ -912,51 +1024,39 @@ def _dictionary_payload() -> dict[str, list[dict]]:
     return payload
 
 
-def export_dictionaries(fmt: str) -> HttpResponse:
-    payload = _dictionary_payload()
-    suffix = timezone.localdate().strftime('%Y%m%d')
-    normalized = (fmt or '').strip().lower()
-    if normalized == 'json':
-        response = HttpResponse(
-            content_type='application/json; charset=utf-8',
-        )
-        response['Content-Disposition'] = (
-            f'attachment; filename="dictionaries-{suffix}.json"'
-        )
-        response.write(json.dumps({
-            'exported_at': timezone.now().isoformat(),
-            'items': payload,
-        }, ensure_ascii=False, indent=2))
-        return response
-    if normalized == 'csv':
-        response = HttpResponse(content_type='text/csv; charset=utf-8')
-        response['Content-Disposition'] = (
-            f'attachment; filename="dictionaries-{suffix}.csv"'
-        )
-        response.write('\ufeff')
-        writer = csv.writer(response, delimiter=';')
-        writer.writerow(['dictionary', 'field', 'value_map'])
-        for definition in DICTIONARY_DEFINITIONS:
-            for item in payload[definition.code]:
-                writer.writerow([
-                    definition.code,
-                    ','.join(key for key, _ in definition.columns),
-                    json.dumps(item, ensure_ascii=False),
-                ])
-        return response
-    if normalized == 'xlsx':
-        sheets = [
-            WorkbookSheet.from_rows(
-                definition.title,
-                [
-                    [label for _, label in definition.columns],
-                    *[
-                        [item.get(key, '') for key, _ in definition.columns]
-                        for item in payload[definition.code]
-                    ],
-                ],
-            )
-            for definition in DICTIONARY_DEFINITIONS
-        ]
-        return _xlsx_response(f'dictionaries-{suffix}.xlsx', sheets)
-    raise ValidationError({'format': ['Поддерживаются только csv, json и xlsx.']})
+def _dictionary_export_rows() -> list[dict]:
+    rows: list[dict] = []
+    for definition in DICTIONARY_DEFINITIONS:
+        for item in definition.queryset:
+            row = {'dictionary': definition.title}
+            row.update({
+                key: getattr(item, key, '')
+                for key, _ in definition.columns
+            })
+            rows.append(row)
+    return rows
+
+
+DICTIONARY_EXPORT_COLUMNS = (
+    ('dictionary', 'Справочник'),
+    ('id', 'Идентификатор'),
+    ('code', 'Код'),
+    ('name', 'Название'),
+    ('description', 'Описание'),
+    ('order', 'Порядок'),
+    ('max_active_tasks', 'Максимум активных задач'),
+    ('max_in_progress_tasks', 'Максимум задач в работе'),
+    ('max_active_requests', 'Максимум активных заявок'),
+)
+
+
+def export_dictionaries(fmt: str, *, user=None, title: str | None = None) -> HttpResponse:
+    return export_entity_data(
+        'dictionaries',
+        'Справочники',
+        DICTIONARY_EXPORT_COLUMNS,
+        _dictionary_export_rows(),
+        fmt,
+        user=user,
+        title=title,
+    )

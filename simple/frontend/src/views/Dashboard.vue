@@ -241,7 +241,7 @@ const tipsPanelTitle = computed(() => (
   isClient.value ? 'Как ориентироваться в кабинете' : 'Подсказки по работе'
 ))
 
-const canCreateProperty = computed(() => auth.isManager)
+const canCreateProperty = computed(() => auth.isManager || auth.isClient)
 </script>
 
 <style scoped>

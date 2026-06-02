@@ -69,7 +69,7 @@
           <InfoRow label="Агент" :value="request.agent_username || 'не назначен'" />
           <InfoRow label="Операция" :value="request.operation_type_name" />
           <InfoRow label="Тип недвижимости" :value="request.property_type || '—'" />
-          <InfoRow label="Комнат" :value="request.rooms_count || '—'" />
+          <InfoRow label="Комнат" :value="formatRoomsValue(request.property_type, request.rooms_count)" />
           <InfoRow
             label="Бюджет"
             :value="formatMoney(request.min_price) + '–' + formatMoney(request.max_price) + ' ₽'"
@@ -287,6 +287,7 @@ import { dealContractStatusHint, dealContractStatusLabel } from '@/utils/deals'
 import { downloadBlobResponse } from '@/utils/downloads'
 import { formatMoney, formatDate } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { formatRoomsValue } from '@/utils/propertyTypes'
 import {
   canTakeRequest,
   getRequestCloseSuccessMessage,

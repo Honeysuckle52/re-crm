@@ -1,4 +1,6 @@
 """API приложения ``key``."""
+import logging
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Sum, Q
@@ -17,6 +19,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from django.http import FileResponse, Http404
 
 from . import audit as audit_service
+from . import email_verification
 from . import business_rules, data_exchange, deals_service, models, reports, serializers
 from .business_rules import WorkloadLimitExceeded
 from .dadata import DadataClient
@@ -36,6 +39,7 @@ from .permissions import (
 from . import request_lifecycle
 
 User = get_user_model()
+log = logging.getLogger(__name__)
 
 
 def _employee_visible_requests_q(user, *, prefix: str = '') -> Q:
@@ -220,9 +224,69 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = serializers.RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response(serializers.UserSerializer(user).data,
-                        status=status.HTTP_201_CREATED)
+        try:
+            pending = email_verification.issue_pending_registration(
+                serializer.validated_data,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                'Email verification code was not sent to %s: %s',
+                serializer.validated_data.get('email'),
+                exc,
+            )
+            return Response(
+                {
+                    'email': [
+                        'Не удалось отправить код подтверждения. '
+                        'Проверьте email и попробуйте позже.',
+                    ],
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(
+            {
+                'verification_token': pending['token'],
+                'email': serializer.validated_data['email'],
+                'email_verification_required': True,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class VerifyEmailView(APIView):
+    """Подтверждение email по коду из письма."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = serializers.EmailVerificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        pending_data = email_verification.consume_pending_registration(
+            serializer.validated_data['token'],
+            serializer.validated_data['code'],
+        )
+        if not pending_data:
+            raise ValidationError({'code': 'Неверный или просроченный код.'})
+        register_serializer = serializers.RegisterSerializer(data=pending_data)
+        register_serializer.is_valid(raise_exception=True)
+        user = register_serializer.save()
+        user.is_email_verified = True
+        user.save(update_fields=['is_email_verified', 'updated_at'])
+        return Response(serializers.UserSerializer(user).data)
+
+
+class ResendEmailVerificationView(APIView):
+    """Повторная отправка кода подтверждения email."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = serializers.EmailVerificationResendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        sent = email_verification.resend_pending_code(
+            serializer.validated_data['token'],
+        )
+        if not sent:
+            raise ValidationError({'token': 'Регистрация не найдена или код истёк.'})
+        return Response({'detail': 'Код отправлен повторно.'})
 
 
 class LoginView(TokenObtainPairView):
@@ -425,7 +489,7 @@ class UserViewSet(viewsets.ModelViewSet):
             or 'csv'
         )
         queryset = self.filter_queryset(self.get_queryset())
-        return data_exchange.export_users(queryset, export_format)
+        return data_exchange.export_users(queryset, export_format, user=request.user)
 
     @action(detail=True, methods=['post'], url_path='assign_role')
     def assign_role(self, request, pk=None):
@@ -526,7 +590,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if self.action in {
             'update', 'partial_update', 'destroy',
             'change_status', 'import_csv', 'bulk_archive',
-            'upload_photo', 'moderation',
+            'upload_photo', 'moderation', 'approve', 'reject',
         }:
             if self.action == 'upload_photo':
                 return [IsAuthenticated()]
@@ -537,13 +601,21 @@ class PropertyViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = self.request.user
         params = self.request.query_params
+        public_status_codes = {'active', 'reserved', 'sold', 'rented'}
         if user.is_authenticated and user.is_client:
             if params.get('owner') == 'me':
                 qs = qs.filter(owner=user)
-            elif self.action in {'list', 'retrieve'}:
-                qs = qs.filter(status__code__in={'active', 'reserved', 'sold', 'rented'})
+            elif self.action == 'list':
+                qs = qs.filter(status__code__in=public_status_codes)
+            elif self.action == 'retrieve':
+                qs = qs.filter(
+                    Q(status__code__in=public_status_codes)
+                    | Q(owner=user),
+                )
             if self.action not in {'list', 'retrieve'} and params.get('owner') != 'me':
                 qs = qs.filter(owner=user)
+        elif self.action == 'list' and params.get('owner') != 'me' and not params.get('status'):
+            qs = qs.filter(status__code__in=public_status_codes)
         if params.get('owner') == 'me' and user.is_authenticated:
             qs = qs.filter(owner=user)
         return _apply_property_filters(qs, params)
@@ -628,6 +700,73 @@ class PropertyViewSet(viewsets.ModelViewSet):
               .prefetch_related('photos'),
             many=True, context={'request': request}
         ).data)
+
+    def _set_status_by_code(self, property_obj, status_code: str, *, request, action_code: str, action_label: str):
+        next_status = models.PropertyStatus.objects.filter(code=status_code).first()
+        if next_status is None:
+            return Response(
+                {'detail': f'Статус "{status_code}" не настроен.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        if property_obj.status_id == next_status.pk:
+            return Response(serializers.PropertySerializer(
+                property_obj, context={'request': request}).data)
+        transition_error = business_rules.property_status_transition_error(
+            property_obj,
+            next_status,
+        )
+        if transition_error:
+            return Response({'detail': transition_error},
+                            status=status.HTTP_400_BAD_REQUEST)
+        previous_status = property_obj.status
+        property_obj.status = next_status
+        property_obj.save(update_fields=['status', 'updated_at'])
+        models.PropertyStatusHistory.objects.create(
+            property=property_obj,
+            status=next_status,
+            changed_by=request.user,
+        )
+        audit_service.log_event(
+            entity=property_obj,
+            action_code=action_code,
+            action_label=action_label,
+            actor=request.user,
+            message=(
+                f'Объект переведён из статуса «{previous_status.name}» '
+                f'в «{next_status.name}» после проверки менеджером.'
+            ),
+            metadata={
+                'from_status_id': previous_status.pk,
+                'from_status_code': getattr(previous_status, 'code', None),
+                'to_status_id': next_status.pk,
+                'to_status_code': next_status.code,
+                'moderation_note': request.data.get('note', '') or '',
+            },
+        )
+        return Response(serializers.PropertySerializer(
+            property_obj, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, pk=None):
+        """Одобрить клиентский объект и вывести его в общий каталог."""
+        return self._set_status_by_code(
+            self.get_object(),
+            'active',
+            request=request,
+            action_code='moderation_approved',
+            action_label='Одобрение объекта',
+        )
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject(self, request, pk=None):
+        """Отклонить клиентский объект после проверки."""
+        return self._set_status_by_code(
+            self.get_object(),
+            'archived',
+            request=request,
+            action_code='moderation_rejected',
+            action_label='Отклонение объекта',
+        )
 
     def perform_update(self, serializer):
         changed_fields = sorted(serializer.validated_data.keys())
@@ -871,7 +1010,7 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     """Фото объекта и действия по альбому."""
     queryset = models.PropertyPhoto.objects.all()
     serializer_class = serializers.PropertyPhotoSerializer
-    permission_classes = [IsEmployee]
+    permission_classes = [IsClientOrAdminOrManager]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     @staticmethod
@@ -903,6 +1042,12 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated:
+            if user.is_client:
+                qs = qs.filter(property__owner=user)
+            elif user.is_employee and not user.is_admin_or_manager:
+                qs = qs.none()
         prop = self.request.query_params.get('property')
         if prop:
             qs = qs.filter(property_id=prop)
@@ -912,6 +1057,15 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         property_obj = serializer.validated_data['property']
+        user = self.request.user
+        if user.is_client and property_obj.owner_id != user.id:
+            raise ValidationError(
+                {'detail': 'Можно загружать фото только к своему объекту.'},
+            )
+        if user.is_employee and not user.is_admin_or_manager:
+            raise ValidationError(
+                {'detail': 'Сотрудникам нельзя загружать фото к объектам.'},
+            )
         has_existing = models.PropertyPhoto.objects.filter(
             property=property_obj,
         ).exists()
@@ -985,7 +1139,7 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
         if not isinstance(order, list) or not order:
             return Response({'detail': 'Нужно поле order: [id,...]'},
                             status=status.HTTP_400_BAD_REQUEST)
-        photos = list(models.PropertyPhoto.objects.filter(pk__in=order))
+        photos = list(self.get_queryset().filter(pk__in=order))
         if len({p.property_id for p in photos}) > 1:
             return Response({'detail': 'Фото разных объектов.'},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -1181,6 +1335,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         return data_exchange.export_requests(
             queryset,
             export_format,
+            user=request.user,
             title=data_exchange._export_title(
                 data_exchange.REQUEST_EXPORT_DEFINITION,
                 request.user,
@@ -1525,6 +1680,7 @@ class DealViewSet(viewsets.ModelViewSet):
         return data_exchange.export_deals(
             queryset,
             export_format,
+            user=request.user,
             title=data_exchange._export_title(
                 data_exchange.DEAL_EXPORT_DEFINITION,
                 request.user,
@@ -1811,6 +1967,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         return data_exchange.export_tasks(
             queryset,
             export_format,
+            user=request.user,
             title=data_exchange._export_title(
                 data_exchange.TASK_EXPORT_DEFINITION,
                 request.user,
@@ -2233,6 +2390,26 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(action_code=params['action_code'])
         return qs
 
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='export',
+        permission_classes=[IsAdminOrManager],
+    )
+    def export(self, request):
+        """Экспорт журнала аудита в CSV, JSON или XLSX."""
+        export_format = (
+            request.query_params.get('export_format')
+            or request.query_params.get('format')
+            or 'csv'
+        )
+        queryset = self.filter_queryset(self.get_queryset())
+        return data_exchange.export_audit(
+            queryset,
+            export_format,
+            user=request.user,
+        )
+
 
 class DashboardStatsView(APIView):
     """Агрегированные показатели учётной системы."""
@@ -2282,6 +2459,7 @@ class PropertyExportView(APIView):
         return data_exchange.export_properties(
             queryset,
             export_format,
+            user=request.user,
             title=data_exchange._export_title(
                 data_exchange.PROPERTY_EXPORT_DEFINITION,
                 request.user,
@@ -2306,6 +2484,7 @@ class DealsReportView(APIView):
                 export_format,
                 ordering=payload.get('ordering'),
                 title=payload.get('title'),
+                user=request.user,
             )
         return Response({
             'report_code': payload['definition'].code,
@@ -2329,7 +2508,7 @@ class DictionaryExportView(APIView):
 
     def get(self, request):
         export_format = request.query_params.get('export_format', 'json')
-        return data_exchange.export_dictionaries(export_format)
+        return data_exchange.export_dictionaries(export_format, user=request.user)
 
 
 class TasksReportView(APIView):
@@ -2349,6 +2528,7 @@ class TasksReportView(APIView):
                 export_format,
                 ordering=payload.get('ordering'),
                 title=payload.get('title'),
+                user=request.user,
             )
         return Response({
             'report_code': payload['definition'].code,

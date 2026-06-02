@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -61,14 +62,27 @@ class AuthLogoutTests(TestCase):
 class ClientRegistrationProfileDetailsTests(TestCase):
     def setUp(self):
         self.api = APIClient()
+        cache.clear()
 
-    def test_register_individual_creates_separate_passport_details(self):
+    def _verify_registration(self, register_response, code='123456'):
+        self.assertEqual(register_response.status_code, 202)
+        token = register_response.data['verification_token']
+        return self.api.post(
+            '/api/auth/verify-email/',
+            {'token': token, 'code': code},
+            format='json',
+        )
+
+    @patch('key.mailing._send_direct_email')
+    @patch('key.email_verification.generate_code', return_value='123456')
+    def test_register_individual_creates_separate_passport_details(self, _code_mock, _send_mock):
         response = self.api.post(
             '/api/auth/register/',
             {
                 'username': 'reg-individual',
                 'email': 'reg-individual@example.com',
                 'password': 'Secret123!',
+                'password_confirm': 'Secret123!',
                 'first_name': 'Иван',
                 'last_name': 'Клиентов',
                 'client_kind': models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
@@ -78,38 +92,111 @@ class ClientRegistrationProfileDetailsTests(TestCase):
                 'passport_issued_by': 'ОУФМС России по Иркутской области',
                 'passport_issued_date': '2010-06-20',
                 'passport_code': '380-001',
+                'registration_address': 'г. Иркутск, ул. Ленина, д. 10',
             },
             format='json',
         )
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 202)
+        self.assertFalse(models.User.objects.filter(username='reg-individual').exists())
+        verify_response = self._verify_registration(response)
+        self.assertEqual(verify_response.status_code, 200)
         user = models.User.objects.get(username='reg-individual')
         profile = user.client_profile
+        self.assertTrue(user.is_email_verified)
         self.assertEqual(profile.client_kind, models.ClientProfile.CLIENT_KIND_INDIVIDUAL)
         self.assertEqual(profile.individual_details.passport_number, '567890')
         self.assertFalse(models.ClientCompanyDetails.objects.filter(profile=profile).exists())
 
-    def test_register_company_creates_separate_company_details(self):
+    @patch('key.mailing._send_direct_email')
+    @patch('key.email_verification.generate_code', return_value='123456')
+    def test_register_company_creates_separate_company_details(self, _code_mock, _send_mock):
         response = self.api.post(
             '/api/auth/register/',
             {
                 'username': 'reg-company',
                 'email': 'reg-company@example.com',
                 'password': 'Secret123!',
+                'password_confirm': 'Secret123!',
                 'first_name': 'Мария',
                 'last_name': 'Директорова',
                 'client_kind': models.ClientProfile.CLIENT_KIND_COMPANY,
                 'company_inn': '3808000000',
+                'registration_address': 'г. Иркутск, ул. Ленина, д. 10',
             },
             format='json',
         )
 
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 202)
+        self.assertFalse(models.User.objects.filter(username='reg-company').exists())
+        verify_response = self._verify_registration(response)
+        self.assertEqual(verify_response.status_code, 200)
         user = models.User.objects.get(username='reg-company')
         profile = user.client_profile
+        self.assertTrue(user.is_email_verified)
         self.assertEqual(profile.client_kind, models.ClientProfile.CLIENT_KIND_COMPANY)
         self.assertEqual(profile.company_details.company_inn, '3808000000')
         self.assertFalse(models.ClientIndividualDetails.objects.filter(profile=profile).exists())
+
+    def test_register_rejects_password_mismatch(self):
+        response = self.api.post(
+            '/api/auth/register/',
+            {
+                'username': 'reg-mismatch',
+                'email': 'reg-mismatch@example.com',
+                'password': 'Secret123!',
+                'password_confirm': 'OtherSecret123!',
+                'first_name': 'Иван',
+                'last_name': 'Клиентов',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('password_confirm', response.data)
+        self.assertFalse(models.User.objects.filter(username='reg-mismatch').exists())
+
+    @patch('key.mailing._send_direct_email')
+    @patch('key.email_verification.generate_code', return_value='123456')
+    def test_unconfirmed_registration_is_not_saved_to_database(self, _code_mock, _send_mock):
+        response = self.api.post(
+            '/api/auth/register/',
+            {
+                'username': 'reg-unconfirmed',
+                'email': 'reg-unconfirmed@example.com',
+                'password': 'Secret123!',
+                'password_confirm': 'Secret123!',
+                'first_name': 'Иван',
+                'last_name': 'Клиентов',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIn('verification_token', response.data)
+        self.assertFalse(models.User.objects.filter(username='reg-unconfirmed').exists())
+        self.assertFalse(models.ClientProfile.objects.filter(user__username='reg-unconfirmed').exists())
+        _send_mock.assert_called_once()
+
+    @patch('key.mailing.send_email_verification_code', side_effect=RuntimeError('SMTP failed'))
+    def test_register_does_not_save_user_when_email_code_cannot_be_sent(self, _send_mock):
+        response = self.api.post(
+            '/api/auth/register/',
+            {
+                'username': 'reg-mail-failed',
+                'email': 'reg-mail-failed@example.com',
+                'password': 'Secret123!',
+                'password_confirm': 'Secret123!',
+                'first_name': 'Иван',
+                'last_name': 'Клиентов',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('email', response.data)
+        self.assertFalse(models.User.objects.filter(username='reg-mail-failed').exists())
+        _send_mock.assert_called_once()
 
     def test_client_profile_update_switches_between_detail_tables(self):
         user = models.User.objects.create_user(
@@ -135,6 +222,7 @@ class ClientRegistrationProfileDetailsTests(TestCase):
             {
                 'client_kind': models.ClientProfile.CLIENT_KIND_COMPANY,
                 'company_inn': '3808000000',
+                'registration_address': 'г. Иркутск, ул. Ленина, д. 10',
             },
             format='json',
         )
@@ -940,6 +1028,89 @@ class RequestClosePermissionTests(TestCase):
         )
 
 
+class RequestOwnPropertyTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Sale',
+        )
+        self.request_status_open = models.RequestStatus.objects.create(
+            code='open',
+            name='Open',
+        )
+        self.property_status_active = models.PropertyStatus.objects.create(
+            code='active',
+            name='Active',
+        )
+        city = models.City.objects.create(name='Irkutsk')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='1')
+        self.address = models.Address.objects.create(house=house)
+        self.owner = models.User.objects.create_user(
+            username='own-property-owner',
+            email='own-property-owner@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.other_client = models.User.objects.create_user(
+            username='own-property-other-client',
+            email='own-property-other-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.property_obj = models.Property.objects.create(
+            title='Owner property',
+            operation_type=self.operation_type,
+            status=self.property_status_active,
+            address=self.address,
+            owner=self.owner,
+            price=5_000_000,
+        )
+
+    def test_owner_cannot_create_request_for_own_property(self):
+        self.api.force_authenticate(user=self.owner)
+
+        response = self.api.post(
+            '/api/requests/',
+            {
+                'operation_type': self.operation_type.pk,
+                'property': self.property_obj.pk,
+                'status': self.request_status_open.pk,
+                'description': 'Call me',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('property', response.data)
+        self.assertFalse(
+            models.Request.objects.filter(
+                client=self.owner,
+                property=self.property_obj,
+            ).exists(),
+        )
+
+    def test_other_client_can_create_request_for_property(self):
+        self.api.force_authenticate(user=self.other_client)
+
+        response = self.api.post(
+            '/api/requests/',
+            {
+                'operation_type': self.operation_type.pk,
+                'property': self.property_obj.pk,
+                'status': self.request_status_open.pk,
+                'description': 'Interested in viewing',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        request_obj = models.Request.objects.get(pk=response.data['id'])
+        self.assertEqual(request_obj.client_id, self.other_client.id)
+        self.assertEqual(request_obj.property_id, self.property_obj.id)
+
+
 class RequestEditingRulesTests(TestCase):
     def setUp(self):
         self.api = APIClient()
@@ -1443,8 +1614,9 @@ class ReportApiTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         rows = load_xlsx_rows(response.content, sheet_name='Данные')
-        self.assertEqual(rows[0][1], 'Задача')
-        self.assertTrue(any('Prepare documents' in row for row in rows[1:]))
+        self.assertIn('Отчёт по задачам', rows[0][0])
+        self.assertTrue(any('Задача' in row for row in rows))
+        self.assertTrue(any('Prepare documents' in row for row in rows))
 
     def test_tasks_report_can_export_pdf(self):
         self.api.force_authenticate(user=self.manager)
@@ -1637,10 +1809,13 @@ class DataExchangeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('application/json', response['Content-Type'])
-        self.assertIn('"items"', response.content.decode('utf-8'))
+        self.assertIn('"Данные"', response.content.decode('utf-8'))
         self.assertIn('Тестовый объект', response.content.decode('utf-8'))
         payload = json.loads(response.content.decode('utf-8'))
-        self.assertIn(self.manager.username, payload['title'])
+        self.assertIn(self.manager.username, payload['Название'])
+        self.assertEqual(payload['Количество'], 2)
+        self.assertIn('Идентификатор', payload['Данные'][0])
+        self.assertNotIn('description', payload['Данные'][0])
 
     def test_request_export_json_respects_filters(self):
         models.Request.objects.create(
@@ -1660,10 +1835,10 @@ class DataExchangeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = json.loads(response.content.decode('utf-8'))
-        self.assertEqual(payload['count'], 1)
-        self.assertIn('Заявки', payload['title'])
-        self.assertIn(self.manager.username, payload['title'])
-        self.assertEqual(payload['items'][0]['description'], 'Экспортная заявка')
+        self.assertEqual(payload['Количество'], 1)
+        self.assertIn('Заявки', payload['Название'])
+        self.assertIn(self.manager.username, payload['Название'])
+        self.assertEqual(payload['Данные'][0]['Описание'], 'Экспортная заявка')
 
     def test_request_export_is_forbidden_for_employee(self):
         self.api.force_authenticate(user=self.employee)
@@ -1688,7 +1863,7 @@ class DataExchangeApiTests(TestCase):
         rows = load_xlsx_rows(response.content, sheet_name='Задачи')
         self.assertIn('Задачи', rows[0][0])
         self.assertIn(self.manager.username, rows[0][0])
-        self.assertEqual(rows[2][1], 'title')
+        self.assertEqual(rows[2][1], 'Название')
         self.assertTrue(any('Экспортная задача' in row for row in rows[3:]))
 
     def test_task_export_is_forbidden_for_employee(self):
@@ -1722,8 +1897,9 @@ class DataExchangeApiTests(TestCase):
 
         self.assertEqual(allowed.status_code, 200)
         body = allowed.content.decode('utf-8')
-        self.assertIn('"items"', body)
+        self.assertIn('"Данные"', body)
         self.assertIn('exchange-employee', body)
+        self.assertIn('clients_exchange-manager_', allowed['Content-Disposition'])
 
     def test_property_export_xlsx_returns_catalog(self):
         self.api.force_authenticate(user=self.manager)
@@ -1738,7 +1914,7 @@ class DataExchangeApiTests(TestCase):
         rows = load_xlsx_rows(response.content)
         self.assertIn('Объекты', rows[0][0])
         self.assertIn(self.manager.username, rows[0][0])
-        self.assertEqual(rows[2][1], 'title')
+        self.assertEqual(rows[2][1], 'Название')
         self.assertTrue(any('Тестовый объект' in row for row in rows[3:]))
 
     def test_agent_cannot_create_property(self):
@@ -1900,8 +2076,9 @@ class DataExchangeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('application/json', response['Content-Type'])
         body = response.content.decode('utf-8')
-        self.assertIn('"operation_types"', body)
-        self.assertIn('"user_roles"', body)
+        self.assertIn('"Данные"', body)
+        self.assertIn('Типы операций', body)
+        self.assertIn('Роли пользователей', body)
 
     def test_dictionary_export_xlsx_returns_reference_bundle(self):
         self.api.force_authenticate(user=self.manager)
@@ -1913,9 +2090,280 @@ class DataExchangeApiTests(TestCase):
             response['Content-Type'],
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
-        rows = load_xlsx_rows(response.content, sheet_name='Типы операций')
-        self.assertEqual(rows[0], ['id', 'code', 'name'])
-        self.assertTrue(any('sale' in row for row in rows[1:]))
+        rows = load_xlsx_rows(response.content, sheet_name='Справочники')
+        self.assertIn('Справочники', rows[0][0])
+        self.assertEqual(rows[2][0], 'Справочник')
+        self.assertTrue(any('sale' in row for row in rows[3:]))
+
+
+class PropertyClientVisibilityTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.operation_type = models.OperationType.objects.create(
+            code='sale',
+            name='Продажа',
+        )
+        self.pending_status = models.PropertyStatus.objects.create(
+            code='pending',
+            name='На модерации',
+        )
+        self.active_status = models.PropertyStatus.objects.create(
+            code='active',
+            name='Активно',
+        )
+        self.archived_status = models.PropertyStatus.objects.create(
+            code='archived',
+            name='Архив',
+        )
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Менеджер',
+        )
+        city = models.City.objects.create(name='Иркутск')
+        street = models.Street.objects.create(city=city, name='Ленина')
+        house = models.House.objects.create(street=street, house_number='1')
+        self.address = models.Address.objects.create(house=house)
+        self.client_user = models.User.objects.create_user(
+            username='property-owner',
+            email='property-owner@example.com',
+            password='Secret123!',
+            user_type='client',
+            phone='+79990000001',
+        )
+        self.other_client = models.User.objects.create_user(
+            username='property-other-client',
+            email='property-other-client@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.manager = models.User.objects.create_user(
+            username='property-manager',
+            email='property-manager@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=self.manager_role,
+        )
+
+    def test_client_create_property_sets_owner_and_pending_status(self):
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Client warehouse',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PREMISES_WAREHOUSE,
+                'address': self.address.pk,
+                'price': 5_000_000,
+                'area_total': '120.00',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        property_obj = models.Property.objects.get(pk=response.data['id'])
+        self.assertEqual(property_obj.owner_id, self.client_user.id)
+        self.assertEqual(property_obj.status.code, 'pending')
+
+    def test_client_can_upload_photo_to_own_pending_property(self):
+        property_obj = models.Property.objects.create(
+            title='Own pending property with photo',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+            premises_type=models.Property.PREMISES_WAREHOUSE,
+            area_total='120.00',
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.post(
+            '/api/property-photos/',
+            {
+                'property': property_obj.pk,
+                'url': 'https://example.com/client-photo.jpg',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        photo = models.PropertyPhoto.objects.get(pk=response.data['id'])
+        self.assertEqual(photo.property_id, property_obj.pk)
+
+    def test_client_can_retrieve_own_pending_property(self):
+        property_obj = models.Property.objects.create(
+            title='Own pending property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get(f'/api/properties/{property_obj.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['id'], property_obj.pk)
+
+    def test_pending_property_is_hidden_from_public_catalog(self):
+        pending_property = models.Property.objects.create(
+            title='Pending public hidden property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        active_property = models.Property.objects.create(
+            title='Active public property',
+            operation_type=self.operation_type,
+            status=self.active_status,
+            address=self.address,
+            owner=self.other_client,
+            price=6_000_000,
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get('/api/properties/')
+
+        self.assertEqual(response.status_code, 200)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertNotIn(pending_property.pk, ids)
+        self.assertIn(active_property.pk, ids)
+
+    def test_client_sees_own_pending_property_only_in_my_properties(self):
+        pending_property = models.Property.objects.create(
+            title='Own pending list property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get('/api/properties/?owner=me')
+
+        self.assertEqual(response.status_code, 200)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertIn(pending_property.pk, ids)
+
+    def test_client_cannot_retrieve_foreign_pending_property(self):
+        property_obj = models.Property.objects.create(
+            title='Foreign pending property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.other_client,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get(f'/api/properties/{property_obj.pk}/')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_manager_moderation_lists_pending_with_owner_contacts(self):
+        property_obj = models.Property.objects.create(
+            title='Pending moderation property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/properties/moderation/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data[0]['id'], property_obj.pk)
+        self.assertEqual(response.data[0]['owner_email'], self.client_user.email)
+        self.assertEqual(response.data[0]['owner_phone'], self.client_user.phone)
+
+    def test_manager_can_approve_pending_property(self):
+        property_obj = models.Property.objects.create(
+            title='Approve property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(f'/api/properties/{property_obj.pk}/approve/')
+
+        self.assertEqual(response.status_code, 200)
+        property_obj.refresh_from_db()
+        self.assertEqual(property_obj.status.code, 'active')
+
+    def test_manager_can_reject_pending_property(self):
+        property_obj = models.Property.objects.create(
+            title='Reject property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(f'/api/properties/{property_obj.pk}/reject/')
+
+        self.assertEqual(response.status_code, 200)
+        property_obj.refresh_from_db()
+        self.assertEqual(property_obj.status.code, 'archived')
+
+    def test_warehouse_rejects_rooms_and_floors(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Invalid warehouse',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PREMISES_WAREHOUSE,
+                'address': self.address.pk,
+                'price': 5_000_000,
+                'area_total': '120.00',
+                'rooms_count': 2,
+                'floor_number': 1,
+                'total_floors': 1,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('rooms_count', response.data)
+        self.assertIn('floor_number', response.data)
+        self.assertIn('total_floors', response.data)
+
+    def test_house_rejects_separate_floor_number(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Invalid house',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PREMISES_HOUSE,
+                'address': self.address.pk,
+                'price': 5_000_000,
+                'area_total': '120.00',
+                'floor_number': 1,
+                'total_floors': 2,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('floor_number', response.data)
 
 
 class AuditLogApiTests(TestCase):
@@ -3997,11 +4445,16 @@ class DealStatusTransitionTests(TestCase):
 class PropertyPhotoCoverTests(TestCase):
     def setUp(self):
         self.api = APIClient()
+        self.manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
         self.employee = models.User.objects.create_user(
             username='photo-user',
             email='photo-user@example.com',
             password='Secret123!',
             user_type='employee',
+            role=self.manager_role,
         )
         self.operation_type = models.OperationType.objects.create(
             code='sale',

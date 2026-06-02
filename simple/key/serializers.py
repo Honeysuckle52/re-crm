@@ -128,7 +128,6 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
         )
         if self.user is None or not self.user.is_active:
             raise AuthenticationFailed('Неверная почта или пароль.')
-
         refresh = self.get_token(self.user)
         return {
             'refresh': str(refresh),
@@ -254,8 +253,11 @@ class RegisterSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(
         write_only=True, max_length=20, required=False, allow_blank=True,
     )
-    password = serializers.CharField(write_only=True,
-                                     validators=[validate_password])
+    password = serializers.CharField(
+        write_only=True, required=False, validators=[validate_password],
+    )
+    password_confirm = serializers.CharField(write_only=True, required=False)
+    password_hash = serializers.CharField(write_only=True, required=False)
 
     first_name = serializers.CharField(write_only=True, max_length=50)
     last_name = serializers.CharField(write_only=True, max_length=50)
@@ -313,7 +315,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'username', 'email', 'phone', 'password',
+            'username', 'email', 'phone',
+            'password', 'password_confirm', 'password_hash',
             'first_name', 'last_name', 'middle_name', 'client_kind',
             'contract_data_required',
             'passport_series', 'passport_number', 'passport_issued_by',
@@ -348,6 +351,16 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         validate_requisite_dates(attrs)
+        has_password = bool(attrs.get('password'))
+        has_password_hash = bool(attrs.get('password_hash'))
+        if not has_password and not has_password_hash:
+            raise serializers.ValidationError({
+                'password': 'Укажите пароль.',
+            })
+        if has_password and attrs.get('password') != attrs.get('password_confirm'):
+            raise serializers.ValidationError({
+                'password_confirm': 'Пароли не совпадают.',
+            })
         client_kind = attrs.get(
             'client_kind',
             models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
@@ -403,10 +416,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         username = (validated_data.pop('username', '') or '').strip()
         validated_data.pop('contract_data_required', None)
+        validated_data.pop('password_confirm', None)
+        password_hash = validated_data.pop('password_hash', None)
         email = validated_data.get('email')
         if not username:
             username = self._generate_username(email)
-        password = validated_data.pop('password')
+        password = validated_data.pop('password', None)
         profile_data = {f: validated_data.pop(f, None)
                         for f in self._PROFILE_FIELDS}
         individual_data = {f: validated_data.pop(f, None)
@@ -431,7 +446,10 @@ class RegisterSerializer(serializers.ModelSerializer):
                 is_superuser=False,
                 **validated_data,
             )
-            user.set_password(password)
+            if password_hash:
+                user.password = password_hash
+            else:
+                user.set_password(password)
             user.save()
             profile = models.ClientProfile.objects.create(
                 user=user,
@@ -457,6 +475,23 @@ class RegisterSerializer(serializers.ModelSerializer):
                     },
                 )
         return user
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    """Подтверждение email одноразовым кодом."""
+    token = serializers.CharField(max_length=128)
+    code = serializers.CharField(max_length=6, min_length=6, trim_whitespace=True)
+
+    def validate_code(self, value):
+        normalized = re.sub(r'\D', '', value)
+        if len(normalized) != 6:
+            raise serializers.ValidationError('Введите 6 цифр из письма.')
+        return normalized
+
+
+class EmailVerificationResendSerializer(serializers.Serializer):
+    """Повторная отправка кода подтверждения."""
+    token = serializers.CharField(max_length=128)
 
 
 class UserRoleAssignSerializer(serializers.Serializer):
@@ -819,6 +854,8 @@ class PropertySerializer(serializers.ModelSerializer):
     full_address = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
     owner_username = serializers.CharField(source='owner.username', read_only=True)
+    owner_email = serializers.EmailField(source='owner.email', read_only=True)
+    owner_phone = serializers.CharField(source='owner.phone', read_only=True)
     address_data = AddressNestedWriteSerializer(required=False, write_only=True)
     address = serializers.PrimaryKeyRelatedField(
         queryset=models.Address.objects.all(), required=False,
@@ -831,7 +868,7 @@ class PropertySerializer(serializers.ModelSerializer):
             'status', 'status_name', 'status_code', 'allowed_status_ids',
             'address', 'address_data', 'full_address',
             'coordinates_lat', 'coordinates_lon',
-            'premises_type', 'owner', 'owner_username',
+            'premises_type', 'owner', 'owner_username', 'owner_email', 'owner_phone',
             'price', 'price_per_sqm',
             'area_total',
             'rooms_count', 'floor_number', 'total_floors',
@@ -904,16 +941,24 @@ class PropertySerializer(serializers.ModelSerializer):
             if total_floors in (None, ''):
                 errors['total_floors'] = 'Для квартиры укажите общее количество этажей.'
         elif premises_type == models.Property.PREMISES_HOUSE:
+            if floor_number not in (None, ''):
+                errors['floor_number'] = 'Для дома отдельный этаж не указывается.'
             if total_floors in (None, ''):
                 errors['total_floors'] = 'Для дома укажите количество этажей.'
-        elif premises_type in {
-            models.Property.PREMISES_OFFICE,
-            models.Property.PREMISES_WAREHOUSE,
-        }:
+        elif premises_type == models.Property.PREMISES_WAREHOUSE:
             if area_total in (None, ''):
-                errors['area_total'] = 'Для офиса или склада укажите площадь.'
+                errors['area_total'] = 'Для склада укажите площадь.'
             if rooms_count not in (None, ''):
-                errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
+                errors['rooms_count'] = 'Для склада количество комнат не используется.'
+            if floor_number not in (None, ''):
+                errors['floor_number'] = 'Для склада этаж не указывается.'
+            if total_floors not in (None, ''):
+                errors['total_floors'] = 'Для склада количество этажей не указывается.'
+        elif premises_type == models.Property.PREMISES_OFFICE:
+            if area_total in (None, ''):
+                errors['area_total'] = 'Для офиса укажите площадь.'
+            if rooms_count not in (None, ''):
+                errors['rooms_count'] = 'Для офиса количество комнат не используется.'
 
         if errors:
             raise serializers.ValidationError(errors)

@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 TEMPLATE_PROPERTY_MATCHED = 'property_matched'
 TEMPLATE_REQUEST_TAKEN = 'request_taken'
 TEMPLATE_REQUEST_CLOSED = 'request_closed'
+TEMPLATE_EMAIL_VERIFICATION = 'email_verification'
 TEMPLATE_TASK_ASSIGNED = 'task_assigned'
 TEMPLATE_TASK_ASSIGNED_CALL = 'task_assigned_call'
 TEMPLATE_TASK_ASSIGNED_SHOWING = 'task_assigned_showing'
@@ -182,6 +183,53 @@ def _build_email_message(email: models.OutgoingEmail, *, connection_obj):
     if html_body:
         msg.attach_alternative(html_body, 'text/html')
     return msg
+
+
+def _send_direct_email(
+    *,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    to_email: str,
+) -> None:
+    """Отправляет письмо без записи в OutgoingEmail."""
+    attempts = _smtp_attempts()
+    last_exc: Exception | None = None
+    attempt_errors: list[str] = []
+
+    for index, config in enumerate(attempts, start=1):
+        connection_obj = _build_smtp_connection(config)
+        msg = EmailMultiAlternatives(
+            subject,
+            text_body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[to_email],
+            reply_to=[settings.AGENCY_REPLY_TO] if getattr(settings, 'AGENCY_REPLY_TO', '') else None,
+            connection=connection_obj,
+        )
+        if html_body:
+            msg.attach_alternative(html_body, 'text/html')
+
+        old_default = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(config['timeout'])
+        try:
+            msg.send(fail_silently=False)
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            attempt_errors.append(
+                f"{config['host']}:{config['port']} ssl={config['use_ssl']} "
+                f"tls={config['use_tls']} -> {exc}"
+            )
+            if not (index < len(attempts) and _is_retryable_smtp_error(exc)):
+                break
+        finally:
+            socket.setdefaulttimeout(old_default)
+
+    if last_exc is not None:
+        if attempt_errors:
+            raise RuntimeError(' | '.join(attempt_errors)) from last_exc
+        raise last_exc
 
 
 def _send_via_smtp(email: models.OutgoingEmail) -> None:
@@ -401,6 +449,29 @@ def _enqueue_by_template(
         getattr(task, 'pk', None), getattr(property_obj, 'pk', None),
     )
     return email
+
+
+def send_email_verification_code(
+    *,
+    to_email: str,
+    code: str,
+    client_name: str = '',
+) -> None:
+    """Отправляет код подтверждения до создания пользователя в БД."""
+    ctx = {
+        'agency_name': settings.AGENCY_NAME,
+        'public_url': settings.AGENCY_PUBLIC_URL,
+        'client_name': client_name,
+        'verification_code': code,
+        'ttl_minutes': getattr(settings, 'EMAIL_VERIFICATION_CODE_TTL_MINUTES', 15),
+    }
+    subject, text, html = _render(TEMPLATE_EMAIL_VERIFICATION, ctx)
+    _send_direct_email(
+        subject=subject,
+        text_body=text,
+        html_body=html,
+        to_email=to_email,
+    )
 
 
 def enqueue_request_taken(*, request: models.Request, agent: models.User) -> models.OutgoingEmail | None:

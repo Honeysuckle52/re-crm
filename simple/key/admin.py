@@ -89,6 +89,7 @@ def _admin_reports_view(request):
             payload['rows'],
             export_format,
             ordering=payload['ordering'],
+            user=request.user,
         )
 
     base_query = request.GET.copy()

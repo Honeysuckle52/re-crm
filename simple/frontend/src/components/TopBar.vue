@@ -4,6 +4,7 @@
       <router-link to="/">Сводка</router-link>
       <router-link to="/properties">Объекты</router-link>
       <router-link v-if="auth.isClient" to="/my-properties">Мои объекты</router-link>
+      <router-link v-if="auth.isManager" to="/properties/moderation">Модерация</router-link>
       <router-link to="/requests">Заявки</router-link>
       <router-link v-if="canSeeTasks" to="/tasks">Задачи</router-link>
       <router-link v-if="canSeeDeals" to="/deals">Сделки</router-link>

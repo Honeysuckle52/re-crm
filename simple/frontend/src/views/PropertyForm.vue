@@ -83,16 +83,21 @@
         </div>
         <div class="field">
           <label>Количество комнат</label>
-          <input class="input" type="number" v-model.number="form.rooms_count"
-                 :disabled="isRoomsDisabled" :placeholder="isRoomsDisabled ? 'Не применяется' : ''" />
-        </div>
-        <div class="field">
-          <label>Этаж / всего этажей</label>
-          <div class="row property-form__floor-row">
-            <input class="input" type="number" v-model.number="form.floor_number" />
-            <input class="input" type="number" v-model.number="form.total_floors" />
+            <input class="input" type="number" v-model.number="form.rooms_count"
+                   :disabled="isRoomsDisabled" :placeholder="isRoomsDisabled ? 'Не применяется' : ''" />
           </div>
-        </div>
+          <div class="field">
+            <label>Этаж / всего этажей</label>
+            <div class="row property-form__floor-row">
+            <input class="input" type="number" v-model.number="form.floor_number"
+                   :disabled="isFloorDisabled" :placeholder="isFloorDisabled ? 'Не применяется' : 'Этаж'" />
+            <input class="input" type="number" v-model.number="form.total_floors"
+                   :disabled="isTotalFloorsDisabled" :placeholder="isTotalFloorsDisabled ? 'Не применяется' : 'Всего'" />
+            </div>
+            <div v-if="floorRestrictionHint" class="muted" style="font-size: 12px; margin-top: 4px">
+              {{ floorRestrictionHint }}
+            </div>
+          </div>
 
         <div class="field">
           <label>Общая площадь, м²</label>
@@ -213,6 +218,11 @@ import { useDraftPersistence } from '../composables/useDraftPersistence'
 import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { extractError, useToastsStore } from '../store/toasts'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import {
+  propertyTypeUsesFloor,
+  propertyTypeUsesRooms,
+  propertyTypeUsesTotalFloors,
+} from '@/utils/propertyTypes'
 
 const route = useRoute()
 const router = useRouter()
@@ -256,7 +266,14 @@ const addressStateLabel = computed(() => {
   return 'Не указан'
 })
 const selectedFeaturesCount = computed(() => 0)
-const isRoomsDisabled = computed(() => ['office', 'warehouse'].includes(form.premises_type))
+const isRoomsDisabled = computed(() => !propertyTypeUsesRooms(form.premises_type))
+const isFloorDisabled = computed(() => !propertyTypeUsesFloor(form.premises_type))
+const isTotalFloorsDisabled = computed(() => !propertyTypeUsesTotalFloors(form.premises_type))
+const floorRestrictionHint = computed(() => {
+  if (form.premises_type === 'warehouse') return 'Для склада этажи и комнаты не указываются.'
+  if (form.premises_type === 'house') return 'Для дома укажите только общее количество этажей.'
+  return ''
+})
 const photoCount = computed(() => photos.value.length)
 const coverCount = computed(() => photos.value.filter((photo) => photo.is_cover).length)
 const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
@@ -519,8 +536,8 @@ async function submit() {
       price_per_sqm: form.price_per_sqm,
       area_total: form.area_total,
       rooms_count: isRoomsDisabled.value ? null : form.rooms_count,
-      floor_number: form.floor_number,
-      total_floors: form.total_floors,
+      floor_number: isFloorDisabled.value ? null : form.floor_number,
+      total_floors: isTotalFloorsDisabled.value ? null : form.total_floors,
       description: form.description,
     }
     if (addressPicked.value) {
@@ -559,8 +576,14 @@ watch(() => `${route.name || ''}:${route.params.id || 'new'}`, () => {
   void initializeForm()
 }, { immediate: true })
 watch(() => form.premises_type, (value) => {
-  if (value === 'office' || value === 'warehouse') {
+  if (!propertyTypeUsesRooms(value)) {
     form.rooms_count = null
+  }
+  if (!propertyTypeUsesFloor(value)) {
+    form.floor_number = null
+  }
+  if (!propertyTypeUsesTotalFloors(value)) {
+    form.total_floors = null
   }
 })
 

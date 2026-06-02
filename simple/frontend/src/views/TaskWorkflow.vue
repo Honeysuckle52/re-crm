@@ -157,8 +157,13 @@
             </div>
             <div class="field">
               <label>Тип недвижимости</label>
-              <input class="input" v-model="newRequest.property_type"
-                     placeholder="Квартира / дом / коммерция…" />
+              <select class="select" v-model="newRequest.property_type">
+                <option value="">Выберите тип</option>
+                <option value="apartment">Квартира</option>
+                <option value="house">Дом</option>
+                <option value="office">Офис</option>
+                <option value="warehouse">Склад</option>
+              </select>
             </div>
             <div class="field">
               <label>Цена от</label>
@@ -170,7 +175,12 @@
             </div>
             <div class="field">
               <label>Комнат</label>
-              <input class="input" type="number" v-model.number="newRequest.rooms_count" />
+              <input
+                class="input"
+                type="number"
+                v-model.number="newRequest.rooms_count"
+                :disabled="isNewRequestRoomsDisabled"
+                :placeholder="isNewRequestRoomsDisabled ? 'Не применяется' : ''" />
             </div>
             <div class="field">
               <label>Район / адрес</label>
@@ -286,6 +296,7 @@ import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatDateShort as formatDate } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
 import { activeRequestStatusCodes } from '@/utils/requestClose'
 
 const route = useRoute()
@@ -374,6 +385,7 @@ const completedStepCount = computed(() => (
   steps.value.filter((step) => step.done).length
 ))
 const isTerminalTask = computed(() => ['done', 'cancelled'].includes(task.value?.status_code))
+const isNewRequestRoomsDisabled = computed(() => !propertyTypeUsesRooms(newRequest.property_type))
 
 const activeRequestId = computed(() => (
   task.value?.request || clientActiveRequest.value?.id || null
@@ -568,6 +580,9 @@ async function createRequest () {
   if (!task.value.client) return
   busy.value = true
   const payload = { client: task.value.client }
+  if (!propertyTypeUsesRooms(newRequest.property_type)) {
+    newRequest.rooms_count = null
+  }
   for (const [k, v] of Object.entries(newRequest)) {
     if (v === null || v === '' || Number.isNaN(v)) continue
     payload[k] = v
@@ -645,6 +660,12 @@ async function submitComplete () {
 watch(() => route.params.id, () => {
   void load({ reset: true })
 }, { immediate: true })
+
+watch(() => newRequest.property_type, (value) => {
+  if (!propertyTypeUsesRooms(value)) {
+    newRequest.rooms_count = null
+  }
+})
 </script>
 
 <style scoped>

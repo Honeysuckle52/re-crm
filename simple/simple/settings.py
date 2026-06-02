@@ -159,7 +159,7 @@ DJANGO_VITE = {
 EMAIL_BACKEND = os.getenv(
     'EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend',
 )
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.mail.ru')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.yandex.ru')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True').lower() == 'true'
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False').lower() == 'true'
@@ -169,9 +169,12 @@ if EMAIL_USE_SSL and EMAIL_USE_TLS:
     EMAIL_USE_TLS = False
 
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '30'))
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'danil_naumov_90@bk.ru')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@example.com')
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = int(
+    os.getenv('EMAIL_VERIFICATION_CODE_TTL_MINUTES', '15'),
+)
 EMAIL_FALLBACK_ENABLED = os.getenv('EMAIL_FALLBACK_ENABLED', '').lower() in {
     '1', 'true', 'yes', 'on',
 } if os.getenv('EMAIL_FALLBACK_ENABLED') is not None else EMAIL_USE_SSL

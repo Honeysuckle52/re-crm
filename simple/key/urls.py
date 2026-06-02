@@ -42,6 +42,12 @@ router.register('audit-log', views.AuditLogViewSet, basename='audit-log')
 
 urlpatterns = [
     path('auth/register/', views.RegisterView.as_view(), name='register'),
+    path('auth/verify-email/', views.VerifyEmailView.as_view(), name='verify_email'),
+    path(
+        'auth/resend-email-code/',
+        views.ResendEmailVerificationView.as_view(),
+        name='resend_email_code',
+    ),
     path('auth/login/', views.LoginView.as_view(), name='login'),
     path('auth/logout/', TokenBlacklistView.as_view(), name='logout'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

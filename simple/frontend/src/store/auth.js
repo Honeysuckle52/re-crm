@@ -104,8 +104,16 @@ export const useAuthStore = defineStore('auth', {
       await this.fetchMe()
     },
     async register(payload) {
-      await api.post('/auth/register/', payload)
-      await this.login(payload.email, payload.password)
+      const { data } = await api.post('/auth/register/', payload)
+      return data
+    },
+    async verifyEmail(payload) {
+      const { data } = await api.post('/auth/verify-email/', payload)
+      return data
+    },
+    async resendEmailCode(token) {
+      const { data } = await api.post('/auth/resend-email-code/', { token })
+      return data
     },
     async fetchMe() {
       const { data } = await api.get('/auth/me/')

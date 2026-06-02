@@ -139,6 +139,17 @@ def apply_property_enrichment(
 
     update_fields: list[str] = []
 
+    def text_or_none(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+        elif isinstance(value, list):
+            text = ', '.join(str(item).strip() for item in value if str(item).strip())
+        else:
+            text = str(value).strip()
+        return text or None
+
     def set_if_changed(attr: str, value):
         if value is None:
             return
@@ -146,10 +157,10 @@ def apply_property_enrichment(
             setattr(property_obj, attr, value)
             update_fields.append(attr)
 
-    set_if_changed('twogis_org_id', (info.get('org_id') or '').strip() or None)
-    set_if_changed('twogis_name', (info.get('name') or '').strip() or None)
-    set_if_changed('twogis_address_full', (info.get('address_full') or '').strip() or None)
-    set_if_changed('twogis_rubric', (info.get('rubric_name') or '').strip() or None)
+    set_if_changed('twogis_org_id', text_or_none(info.get('org_id')))
+    set_if_changed('twogis_name', text_or_none(info.get('name')))
+    set_if_changed('twogis_address_full', text_or_none(info.get('address_full')))
+    set_if_changed('twogis_rubric', text_or_none(info.get('rubric_name')))
 
     lat = info.get('lat')
     lon = info.get('lon')
@@ -164,7 +175,7 @@ def apply_property_enrichment(
             property_obj.coordinates_lon = lon_value
             update_fields.append('coordinates_lon')
 
-    twogis_desc = (info.get('description') or '').strip()
+    twogis_desc = text_or_none(info.get('description')) or ''
     if twogis_desc:
         existing_description = (property_obj.description or '').strip()
         if not existing_description:

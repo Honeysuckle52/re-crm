@@ -12,7 +12,7 @@
           </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <button v-if="!auth.isStaff"
+          <button v-if="canLeaveRequest"
                   class="btn btn--accent"
                   @click="showRequestForm = true">
             Оставить заявку
@@ -182,7 +182,7 @@
           <InfoRow label="Стоимость за м²"  :value="property.price_per_sqm
                                                   ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
           <InfoRow label="Общая площадь"    :value="property.area_total ? property.area_total + ' м²' : '—'" />
-          <InfoRow label="Количество комнат":value="property.rooms_count || '—'" />
+          <InfoRow label="Количество комнат" :value="formatRoomsValue(property.premises_type, property.rooms_count)" />
           <InfoRow label="Этаж / всего"     :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
           <InfoRow label="Тип помещения"     :value="premisesTypeLabel(property.premises_type)" />
           <InfoRow label="Владелец"          :value="property.owner_username || '—'" />
@@ -262,6 +262,7 @@ import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { formatRoomsValue } from '@/utils/propertyTypes'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
@@ -312,8 +313,18 @@ const allowedStatuses = computed(() => {
   const allowedIds = new Set(property.value?.allowed_status_ids || [])
   return statuses.value.filter((status) => allowedIds.has(status.id))
 })
+const isOwnProperty = computed(() => (
+  auth.isClient
+  && property.value?.owner
+  && Number(property.value.owner) === Number(auth.user?.id)
+))
+const canLeaveRequest = computed(() => !auth.isStaff && !isOwnProperty.value)
 
 async function submitRequest () {
+  if (!canLeaveRequest.value) {
+    requestError.value = 'Нельзя оставить заявку на собственный объект.'
+    return
+  }
   requestError.value = ''
   try {
     await api.post('/requests/', {

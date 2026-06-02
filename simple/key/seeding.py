@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -143,8 +144,53 @@ class SeedLogger:
 class SeedDataService:
     """Сервис заполнения проекта справочниками и demo-данными с обогащением через 2GIS."""
 
-    def __init__(self, command=None):
+    _BATCH_CITY_REGIONS = {
+        'Иркутск': 'Иркутская область',
+        'Москва': 'Москва',
+        'Хабаровск': 'Хабаровский край',
+        'Чита': 'Забайкальский край',
+    }
+    _BATCH_CITY_CENTERS = {
+        'Иркутск': (Decimal('52.2864'), Decimal('104.2807')),
+        'Москва': (Decimal('55.7558'), Decimal('37.6173')),
+        'Хабаровск': (Decimal('48.4802'), Decimal('135.0719')),
+        'Чита': (Decimal('52.0333'), Decimal('113.5500')),
+    }
+    _BATCH_CITY_STREETS = {
+        'Иркутск': [
+            'ул. Ленина',
+            'ул. Карла Маркса',
+            'ул. Байкальская',
+            'мкр. Солнечный',
+            'ул. Декабрьских Событий',
+        ],
+        'Москва': [
+            'Тверская ул.',
+            'ул. Арбат',
+            'Кутузовский пр-т',
+            'Ленинский пр-т',
+            'ул. Профсоюзная',
+        ],
+        'Хабаровск': [
+            'ул. Муравьёва-Амурского',
+            'ул. Ленина',
+            'ул. Тургенева',
+            'ул. Карла Маркса',
+            'Амурский бульвар',
+        ],
+        'Чита': [
+            'ул. Ленина',
+            'ул. Амурская',
+            'ул. Бутина',
+            'ул. Чкалова',
+            'ул. Костюшко-Григоровича',
+        ],
+    }
+
+    def __init__(self, command=None, *, properties_count: int = 30, requests_count: int = 10):
         self.log = SeedLogger(command)
+        self.properties_count = max(0, int(properties_count or 0))
+        self.requests_count = max(0, int(requests_count or 0))
 
     def seed_dictionaries(self, *, flush: bool = False) -> dict[str, tuple[int, int]]:
         if flush:
@@ -206,12 +252,19 @@ class SeedDataService:
             self.log.info(
                 f'    {user.username:<14}  ({user.user_type:<8}, роль: {role})   пароль: demo12345',
             )
+        properties_batch = self._create_properties_batch(properties_count=self.properties_count)
+        self.log.success(f'   Дополнительные объекты недвижимости: {len(properties_batch)}.')
+
+        requests_batch = self._create_requests_batch(requests_count=self.requests_count)
+        self.log.success(f'   Дополнительные заявки: {len(requests_batch)}.')
         return {
             'users': len(users),
             'addresses': len(addresses),
             'properties': len(properties),
             'requests': len(requests),
             'tasks': len(tasks),
+            'properties_batch': len(properties_batch),
+            'requests_batch': len(requests_batch),
         }
 
     @transaction.atomic
@@ -784,6 +837,235 @@ class SeedDataService:
                 task_obj.save(update_fields=['completed_at'])
             tasks.append(task_obj)
         return tasks
+
+    def _create_properties_batch(self, properties_count=30) -> list[Property]:
+        """Создаёт дополнительный равномерный набор объектов по четырём городам."""
+        if properties_count <= 0:
+            return []
+
+        operation_types = [
+            OperationType.objects.filter(pk=1).first() or OperationType.objects.get(code='sale'),
+            OperationType.objects.filter(pk=2).first() or OperationType.objects.get(code='rent'),
+        ]
+        statuses = [
+            PropertyStatus.objects.filter(pk=1).first() or PropertyStatus.objects.get(code='pending'),
+            PropertyStatus.objects.filter(pk=2).first() or PropertyStatus.objects.get(code='active'),
+        ]
+        premises_types = [
+            Property.PREMISES_APARTMENT,
+            Property.PREMISES_HOUSE,
+            Property.PREMISES_OFFICE,
+            Property.PREMISES_WAREHOUSE,
+        ]
+
+        rng = random.Random(20260602)
+        cities = list(self._BATCH_CITY_STREETS.keys())
+        created: list[Property] = []
+
+        self.log.info(f'   Создаём/обновляем {properties_count} объектов по 4 городам...')
+        for index in range(properties_count):
+            city_name = cities[index % len(cities)]
+            street_names = self._BATCH_CITY_STREETS[city_name]
+            street_name = street_names[(index // len(cities)) % len(street_names)]
+            local_index = index // len(cities)
+            house_number = str(1 + local_index * 3)
+
+            city, _ = City.objects.get_or_create(
+                name=city_name,
+                defaults={'region': self._BATCH_CITY_REGIONS.get(city_name, '')},
+            )
+            if not city.region and self._BATCH_CITY_REGIONS.get(city_name):
+                city.region = self._BATCH_CITY_REGIONS[city_name]
+                city.save(update_fields=['region'])
+
+            street, _ = Street.objects.get_or_create(
+                city=city,
+                name=street_name,
+                defaults={'street_type': ''},
+            )
+            house, _ = House.objects.get_or_create(
+                street=street,
+                house_number=house_number,
+                building=None,
+                defaults={'postal_code': None},
+            )
+            address, _ = Address.objects.get_or_create(
+                house=house,
+                apartment_number=None,
+                defaults={'floor': None, 'entrance': None},
+            )
+
+            operation_type = rng.choice(operation_types)
+            status = rng.choice(statuses)
+            rooms_count = rng.randint(1, 5)
+            area_total = Decimal(str(rng.randint(30, 150))).quantize(Decimal('0.01'))
+            if operation_type.pk == 1 or operation_type.code == 'sale':
+                price = float(rng.randint(2_000_000, 50_000_000))
+            else:
+                price = float(rng.randint(30_000, 200_000))
+            title = f'{city.name}, {street.name} {house.house_number}, {rooms_count}-комн., {area_total}м²'
+            description = (
+                f'Объект в г. {city.name}. '
+                'Создан расширенным заполнением seed_data. __seed_batch__'
+            )
+
+            info = self._search_batch_twogis(city_name, f'{street.name} {house.house_number}')
+            lat, lon = self._coordinates_from_twogis_or_city_center(info, city_name)
+            twogis_description = (info or {}).get('description') or ''
+            if twogis_description:
+                description = f'{twogis_description}\n\n{description}'
+
+            existing = Property.objects.filter(
+                address__house__street__city=city,
+                address=address,
+            ).first()
+            defaults = {
+                'title': title,
+                'operation_type': operation_type,
+                'status': status,
+                'address': address,
+                'coordinates_lat': lat,
+                'coordinates_lon': lon,
+                'twogis_org_id': self._twogis_text((info or {}).get('org_id')),
+                'twogis_name': self._twogis_text((info or {}).get('name')),
+                'twogis_address_full': self._twogis_text((info or {}).get('address_full')),
+                'twogis_rubric': self._twogis_text((info or {}).get('rubric_name')),
+                'twogis_synced_at': timezone.now() if info else None,
+                'premises_type': rng.choice(premises_types),
+                'price': price,
+                'price_per_sqm': round(price / float(area_total), 2),
+                'area_total': area_total,
+                'rooms_count': rooms_count,
+                'floor_number': rng.randint(1, 20),
+                'total_floors': rng.randint(5, 25),
+                'description': description,
+            }
+            if defaults['floor_number'] > defaults['total_floors']:
+                defaults['floor_number'] = defaults['total_floors']
+
+            if existing is None:
+                property_obj = Property.objects.create(**defaults)
+            else:
+                property_obj = existing
+                for field, value in defaults.items():
+                    setattr(property_obj, field, value)
+                property_obj.save()
+
+            self._create_batch_photos(property_obj, (info or {}).get('photos') or [])
+            created.append(property_obj)
+            self.log.info(f'   [{index + 1}/{properties_count}] {title}')
+
+        return created
+
+    def _create_requests_batch(self, requests_count=10) -> list[Request]:
+        """Создаёт дополнительный набор заявок клиентов на batch-объекты."""
+        if requests_count <= 0:
+            return []
+
+        clients = list(User.objects.filter(user_type='client').order_by('pk'))
+        if not clients:
+            self.log.warning('   Нет клиентов для создания дополнительных заявок.')
+            return []
+
+        properties = list(
+            Property.objects.filter(description__contains='__seed_batch__')
+            .select_related('operation_type', 'address__house__street__city')
+            .order_by('pk')
+        )
+        if not properties:
+            self.log.warning('   Нет batch-объектов для создания дополнительных заявок.')
+            return []
+
+        agents = list(User.objects.filter(user_type='employee').order_by('pk'))
+        request_statuses = [
+            RequestStatus.objects.get_or_create(code='pending', defaults={'name': 'Ожидает обработки'})[0],
+            RequestStatus.objects.get_or_create(code='in_progress', defaults={'name': 'В работе'})[0],
+        ]
+        rng = random.Random(20260603)
+        created: list[Request] = []
+
+        self.log.info(f'   Создаём/обновляем {requests_count} дополнительных заявок...')
+        for index in range(requests_count):
+            property_obj = rng.choice(properties)
+            client = clients[index % len(clients)]
+            agent = rng.choice(agents) if agents else None
+            property_price = Decimal(str(property_obj.price or 0))
+            min_price = max(Decimal('0'), property_price * Decimal('0.85'))
+            max_price = property_price * Decimal('1.15')
+            description = f'Дополнительная заявка seed_data #{index + 1}. __seed_batch_request__'
+            defaults = {
+                'agent': agent,
+                'property': property_obj,
+                'operation_type': property_obj.operation_type,
+                'status': rng.choice(request_statuses),
+                'property_type': property_obj.premises_type,
+                'min_price': float(min_price),
+                'max_price': float(max_price),
+                'min_area': property_obj.area_total,
+                'max_area': property_obj.area_total,
+                'rooms_count': property_obj.rooms_count,
+                'address_preferences': str(property_obj.address),
+            }
+            request_obj, was_created = Request.objects.get_or_create(
+                client=client,
+                description=description,
+                defaults=defaults,
+            )
+            if not was_created:
+                for field, value in defaults.items():
+                    setattr(request_obj, field, value)
+                request_obj.save()
+            created.append(request_obj)
+            self.log.info(f'   [{index + 1}/{requests_count}] заявка для {client.username}')
+
+        return created
+
+    @staticmethod
+    def _search_batch_twogis(city_name: str, address: str) -> dict | None:
+        try:
+            return TwoGisClient().search_by_address(f'{city_name} {address}')
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('2GIS batch search failed for %s %s: %s', city_name, address, exc)
+            return None
+
+    def _coordinates_from_twogis_or_city_center(
+        self,
+        info: dict | None,
+        city_name: str,
+    ) -> tuple[Decimal, Decimal]:
+        lat = (info or {}).get('lat')
+        lon = (info or {}).get('lon')
+        if lat is None or lon is None:
+            return self._BATCH_CITY_CENTERS[city_name]
+        return (
+            Decimal(str(lat)).quantize(Decimal('0.00000001')),
+            Decimal(str(lon)).quantize(Decimal('0.00000001')),
+        )
+
+    @staticmethod
+    def _twogis_text(value) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+        elif isinstance(value, list):
+            text = ', '.join(str(item).strip() for item in value if str(item).strip())
+        else:
+            text = str(value).strip()
+        return text or None
+
+    @staticmethod
+    def _create_batch_photos(property_obj: Property, photo_urls: list[str]) -> None:
+        if not photo_urls or PropertyPhoto.objects.filter(property=property_obj).exists():
+            return
+        for order, url in enumerate(photo_urls[:3]):
+            PropertyPhoto.objects.create(
+                property=property_obj,
+                url=url,
+                caption='2GIS',
+                is_cover=(order == 0),
+                order=order,
+            )
 
     def _enrich_property_from_twogis(
         self,

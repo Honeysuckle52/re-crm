@@ -97,7 +97,7 @@
             <input class="input" type="number" v-model.number="filters.max_area" />
           </div>
 
-          <div class="field">
+          <div v-if="propertyTypeUsesRooms(filters.premises_type)" class="field">
             <label>Комнат</label>
             <select class="select" v-model="filters.rooms">
               <option value="">Любое</option>
@@ -281,6 +281,7 @@ import { useRoute } from 'vue-router'
 import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -551,7 +552,7 @@ watch(
 )
 
 watch(() => filters.premises_type, (value) => {
-  if (value === 'office' || value === 'warehouse') {
+  if (!propertyTypeUsesRooms(value)) {
     filters.rooms = ''
     filters.floor_number = ''
     filters.total_floors = ''

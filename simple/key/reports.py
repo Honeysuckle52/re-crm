@@ -24,6 +24,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from . import models
 from .documents import FONT_BOLD, FONT_REGULAR, _ensure_fonts_registered
+from .export_formatting import build_export_filename, format_export_data
 from .xlsx_utils import WorkbookSheet, build_xlsx_bytes
 
 
@@ -175,21 +176,22 @@ def _export_csv(
     rows: list[dict],
     *,
     title: str | None = None,
+    user=None,
 ) -> HttpResponse:
-    response = HttpResponse(content_type='text/csv; charset=utf-8')
-    response['Content-Disposition'] = f'attachment; filename="{_report_filename(definition, "csv")}"'
     report_title = title or definition.title
-    response.write('\ufeff')
-    writer = csv.writer(response, delimiter=';')
-    writer.writerow([report_title])
-    writer.writerow([])
-    writer.writerow(['Показатель', 'Значение'])
-    for label, value in _summary_pairs(summary):
-        writer.writerow([label, value])
-    writer.writerow([])
-    writer.writerow([label for _, label in definition.columns])
-    for row in rows:
-        writer.writerow([row.get(key, '') for key, _ in definition.columns])
+    response = HttpResponse(
+        format_export_data(
+            rows,
+            'csv',
+            columns=definition.columns,
+            title=report_title,
+            metadata=summary,
+        ),
+        content_type='text/csv; charset=utf-8',
+    )
+    response['Content-Disposition'] = (
+        f'attachment; filename="{build_export_filename(definition.code, user, "csv")}"'
+    )
     return response
 
 
@@ -200,18 +202,27 @@ def _export_json(
     ordering: str,
     *,
     title: str | None = None,
+    user=None,
 ) -> HttpResponse:
-    response = HttpResponse(content_type='application/json; charset=utf-8')
-    response['Content-Disposition'] = f'attachment; filename="{_report_filename(definition, "json")}"'
     report_title = title or definition.title
-    response.write(json.dumps({
+    metadata = {
         'report_code': definition.code,
-        'title': report_title,
         'ordering': ordering,
-        'summary': summary,
-        'rows': rows,
-        'exported_at': timezone.now().isoformat(),
-    }, ensure_ascii=False, indent=2))
+        **summary,
+    }
+    response = HttpResponse(
+        format_export_data(
+            rows,
+            'json',
+            columns=definition.columns,
+            title=report_title,
+            metadata=metadata,
+        ),
+        content_type='application/json; charset=utf-8',
+    )
+    response['Content-Disposition'] = (
+        f'attachment; filename="{build_export_filename(definition.code, user, "json")}"'
+    )
     return response
 
 
@@ -257,35 +268,28 @@ def _export_xlsx(
     ordering: str,
     *,
     title: str | None = None,
+    user=None,
 ) -> HttpResponse:
     report_title = title or definition.title
     workbook = build_xlsx_bytes([
         WorkbookSheet.from_rows(
-            'Сводка',
-            [
-                ('Отчёт', report_title),
-                ('Сортировка', ordering),
-                (),
-                ('Показатель', 'Значение'),
-                *tuple(_summary_pairs(summary)),
-            ],
-        ),
-        WorkbookSheet.from_rows(
             'Данные',
-            [
-                [label for _, label in definition.columns],
-                *[
-                    [row.get(key, '') for key, _ in definition.columns]
-                    for row in rows
-                ],
-            ],
+            format_export_data(
+                rows,
+                'xlsx',
+                columns=definition.columns,
+                title=report_title,
+                metadata={'ordering': ordering, **summary},
+            ),
         ),
     ])
     response = HttpResponse(
         workbook,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = f'attachment; filename="{_report_filename(definition, "xlsx")}"'
+    response['Content-Disposition'] = (
+        f'attachment; filename="{build_export_filename(definition.code, user, "xlsx")}"'
+    )
     return response
 
 
@@ -395,10 +399,11 @@ def export_report(
     *,
     ordering: str | None = None,
     title: str | None = None,
+    user=None,
 ) -> HttpResponse:
     normalized = (fmt or '').strip().lower()
     if normalized == 'csv':
-        return _export_csv(definition, summary, rows, title=title)
+        return _export_csv(definition, summary, rows, title=title, user=user)
     if normalized == 'json':
         return _export_json(
             definition,
@@ -406,6 +411,7 @@ def export_report(
             rows,
             ordering or definition.default_ordering,
             title=title,
+            user=user,
         )
     if normalized == 'xlsx':
         return _export_xlsx(
@@ -414,6 +420,7 @@ def export_report(
             rows,
             ordering or definition.default_ordering,
             title=title,
+            user=user,
         )
     if normalized == 'xls':
         return _export_xls(definition, summary, rows)

@@ -32,8 +32,24 @@ class Command(BaseCommand):
             action='store_true',
             help='Перезаписать изображения demo-объектов.',
         )
+        parser.add_argument(
+            '--properties-count',
+            type=int,
+            default=30,
+            help='Количество дополнительных объектов недвижимости для создания.',
+        )
+        parser.add_argument(
+            '--requests-count',
+            type=int,
+            default=10,
+            help='Количество дополнительных заявок для создания.',
+        )
     def handle(self, *args, **options):
-        service = SeedDataService(self)
+        service = SeedDataService(
+            self,
+            properties_count=options['properties_count'],
+            requests_count=options['requests_count'],
+        )
         call_command('migrate', interactive=False, verbosity=0)
         execution = self._build_execution_plan(service, options)
         execution()

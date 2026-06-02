@@ -127,7 +127,12 @@
         </div>
         <div class="field">
           <label>Комнат</label>
-          <input v-model.number="form.rooms_count" class="input" type="number" />
+          <input
+            v-model.number="form.rooms_count"
+            class="input"
+            type="number"
+            :disabled="isRequestRoomsDisabled"
+            :placeholder="isRequestRoomsDisabled ? 'Не применяется' : ''" />
         </div>
         <div class="field request-form__budget">
           <label>Цена от / до</label>
@@ -447,6 +452,7 @@ import {
   getRequestCloseSuccessMessage,
   terminalRequestStatusCodes,
 } from '@/utils/requestClose'
+import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -494,6 +500,7 @@ const requestFilters = reactive({
 
 const form = reactive(defaultForm())
 const isEditingRequest = computed(() => editingRequestId.value !== null)
+const isRequestRoomsDisabled = computed(() => !propertyTypeUsesRooms(form.property_type))
 const requestFormSnapshot = computed(() => JSON.stringify({ ...form }))
 const isRequestFormDirty = computed(() => (
   showForm.value && requestFormSnapshot.value !== requestFormBaseline.value
@@ -897,6 +904,9 @@ async function createRequest() {
   try {
     const wasEditing = isEditingRequest.value
     const payload = { ...form }
+    if (!propertyTypeUsesRooms(payload.property_type)) {
+      payload.rooms_count = null
+    }
     if (!auth.isStaff) {
       delete payload.client
       delete payload.agent
@@ -1095,6 +1105,12 @@ watch(
     await Promise.all([load(), loadRequestCounts()])
   },
 )
+
+watch(() => form.property_type, (value) => {
+  if (!propertyTypeUsesRooms(value)) {
+    form.rooms_count = null
+  }
+})
 
 watch(requestPage, async () => {
   await load()
