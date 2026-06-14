@@ -1,4 +1,5 @@
 """Регистрация моделей и настройка панели администрирования."""
+from django import forms
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.core.exceptions import FieldDoesNotExist
@@ -539,15 +540,17 @@ class EmployeeProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 @admin.register(models.ClientProfile)
 class ClientProfileAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = ('user', 'last_name', 'first_name', 'client_kind', 'preferred_contact_method')
-    list_filter = ('client_kind_ref', 'contact_method')
+    list_filter = ('client_kind_ref',)
     search_fields = (
         'user__username', 'first_name', 'last_name',
         'individual_details__passport_number', 'company_details__company_inn',
     )
     list_select_related = (
-        'user', 'client_kind_ref', 'contact_method',
+        'user', 'client_kind_ref',
         'individual_details', 'company_details',
     )
+
+
 
 
 @admin.register(models.ClientIndividualDetails)
@@ -574,22 +577,43 @@ class ClientCompanyDetailsAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 class PropertyPhotoInline(admin.TabularInline):
     model = models.PropertyPhoto
     extra = 0
-    fields = ('image', 'url', 'caption', 'is_cover', 'is_hidden', 'order')
+    fields = ('url', 'caption', 'is_hidden', 'order')
 
 
 @admin.register(models.PropertyPhoto)
 class PropertyPhotoAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('property', 'caption', 'is_cover', 'is_hidden', 'order', 'uploaded_at')
-    list_filter = ('is_cover', 'is_hidden', 'uploaded_at')
+    list_display = ('property', 'caption', 'url', 'is_hidden', 'order', 'uploaded_at')
+    list_filter = ('is_hidden', 'uploaded_at')
     search_fields = ('property__title', 'caption', 'url')
     list_select_related = ('property',)
     date_hierarchy = 'uploaded_at'
-    ordering = ('-is_cover', 'order', '-uploaded_at')
+    ordering = ('order', '-uploaded_at')
     autocomplete_fields = ('property',)
+
+
+class PropertyAdminForm(forms.ModelForm):
+    total_floors = forms.IntegerField(required=False, min_value=0, label='Всего этажей')
+
+    class Meta:
+        model = models.Property
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = getattr(self, 'instance', None)
+        if instance is not None and instance.pk is not None:
+            self.initial.setdefault('total_floors', instance.total_floors)
+        elif instance is not None and instance.total_floors is not None:
+            self.initial.setdefault('total_floors', instance.total_floors)
+
+    def _post_clean(self):
+        self.instance.total_floors = self.cleaned_data.get('total_floors')
+        super()._post_clean()
 
 
 @admin.register(models.Property)
 class PropertyAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    form = PropertyAdminForm
     list_display = (
         'id',
         'title',
@@ -666,38 +690,38 @@ class PropertyAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 class RequestAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = (
         'id',
-        'client',
-        'agent',
+        'client_profile',
+        'employee_profile',
         'operation_type',
         'status',
         'created_at',
         'closed_at',
     )
     list_filter = ('operation_type', 'status')
-    search_fields = ('client__username', 'agent__username', 'description')
-    list_select_related = ('client', 'agent', 'operation_type', 'status')
+    search_fields = ('client_profile__user__username', 'employee_profile__user__username', 'description')
+    list_select_related = ('client_profile__user', 'employee_profile__user', 'property', 'operation_type', 'status')
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
-    autocomplete_fields = ('client', 'agent', 'property')
+    autocomplete_fields = ('client_profile', 'employee_profile', 'property')
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         (
-            'Участники и статус',
+            'Participants and status',
             {
-                'fields': ('client', 'agent', 'property', 'operation_type', 'status'),
-                'description': 'Клиент обязателен. Агент и конкретный объект могут быть назначены позже.',
+                'fields': ('client_profile', 'employee_profile', 'property', 'operation_type', 'status'),
             },
         ),
         (
-            'Параметры подбора',
+            'Selection params',
             {
                 'fields': ('property_type', 'min_price', 'max_price', 'min_area', 'max_area', 'rooms_count'),
-                'description': 'Минимальные значения не должны превышать максимальные.',
             },
         ),
-        ('Пожелания клиента', {'fields': ('address_preferences', 'description')}),
-        ('Даты', {'fields': ('created_at', 'updated_at', 'closed_at')}),
+        ('Client wishes', {'fields': ('address_preferences', 'description')}),
+        ('Dates', {'fields': ('created_at', 'updated_at', 'closed_at')}),
     )
+
+
 
 
 @admin.register(models.RequestPropertyMatch)
@@ -705,30 +729,32 @@ class RequestPropertyMatchAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = (
         'request',
         'property',
-        'agent',
-        'is_offered',
-        'is_rejected',
-        'is_confirmed',
+        'employee_profile',
+        'status',
+        'confirmed_at',
         'created_at',
     )
-    list_filter = ('is_offered', 'is_rejected', 'is_confirmed', 'created_at')
+    list_filter = ('status', 'confirmed_at', 'created_at')
     search_fields = (
-        'request__client__username',
+        'request__client_profile__user__username',
         'property__title',
-        'agent__username',
+        'employee_profile__user__username',
         'agent_note',
     )
     list_select_related = (
         'request',
-        'request__client',
+        'request__client_profile__user',
         'property',
-        'agent',
+        'employee_profile__user',
         'confirmed_by',
+        'status',
     )
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
-    autocomplete_fields = ('request', 'property', 'agent', 'confirmed_by')
+    autocomplete_fields = ('request', 'property', 'employee_profile', 'confirmed_by')
     readonly_fields = ('created_at',)
+
+
 
 
 @admin.register(models.Deal)
@@ -736,58 +762,46 @@ class DealAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     list_display = (
         'deal_number',
         'property',
-        'client',
-        'agent',
+        'request',
+        'employee_profile',
         'status',
         'price_final',
         'contract_status',
         'deal_date',
     )
     list_filter = ('status', 'operation_type', 'contract_status_ref')
-    search_fields = ('deal_number', 'client__username', 'agent__username')
+    search_fields = ('deal_number', 'request__client_profile__user__username', 'employee_profile__user__username')
     list_select_related = (
-        'property', 'client', 'agent', 'status',
-        'operation_type', 'contract_status_ref',
+        'property', 'request', 'request__client_profile__user', 'employee_profile__user',
+        'status', 'operation_type', 'contract_status_ref',
     )
     date_hierarchy = 'deal_date'
     ordering = ('-deal_date', '-id')
-    autocomplete_fields = ('property', 'client', 'agent', 'request')
-    readonly_fields = (
-        'contract_requested_at',
-        'contract_processing_started_at',
-        'contract_generated_at',
-    )
+    autocomplete_fields = ('property', 'request', 'employee_profile')
+    readonly_fields = ('contract_file', 'contract_error_message', 'contract_status')
     fieldsets = (
         (
-            'Сделка',
+            'Deal',
             {
-                'fields': ('deal_number', 'property', 'request', 'operation_type', 'status', 'deal_date'),
-                'description': 'Номер сделки уникален. Связанная заявка может быть только одна.',
-            },
-        ),
-        ('Участники', {'fields': ('client', 'agent')}),
-        (
-            'Финансы',
-            {
-                'fields': ('price_final', 'commission_percent', 'commission_amount'),
-                'description': 'Цена и комиссия проверяются на отрицательные значения и допустимые проценты.',
+                'fields': ('deal_number', 'property', 'request', 'employee_profile', 'operation_type', 'status', 'deal_date'),
             },
         ),
         (
-            'Договор',
+            'Finance',
             {
-                'fields': (
-                    'contract_status_ref',
-                    'contract_file',
-                    'contract_error_message',
-                    'contract_requested_at',
-                    'contract_processing_started_at',
-                    'contract_generated_at',
-                ),
+                'fields': ('price_final', 'commission_percent'),
             },
         ),
-        ('Заметки', {'fields': ('notes',)}),
+        (
+            'Contract',
+            {
+                'fields': ('contract_status_ref', 'contract_file', 'contract_error_message', 'contract_status'),
+            },
+        ),
+        ('Notes', {'fields': ('notes',)}),
     )
+
+
 
 
 @admin.register(models.Task)
@@ -804,31 +818,31 @@ class TaskAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     )
     list_filter = ('status', 'priority_ref', 'assignee', 'task_type_ref')
     search_fields = ('title', 'description', 'assignee__username')
-    list_select_related = ('status', 'assignee', 'priority_ref', 'task_type_ref')
+    list_select_related = ('status', 'assignee', 'priority_ref', 'task_type_ref', 'client_profile')
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
-    autocomplete_fields = ('assignee', 'created_by', 'client', 'property', 'request', 'deal')
+    autocomplete_fields = ('assignee', 'created_by', 'client_profile', 'property', 'request', 'deal')
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         (
-            'Задача',
+            'Task',
             {
                 'fields': ('title', 'description', 'task_type_ref', 'priority_ref', 'status'),
-                'description': 'Название обязательно. Тип и приоритет задают сценарий работы сотрудника.',
             },
         ),
-        ('Ответственные', {'fields': ('assignee', 'created_by')}),
+        ('Responsible', {'fields': ('assignee', 'created_by')}),
         (
-            'Связи CRM',
+            'CRM links',
             {
-                'fields': ('client', 'property', 'request', 'deal'),
-                'description': 'Задачу можно связать с клиентом, объектом, заявкой или сделкой.',
+                'fields': ('client_profile', 'property', 'request', 'deal'),
             },
         ),
-        ('Сроки и результат', {'fields': ('due_date', 'completed_at', 'result', 'is_auto_closed')}),
-        ('Журнал этапов', {'classes': ('collapse',), 'fields': ('steps_log',)}),
-        ('Служебные даты', {'classes': ('collapse',), 'fields': ('created_at', 'updated_at')}),
+        ('Timing and result', {'fields': ('due_date', 'completed_at', 'result', 'is_auto_closed')}),
+        ('Workflow log', {'classes': ('collapse',), 'fields': ('steps_log',)}),
+        ('Service dates', {'classes': ('collapse',), 'fields': ('created_at', 'updated_at')}),
     )
+
+
 
 
 @admin.register(models.PropertyStatusHistory)
@@ -854,13 +868,15 @@ class PropertyExternalSourceAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
 @admin.register(models.PropertyViewing)
 class PropertyViewingAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
-    list_display = ('property', 'client', 'agent', 'scheduled_date', 'created_at')
-    list_filter = ('scheduled_date', 'agent')
-    search_fields = ('property__title', 'client__username', 'agent__username')
-    list_select_related = ('property', 'client', 'agent')
-    date_hierarchy = 'scheduled_date'
-    ordering = ('-scheduled_date',)
-    autocomplete_fields = ('property', 'client', 'agent')
+    list_display = ('property', 'client_profile', 'employee_profile', 'viewing_date', 'created_at')
+    list_filter = ('viewing_date', 'employee_profile')
+    search_fields = ('property__title', 'client_profile__user__username', 'employee_profile__user__username')
+    list_select_related = ('property', 'client_profile__user', 'employee_profile__user')
+    date_hierarchy = 'viewing_date'
+    ordering = ('-viewing_date',)
+    autocomplete_fields = ('property', 'client_profile', 'employee_profile')
+
+
 
 
 @admin.register(models.PropertyDocument)
@@ -919,26 +935,21 @@ class AuditLogAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         'created_at',
         'entity_type',
         'entity_id',
-        'action_label',
+        'action',
         'actor',
     )
-    list_filter = ('entity_type', 'action_code', 'created_at')
-    search_fields = ('action_label', 'message', 'actor__username')
-    list_select_related = ('actor', 'property', 'request', 'task', 'deal')
+    list_filter = ('entity_type', 'action', 'created_at')
+    search_fields = ('action__name', 'message', 'actor__username')
+    list_select_related = ('actor', 'action', 'entity_type')
     date_hierarchy = 'created_at'
     ordering = ('-created_at',)
     readonly_fields = (
         'entity_type',
         'entity_id',
-        'action_code',
-        'action_label',
+        'action',
         'message',
         'metadata',
         'actor',
-        'property',
-        'request',
-        'task',
-        'deal',
         'created_at',
     )
 
@@ -947,6 +958,9 @@ class AuditLogAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+
 
 @admin.register(models.DatabaseBackup)
 class DatabaseBackupAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):

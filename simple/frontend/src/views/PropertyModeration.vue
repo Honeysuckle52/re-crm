@@ -117,21 +117,15 @@
 import { onMounted, ref } from 'vue'
 import api from '../api'
 import { extractError, useToastsStore } from '../store/toasts'
+import { propertyTypeLabel } from '@/utils/propertyTypes'
 
 const toasts = useToastsStore()
 const items = ref([])
 const loading = ref(false)
 const processingId = ref(null)
 
-const premisesLabels = {
-  apartment: 'Квартира',
-  house: 'Дом',
-  office: 'Офис',
-  warehouse: 'Склад',
-}
-
 function premisesLabel(value) {
-  return premisesLabels[value] || value || '—'
+  return propertyTypeLabel(value) || value || '—'
 }
 
 function premisesInitial(value) {

@@ -72,8 +72,10 @@
               <option value="">Все</option>
               <option value="apartment">Квартира</option>
               <option value="house">Дом</option>
-              <option value="office">Офис</option>
-              <option value="warehouse">Склад</option>
+              <option value="commercial">Коммерческая недвижимость</option>
+              <option value="land">Земельный участок</option>
+              <option value="garage">Гараж</option>
+              <option value="room">Комната</option>
             </select>
           </div>
 
@@ -87,12 +89,12 @@
             <input class="input" type="number" v-model.number="filters.total_floors" />
           </div>
 
-          <div v-if="filters.premises_type === 'office' || filters.premises_type === 'warehouse'" class="field">
+          <div v-if="filters.premises_type === 'commercial'" class="field">
             <label>Площадь от</label>
             <input class="input" type="number" v-model.number="filters.min_area" />
           </div>
 
-          <div v-if="filters.premises_type === 'office' || filters.premises_type === 'warehouse'" class="field">
+          <div v-if="filters.premises_type === 'commercial'" class="field">
             <label>Площадь до</label>
             <input class="input" type="number" v-model.number="filters.max_area" />
           </div>

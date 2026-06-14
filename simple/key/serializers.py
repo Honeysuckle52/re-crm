@@ -787,23 +787,192 @@ class ClientProfileSerializer(serializers.ModelSerializer):
         return profile
 
 
+class BuildingMaterialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.BuildingMaterial
+        fields = ['id', 'code', 'name']
+
+
+class BathroomTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.BathroomType
+        fields = ['id', 'code', 'name']
+
+
+class RenovationTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.RenovationType
+        fields = ['id', 'code', 'name']
+
+
+class CommercialPropertyTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.CommercialPropertyType
+        fields = ['id', 'code', 'name']
+
+
+class AmenitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Amenity
+        fields = ['id', 'code', 'name']
+
+
+class PropertyOwnerSerializer(serializers.ModelSerializer):
+    client_username = serializers.CharField(source='client_profile.user.username', read_only=True)
+    client_email = serializers.CharField(source='client_profile.user.email', read_only=True)
+    client_phone = serializers.CharField(source='client_profile.user.phone', read_only=True)
+    client_first_name = serializers.CharField(source='client_profile.first_name', read_only=True)
+    client_last_name = serializers.CharField(source='client_profile.last_name', read_only=True)
+    client_middle_name = serializers.CharField(source='client_profile.middle_name', read_only=True)
+
+    class Meta:
+        model = models.PropertyOwner
+        fields = [
+            'property', 'client_profile', 'client_username', 'client_email',
+            'client_phone', 'client_first_name', 'client_last_name',
+            'client_middle_name', 'ownership_share', 'created_at',
+        ]
+        read_only_fields = ['created_at']
+
+
+class BuildingDetailsSerializer(serializers.ModelSerializer):
+    building_material_data = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.BuildingDetails
+        fields = [
+            'id', 'house', 'year_built', 'total_floors', 'building_material',
+            'building_material_data', 'elevators_count',
+        ]
+
+    def get_building_material_data(self, obj):
+        material = obj.building_material
+        if material is None:
+            return None
+        return BuildingMaterialSerializer(material).data
+
+
+class PropertyDetailsSerializer(serializers.ModelSerializer):
+    bathroom_type_data = serializers.SerializerMethodField()
+    renovation_type_data = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.PropertyDetails
+        fields = [
+            'id', 'property', 'living_area', 'kitchen_area', 'ceiling_height',
+            'balcony_count', 'bathroom_count', 'bathroom_type',
+            'bathroom_type_data', 'renovation_type', 'renovation_type_data',
+            'bedrooms_count', 'floors_count', 'land_area',
+        ]
+
+    def get_bathroom_type_data(self, obj):
+        bathroom_type = obj.bathroom_type
+        if bathroom_type is None:
+            return None
+        return BathroomTypeSerializer(bathroom_type).data
+
+    def get_renovation_type_data(self, obj):
+        renovation_type = obj.renovation_type
+        if renovation_type is None:
+            return None
+        return RenovationTypeSerializer(renovation_type).data
+
+
+class CommercialPropertyDetailsSerializer(serializers.ModelSerializer):
+    commercial_type_data = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.CommercialPropertyDetails
+        fields = [
+            'id', 'property', 'commercial_type', 'commercial_type_data',
+            'usable_area', 'ceiling_height', 'floor_load', 'electric_power_kw',
+            'has_separate_entrance', 'has_display_windows', 'is_first_line',
+            'parking_spaces',
+        ]
+
+    def get_commercial_type_data(self, obj):
+        commercial_type = obj.commercial_type
+        if commercial_type is None:
+            return None
+        return CommercialPropertyTypeSerializer(commercial_type).data
+
+
+class PropertyAmenitySerializer(serializers.ModelSerializer):
+    amenity_data = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.PropertyAmenity
+        fields = ['property', 'amenity', 'amenity_data']
+
+    def get_amenity_data(self, obj):
+        amenity = obj.amenity
+        if amenity is None:
+            return None
+        return AmenitySerializer(amenity).data
+
+
 class PropertyPhotoSerializer(serializers.ModelSerializer):
     """Фото объекта с готовой ссылкой для фронта."""
+    image = serializers.FileField(write_only=True, required=False, allow_null=True)
     image_url = serializers.SerializerMethodField()
+    is_cover = serializers.BooleanField(required=False)
 
     class Meta:
         model = models.PropertyPhoto
-        fields = ['id', 'property', 'image', 'url', 'image_url',
-                  'caption', 'is_cover', 'is_hidden', 'order',
-                  'uploaded_at']
+        fields = [
+            'id', 'property', 'image', 'url', 'image_url',
+            'caption', 'is_cover', 'is_hidden', 'order', 'uploaded_at',
+        ]
         read_only_fields = ['uploaded_at', 'image_url']
 
+    def _build_absolute_url(self, value):
+        if not value:
+            return None
+        request = self.context.get('request')
+        if request and hasattr(request, 'build_absolute_uri'):
+            return request.build_absolute_uri(value)
+        return value
+
     def get_image_url(self, obj) -> str | None:
-        if obj.image:
-            request = self.context.get('request')
-            url = obj.image.url
-            return request.build_absolute_uri(url) if request else url
-        return obj.url or None
+        return self._build_absolute_url(obj.url)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        image = self.initial_data.get('image')
+        url = self.initial_data.get('url')
+        if not image and not url and not attrs.get('url'):
+            raise serializers.ValidationError({'url': 'Нужно передать url или image.'})
+        return attrs
+
+    def create(self, validated_data):
+        image = validated_data.pop('image', None)
+        is_cover = bool(validated_data.pop('is_cover', False))
+        if image:
+            from django.core.files.storage import default_storage
+            file_name = getattr(image, 'name', '') or 'property-photo'
+            saved_path = default_storage.save(
+                f'property-photos/{timezone.now():%Y/%m}/{file_name}',
+                image,
+            )
+            validated_data['url'] = default_storage.url(saved_path)
+        if is_cover:
+            validated_data['order'] = 0
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        image = validated_data.pop('image', None)
+        is_cover = validated_data.pop('is_cover', None)
+        if image:
+            from django.core.files.storage import default_storage
+            file_name = getattr(image, 'name', '') or 'property-photo'
+            saved_path = default_storage.save(
+                f'property-photos/{timezone.now():%Y/%m}/{file_name}',
+                image,
+            )
+            validated_data['url'] = default_storage.url(saved_path)
+        if is_cover is True:
+            validated_data['order'] = 0
+        return super().update(instance, validated_data)
 
 
 class PropertyDocumentSerializer(serializers.ModelSerializer):
@@ -816,6 +985,22 @@ class PropertyDocumentSerializer(serializers.ModelSerializer):
                   'is_verified', 'verified_by', 'verified_by_username',
                   'verified_at', 'uploaded_at']
         read_only_fields = ['uploaded_at']
+
+
+class PropertyPriceHistorySerializer(serializers.ModelSerializer):
+    changed_by_username = serializers.CharField(source='changed_by.username', read_only=True)
+
+    class Meta:
+        model = models.PropertyPriceHistory
+        fields = [
+            'id',
+            'property',
+            'old_price',
+            'new_price',
+            'changed_by',
+            'changed_by_username',
+            'changed_at',
+        ]
 
 
 class AddressNestedWriteSerializer(serializers.Serializer):
@@ -838,22 +1023,122 @@ class AddressNestedWriteSerializer(serializers.Serializer):
                                               allow_null=True)
 
 
+class BuildingDetailsWriteSerializer(serializers.Serializer):
+    year_built = serializers.IntegerField(required=False, allow_null=True, min_value=1800, max_value=2200)
+    total_floors = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    building_material = serializers.PrimaryKeyRelatedField(
+        queryset=models.BuildingMaterial.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    elevators_count = serializers.IntegerField(required=False, min_value=0)
+
+
+class PropertyDetailsWriteSerializer(serializers.Serializer):
+    living_area = serializers.DecimalField(required=False, allow_null=True, max_digits=8, decimal_places=2)
+    kitchen_area = serializers.DecimalField(required=False, allow_null=True, max_digits=8, decimal_places=2)
+    ceiling_height = serializers.DecimalField(required=False, allow_null=True, max_digits=4, decimal_places=2)
+    balcony_count = serializers.IntegerField(required=False, min_value=0)
+    bathroom_count = serializers.IntegerField(required=False, min_value=0)
+    bathroom_type = serializers.PrimaryKeyRelatedField(
+        queryset=models.BathroomType.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    renovation_type = serializers.PrimaryKeyRelatedField(
+        queryset=models.RenovationType.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    bedrooms_count = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    floors_count = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    land_area = serializers.DecimalField(required=False, allow_null=True, max_digits=10, decimal_places=2)
+
+
+class CommercialPropertyDetailsWriteSerializer(serializers.Serializer):
+    commercial_type = serializers.PrimaryKeyRelatedField(
+        queryset=models.CommercialPropertyType.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    usable_area = serializers.DecimalField(required=False, allow_null=True, max_digits=10, decimal_places=2)
+    ceiling_height = serializers.DecimalField(required=False, allow_null=True, max_digits=4, decimal_places=2)
+    floor_load = serializers.DecimalField(required=False, allow_null=True, max_digits=10, decimal_places=2)
+    electric_power_kw = serializers.DecimalField(required=False, allow_null=True, max_digits=10, decimal_places=2)
+    has_separate_entrance = serializers.BooleanField(required=False)
+    has_display_windows = serializers.BooleanField(required=False)
+    is_first_line = serializers.BooleanField(required=False)
+    parking_spaces = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+
+
+class PropertyTypeField(serializers.RelatedField):
+    """Принимает id или code типа помещения, нормализуя legacy office/warehouse."""
+
+    def get_queryset(self):
+        return models.PropertyType.objects.all()
+
+    def to_representation(self, value):
+        return value.code if value else None
+
+    def to_internal_value(self, data):
+        if data in (None, ''):
+            return None
+        if isinstance(data, models.PropertyType):
+            return data
+        code = str(data).strip()
+        if not code:
+            return None
+        if code in {'office', 'warehouse'}:
+            code = models.Property.PROPERTY_TYPE_COMMERCIAL
+        if code.isdigit():
+            obj = self.get_queryset().filter(pk=int(code)).first()
+            if obj is not None:
+                return obj
+        obj = self.get_queryset().filter(code=code).first()
+        if obj is not None:
+            return obj
+        raise serializers.ValidationError('Неизвестный тип помещения.')
+
+
 class PropertySerializer(serializers.ModelSerializer):
     """Сериализатор объекта недвижимости."""
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
     status_code = serializers.CharField(source='status.code', read_only=True)
+    property_type_name = serializers.CharField(source='property_type_ref.name', read_only=True)
+    property_type_code = serializers.CharField(source='property_type_ref.code', read_only=True)
     allowed_status_ids = serializers.SerializerMethodField()
     full_address = serializers.SerializerMethodField()
+    house_data = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
-    owner_username = serializers.CharField(source='owner.username', read_only=True)
-    owner_email = serializers.EmailField(source='owner.email', read_only=True)
-    owner_phone = serializers.CharField(source='owner.phone', read_only=True)
+    owners = serializers.SerializerMethodField()
+    building_details = serializers.SerializerMethodField()
+    property_details = serializers.SerializerMethodField()
+    commercial_property_details = serializers.SerializerMethodField()
+    documents = serializers.SerializerMethodField()
+    price_history = serializers.SerializerMethodField()
+    amenity_ids = serializers.PrimaryKeyRelatedField(
+        queryset=models.Amenity.objects.all(),
+        many=True,
+        required=False,
+        write_only=True,
+    )
+    amenities = serializers.SerializerMethodField()
+    owner = serializers.SerializerMethodField()
+    owner_profile = serializers.SerializerMethodField()
+    owner_username = serializers.SerializerMethodField()
+    owner_email = serializers.SerializerMethodField()
+    owner_phone = serializers.SerializerMethodField()
+    building_details_data = BuildingDetailsWriteSerializer(required=False, write_only=True)
+    property_details_data = PropertyDetailsWriteSerializer(required=False, write_only=True)
+    commercial_property_details_data = CommercialPropertyDetailsWriteSerializer(required=False, write_only=True)
+    total_floors = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     premises_type = serializers.ChoiceField(
         choices=models.Property.PREMISES_TYPE_CHOICES,
         required=False,
     )
+    is_published = serializers.BooleanField(required=False)
     price_per_sqm = serializers.FloatField(read_only=True)
     address_data = AddressNestedWriteSerializer(required=False, write_only=True)
     address = serializers.PrimaryKeyRelatedField(
@@ -867,21 +1152,180 @@ class PropertySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'operation_type', 'operation_type_name',
             'status', 'status_name', 'status_code', 'allowed_status_ids',
-            'address', 'address_data', 'full_address',
+            'address', 'address_data', 'full_address', 'house_data',
+            'house', 'building_details', 'building_details_data',
             'coordinates_lat', 'coordinates_lon',
-            'premises_type', 'owner', 'owner_username', 'owner_email', 'owner_phone',
+            'cadastral_number', 'property_type_name', 'property_type_code', 'premises_type', 'is_published',
+            'published_at', 'unpublished_at',
+            'owner', 'owner_profile', 'owner_username', 'owner_email', 'owner_phone',
+            'owners', 'property_details', 'property_details_data', 'commercial_property_details', 'commercial_property_details_data',
+            'amenity_ids', 'amenities', 'documents', 'price_history',
             'price', 'price_per_sqm',
             'area_total',
             'rooms_count', 'floor_number', 'total_floors',
             'description', 'photos',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'owner', 'owner_profile']
 
     def get_full_address(self, obj) -> str:
         if obj.house_id is None:
             return ''
         return str(obj.house)
+
+    def get_house_data(self, obj):
+        if not obj.house_id:
+            return None
+        house = obj.house
+        street = getattr(house, 'street', None)
+        city = getattr(street, 'city', None) if street else None
+        return {
+            'id': house.pk,
+            'house_number': house.house_number,
+            'postal_code': house.postal_code,
+            'external_id': str(house.external_id) if house.external_id else None,
+            'street': {
+                'id': street.pk if street else None,
+                'name': getattr(street, 'name', None),
+                'street_type': getattr(street, 'street_type', None),
+                'external_id': str(getattr(street, 'external_id', None)) if getattr(street, 'external_id', None) else None,
+                'city': {
+                    'id': city.pk if city else None,
+                    'name': getattr(city, 'name', None),
+                    'region': getattr(city, 'region', None),
+                    'external_id': str(getattr(city, 'external_id', None)) if getattr(city, 'external_id', None) else None,
+                } if city else None,
+            } if street else None,
+        }
+
+    def _serialize_owner_relation(self, relation):
+        if relation is None:
+            return None
+        profile = relation.client_profile
+        user = profile.user if profile else None
+        return {
+            'property': relation.property_id,
+            'client_profile': profile.pk if profile else None,
+            'client_username': getattr(user, 'username', None),
+            'client_email': getattr(user, 'email', None),
+            'client_phone': getattr(user, 'phone', None),
+            'client_first_name': getattr(profile, 'first_name', None),
+            'client_last_name': getattr(profile, 'last_name', None),
+            'client_middle_name': getattr(profile, 'middle_name', None),
+            'ownership_share': relation.ownership_share,
+            'created_at': relation.created_at,
+        }
+
+    def get_owner(self, obj):
+        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
+        return relation.client_profile.user_id if relation else None
+
+    def get_owner_profile(self, obj):
+        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
+        if relation is None:
+            return None
+        return PropertyOwnerSerializer(relation).data
+
+    def get_owner_username(self, obj):
+        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
+        return relation.client_profile.user.username if relation else None
+
+    def get_owner_email(self, obj):
+        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
+        return relation.client_profile.user.email if relation else None
+
+    def get_owner_phone(self, obj):
+        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
+        return relation.client_profile.user.phone if relation else None
+
+    def get_owners(self, obj):
+        qs = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id')
+        return [self._serialize_owner_relation(relation) for relation in qs]
+
+    def get_building_details(self, obj):
+        if not obj.house_id:
+            return None
+        try:
+            details = obj.house.building_details
+        except models.BuildingDetails.DoesNotExist:
+            return None
+        if details is None:
+            return None
+        return BuildingDetailsSerializer(details).data
+
+    def get_property_details(self, obj):
+        try:
+            details = obj.details
+        except models.PropertyDetails.DoesNotExist:
+            return None
+        if details is None:
+            return None
+        return PropertyDetailsSerializer(details).data
+
+    def get_commercial_property_details(self, obj):
+        try:
+            details = obj.commercial_details
+        except models.CommercialPropertyDetails.DoesNotExist:
+            return None
+        if details is None:
+            return None
+        return CommercialPropertyDetailsSerializer(details).data
+
+    def get_documents(self, obj):
+        qs = obj.documents.all()
+        return PropertyDocumentSerializer(qs, many=True, context=self.context).data
+
+    def get_price_history(self, obj):
+        qs = obj.price_history.select_related('changed_by').all()
+        return PropertyPriceHistorySerializer(qs, many=True, context=self.context).data
+
+    def _upsert_amenities(self, property_obj, payload):
+        if payload is None:
+            return
+        models.PropertyAmenity.objects.filter(property=property_obj).delete()
+        if not payload:
+            return
+        models.PropertyAmenity.objects.bulk_create([
+            models.PropertyAmenity(property=property_obj, amenity=amenity)
+            for amenity in payload
+        ])
+
+    def _upsert_building_details(self, property_obj, payload):
+        if payload is None:
+            return
+        defaults = dict(payload)
+        defaults.setdefault('elevators_count', 0)
+        models.BuildingDetails.objects.update_or_create(
+            house=property_obj.house,
+            defaults=defaults,
+        )
+
+    def _upsert_property_details(self, property_obj, payload):
+        if payload is None:
+            return
+        defaults = dict(payload)
+        defaults.setdefault('balcony_count', 0)
+        defaults.setdefault('bathroom_count', 1)
+        models.PropertyDetails.objects.update_or_create(
+            property=property_obj,
+            defaults=defaults,
+        )
+
+    def _upsert_commercial_details(self, property_obj, payload):
+        if payload is None:
+            return
+        defaults = dict(payload)
+        defaults.setdefault('has_separate_entrance', False)
+        defaults.setdefault('has_display_windows', False)
+        defaults.setdefault('is_first_line', False)
+        models.CommercialPropertyDetails.objects.update_or_create(
+            property=property_obj,
+            defaults=defaults,
+        )
+
+    def get_amenities(self, obj):
+        qs = obj.amenities.select_related('amenity').order_by('amenity__name')
+        return [PropertyAmenitySerializer(relation).data for relation in qs]
 
     def get_allowed_status_ids(self, obj) -> list[int]:
         statuses_by_code = self.context.setdefault(
@@ -909,9 +1353,25 @@ class PropertySerializer(serializers.ModelSerializer):
         qs = obj.photos.all()
         if not is_staff_like:
             qs = qs.filter(is_hidden=False)
-        return PropertyPhotoSerializer(
-            qs, many=True, context=self.context,
-        ).data
+        return PropertyPhotoSerializer(qs, many=True, context=self.context).data
+
+    def _resolve_owner_profile(self, value):
+        if value in (None, ''):
+            return None
+        if isinstance(value, models.PropertyOwner):
+            return value.client_profile
+        if isinstance(value, models.ClientProfile):
+            return value
+        if isinstance(value, User):
+            return getattr(value, 'client_profile', None)
+        if hasattr(value, 'client_profile'):
+            return value.client_profile
+        try:
+            user_id = int(value)
+        except (TypeError, ValueError):
+            return None
+        user = User.objects.select_related('client_profile').filter(pk=user_id).first()
+        return getattr(user, 'client_profile', None) if user else None
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -945,20 +1405,15 @@ class PropertySerializer(serializers.ModelSerializer):
                 errors['floor_number'] = 'Для дома отдельный этаж не указывается.'
             if total_floors in (None, ''):
                 errors['total_floors'] = 'Для дома укажите количество этажей.'
-        elif premises_type == models.Property.PREMISES_WAREHOUSE:
+        elif premises_type == models.Property.PROPERTY_TYPE_COMMERCIAL:
             if area_total in (None, ''):
-                errors['area_total'] = 'Для склада укажите площадь.'
+                errors['area_total'] = 'Для коммерческого объекта укажите площадь.'
             if rooms_count not in (None, ''):
-                errors['rooms_count'] = 'Для склада количество комнат не используется.'
+                errors['rooms_count'] = 'Для коммерческого объекта количество комнат не используется.'
             if floor_number not in (None, ''):
-                errors['floor_number'] = 'Для склада этаж не указывается.'
+                errors['floor_number'] = 'Для коммерческого объекта этаж не указывается.'
             if total_floors not in (None, ''):
-                errors['total_floors'] = 'Для склада количество этажей не указывается.'
-        elif premises_type == models.Property.PREMISES_OFFICE:
-            if area_total in (None, ''):
-                errors['area_total'] = 'Для офиса укажите площадь.'
-            if rooms_count not in (None, ''):
-                errors['rooms_count'] = 'Для офиса количество комнат не используется.'
+                errors['total_floors'] = 'Для коммерческого объекта количество этажей не указывается.'
 
         if errors:
             raise serializers.ValidationError(errors)
@@ -1011,6 +1466,10 @@ class PropertySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         address_data = validated_data.pop('address_data', None)
+        building_details_data = validated_data.pop('building_details_data', None)
+        property_details_data = validated_data.pop('property_details_data', None)
+        commercial_property_details_data = validated_data.pop('commercial_property_details_data', None)
+        amenity_ids = validated_data.pop('amenity_ids', None)
         if address_data and not validated_data.get('house'):
             validated_data['house'] = self._resolve_address(address_data)
             if address_data.get('geo_lat') is not None and not validated_data.get('coordinates_lat'):
@@ -1019,13 +1478,27 @@ class PropertySerializer(serializers.ModelSerializer):
                 validated_data['coordinates_lon'] = address_data['geo_lon']
         if not validated_data.get('house'):
             raise serializers.ValidationError({'address': 'Адрес обязателен.'})
-        return super().create(validated_data)
+        property_obj = super().create(validated_data)
+        self._upsert_building_details(property_obj, building_details_data)
+        self._upsert_property_details(property_obj, property_details_data)
+        self._upsert_commercial_details(property_obj, commercial_property_details_data)
+        self._upsert_amenities(property_obj, amenity_ids)
+        return property_obj
 
     def update(self, instance, validated_data):
         address_data = validated_data.pop('address_data', None)
+        building_details_data = validated_data.pop('building_details_data', None)
+        property_details_data = validated_data.pop('property_details_data', None)
+        commercial_property_details_data = validated_data.pop('commercial_property_details_data', None)
+        amenity_ids = validated_data.pop('amenity_ids', None)
         if address_data:
             validated_data['house'] = self._resolve_address(address_data)
-        return super().update(instance, validated_data)
+        property_obj = super().update(instance, validated_data)
+        self._upsert_building_details(property_obj, building_details_data)
+        self._upsert_property_details(property_obj, property_details_data)
+        self._upsert_commercial_details(property_obj, commercial_property_details_data)
+        self._upsert_amenities(property_obj, amenity_ids)
+        return property_obj
 
 
 class RequestPropertyMatchSerializer(serializers.ModelSerializer):
@@ -1034,6 +1507,7 @@ class RequestPropertyMatchSerializer(serializers.ModelSerializer):
                                            read_only=True)
     property_price = serializers.FloatField(source='property.price',
                                             read_only=True)
+    agent = serializers.PrimaryKeyRelatedField(read_only=True)
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
     confirmed_by_username = serializers.CharField(
@@ -1068,6 +1542,10 @@ class RequestSerializer(serializers.ModelSerializer):
         queryset=models.Property.objects.all(),
         required=False, allow_null=True,
     )
+    property_type = PropertyTypeField(
+        required=False,
+        allow_null=True,
+    )
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
     client_email = serializers.CharField(source='client.email', read_only=True)
@@ -1078,6 +1556,8 @@ class RequestSerializer(serializers.ModelSerializer):
                                            read_only=True)
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
+    property_type_code = serializers.CharField(source='property_type.code', read_only=True)
+    property_type_name = serializers.CharField(source='property_type.name', read_only=True)
     status_name = serializers.CharField(
         source='status_display_name', read_only=True,
     )
@@ -1093,7 +1573,7 @@ class RequestSerializer(serializers.ModelSerializer):
             'property', 'property_title',
             'operation_type', 'operation_type_name',
             'status', 'status_name', 'status_code',
-            'property_type', 'min_price', 'max_price',
+            'property_type', 'property_type_code', 'property_type_name', 'min_price', 'max_price',
             'min_area', 'max_area', 'rooms_count',
             'address_preferences', 'description',
             'matches', 'can_close',
@@ -1107,10 +1587,11 @@ class RequestSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = self.instance
-        property_type = (attrs.get(
+        property_type = attrs.get(
             'property_type',
             getattr(instance, 'property_type', None),
-        ) or '').strip()
+        )
+        property_type_code = getattr(property_type, 'code', property_type) or ''
         rooms_count = attrs.get(
             'rooms_count',
             getattr(instance, 'rooms_count', None),
@@ -1125,16 +1606,13 @@ class RequestSerializer(serializers.ModelSerializer):
         )
 
         errors = {}
-        if property_type in {
-            models.Property.PREMISES_OFFICE,
-            models.Property.PREMISES_WAREHOUSE,
-        }:
+        if property_type_code == models.Property.PROPERTY_TYPE_COMMERCIAL:
             if min_area in (None, '') and max_area in (None, ''):
                 errors['min_area'] = 'Для офиса или склада укажите диапазон площади.'
             if rooms_count not in (None, ''):
                 errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
         else:
-            if property_type and rooms_count in (None, '') and min_area in (None, '') and max_area in (None, ''):
+            if property_type_code and rooms_count in (None, '') and min_area in (None, '') and max_area in (None, ''):
                 errors['property_type'] = 'Укажите параметры, соответствующие выбранному типу помещения.'
 
         if min_area not in (None, '') and max_area not in (None, ''):
@@ -1272,14 +1750,55 @@ class PropertyStatusHistorySerializer(serializers.ModelSerializer):
 
 
 class PropertyViewingSerializer(serializers.ModelSerializer):
+    client = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(user_type='client'),
+        required=False,
+        allow_null=True,
+    )
+    agent = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(user_type='employee'),
+        required=False,
+        allow_null=True,
+    )
+    scheduled_date = serializers.DateTimeField(source='viewing_date')
+    notes = serializers.CharField(
+        source='comment',
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     class Meta:
         model = models.PropertyViewing
         fields = ['id', 'property', 'client', 'agent',
                   'scheduled_date', 'notes', 'created_at']
         read_only_fields = ['created_at']
 
+    def create(self, validated_data):
+        client = validated_data.pop('client', None)
+        agent = validated_data.pop('agent', None)
+        if client is not None:
+            validated_data['client_profile'] = getattr(client, 'client_profile', None)
+        if agent is not None:
+            validated_data['employee_profile'] = getattr(agent, 'employee_profile', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        client = validated_data.pop('client', None)
+        agent = validated_data.pop('agent', None)
+        if client is not None:
+            instance.client = client
+        if agent is not None:
+            instance.agent = agent
+        return super().update(instance, validated_data)
+
 
 class TaskSerializer(serializers.ModelSerializer):
+    client = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(user_type='client'),
+        required=False,
+        allow_null=True,
+    )
     priority = serializers.ChoiceField(
         choices=models.Task.PRIORITY_CHOICES,
         required=False,
@@ -1329,6 +1848,18 @@ class TaskSerializer(serializers.ModelSerializer):
             'status': {'required': False},
         }
 
+    def create(self, validated_data):
+        client = validated_data.pop('client', None)
+        if client is not None:
+            validated_data['client_profile'] = getattr(client, 'client_profile', None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        client = validated_data.pop('client', None)
+        if client is not None:
+            instance.client = client
+        return super().update(instance, validated_data)
+
     def get_is_overdue(self, obj) -> bool:
         from django.utils import timezone
         if not obj.due_date or obj.completed_at:
@@ -1369,25 +1900,29 @@ class OutgoingEmailSerializer(serializers.ModelSerializer):
 
 class AuditLogSerializer(serializers.ModelSerializer):
     actor_username = serializers.CharField(source='actor.username', read_only=True)
-    entity_type_display = serializers.CharField(source='get_entity_type_display', read_only=True)
+    entity_type_code = serializers.CharField(source='entity_type.code', read_only=True)
+    entity_type_display = serializers.CharField(source='entity_type.name', read_only=True)
+    action_code = serializers.CharField(source='action.code', read_only=True)
+    action_label = serializers.CharField(source='action.name', read_only=True)
 
     class Meta:
         model = models.AuditLog
         fields = [
             'id',
+            'entity_type_id',
             'entity_type',
+            'entity_type_code',
             'entity_type_display',
             'entity_id',
+            'action_id',
+            'action',
             'action_code',
             'action_label',
             'message',
             'metadata',
+            'actor_id',
             'actor',
             'actor_username',
-            'property',
-            'request',
-            'task',
-            'deal',
             'created_at',
         ]
         read_only_fields = fields

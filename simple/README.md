@@ -54,7 +54,9 @@ simple/
 │   ├── db_backups.py
 │   ├── deals_service.py
 │   ├── documents.py
+│   ├── email_verification.py
 │   ├── events.py
+│   ├── export_formatting.py
 │   ├── mailing.py
 │   ├── models.py
 │   ├── pagination.py
@@ -86,9 +88,6 @@ simple/
 │   │       ├── process_background_jobs.py
 │   │       ├── runserver.py
 │   │       └── seed_data.py
-│   ├── migrations/
-│   │   ├── __init__.py
-│   │   ├── 0001_initial.py
 │   └── templatetags/
 │       ├── __init__.py
 │       └── vite.py
@@ -106,6 +105,10 @@ simple/
 │   │   └── reports.html
 │   └── emails/
 │       ├── _base.html
+│       ├── email_verification/
+│       │   ├── body.html
+│       │   ├── body.txt
+│       │   └── subject.txt
 │       ├── property_matched/
 │       │   ├── body.html
 │       │   ├── body.txt
@@ -136,11 +139,11 @@ simple/
 │           └── subject.txt
 └── frontend/                            ← Vue 3 + Vite SPA
     ├── index.html
+    ├── package-lock.json
     ├── package.json
     ├── playwright.config.js
     ├── pnpm-lock.yaml
     ├── vite.config.js
-    ├── test-results/
     ├── tests/
     │   └── e2e/
     │       └── register.spec.js
@@ -193,6 +196,7 @@ simple/
         │   ├── downloads.js
         │   ├── formatters.js
         │   ├── paginated.js
+        │   ├── propertyTypes.js
         │   └── requestClose.js
         └── views/
             ├── Account.vue
@@ -254,7 +258,7 @@ cp .env.example .env                 # заполните креды PostgreSQL 
 createdb re_crm                      # или через pgAdmin / psql
 
 python manage.py migrate
-python manage.py makemigrations 
+python manage.py makemigrations
 python manage.py seed_data
 python manage.py createsuperuser
 python manage.py runserver           # worker process_background_jobs стартует автоматически
@@ -419,8 +423,10 @@ python manage.py process_background_jobs --loop
 - **dadata.py** — клиент сервиса подсказок DaData.
 - **data_exchange.py** — импорт и экспорт данных CRM (CSV/XLSX).
 - **deals_service.py** — сервис сделок и очередь генерации PDF-договоров.
+- **email_verification.py** — сервис подтверждения email и кода верификации.
 - **documents.py** — генерация PDF-договоров через ReportLab.
 - **events.py** — журнал доменных событий.
+- **export_formatting.py** — форматирование данных перед экспортом.
 - **mailing.py** — очередь и отправка email-уведомлений.
 - **models.py** — ORM-модели (User, Property, Request, Deal, Task и т. д.).
 - **pagination.py** — общий класс DRF-пагинации для списочных эндпоинтов.
@@ -441,7 +447,6 @@ python manage.py process_background_jobs --loop
 - **management/commands/process_background_jobs.py** — воркер очереди писем и PDF.
 - **management/commands/runserver.py** — dev-runserver с автозапуском background worker.
 - **management/commands/seed_data.py** — единая команда заполнения справочников и demo-данных.
-- **migrations/0001_initial.py** — начальная миграция схемы БД.
 - **templatetags/vite.py** — теги шаблонов для подключения Vite-бандла.
 
 ### `static/`
@@ -526,6 +531,7 @@ python manage.py process_background_jobs --loop
 - **downloads.js** — скачивание файлов (PDF/CSV/XLSX) из ответа axios.
 - **formatters.js** — общие форматтеры денег и дат.
 - **paginated.js** — утилиты для постраничной выдачи списков.
+- **propertyTypes.js** — справочник и хелперы по типам объектов.
 - **requestClose.js** — формирование payload для закрытия заявки.
 
 ### `frontend/src/views/`

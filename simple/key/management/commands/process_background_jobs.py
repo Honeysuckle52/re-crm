@@ -4,6 +4,7 @@ from __future__ import annotations
 import signal
 import time
 
+from django.db import InterfaceError, OperationalError, close_old_connections
 from django.core.management.base import BaseCommand
 
 from ... import deals_service, mailing
@@ -94,8 +95,21 @@ class Command(BaseCommand):
 
         try:
             while not self._shutdown_requested:
-                email_summary = mailing.process_email_queue(limit=limit)
-                contract_summary = deals_service.process_contract_queue(limit=limit)
+                try:
+                    email_summary = mailing.process_email_queue(limit=limit)
+                    contract_summary = deals_service.process_contract_queue(limit=limit)
+                except (OperationalError, InterfaceError) as exc:
+                    close_old_connections()
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'Потеря соединения с БД: {exc}. '
+                            'Переподключаемся и продолжаем.'
+                        ),
+                    )
+                    if not loop:
+                        raise
+                    self._interruptible_sleep(sleep_seconds)
+                    continue
                 processed_total = (
                     email_summary['processed']
                     + contract_summary['processed']

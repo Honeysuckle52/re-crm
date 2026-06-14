@@ -105,15 +105,17 @@
             <option value="">Выберите тип</option>
             <option value="apartment">Квартира</option>
             <option value="house">Дом</option>
-            <option value="office">Офис</option>
-            <option value="warehouse">Склад</option>
+            <option value="commercial">Коммерческая недвижимость</option>
+            <option value="land">Земельный участок</option>
+            <option value="garage">Гараж</option>
+            <option value="room">Комната</option>
           </select>
         </div>
-        <div v-if="form.property_type === 'office' || form.property_type === 'warehouse'" class="field">
+        <div v-if="form.property_type === 'commercial'" class="field">
           <label>Площадь от</label>
           <input v-model.number="form.min_area" class="input" type="number" />
         </div>
-        <div v-if="form.property_type === 'office' || form.property_type === 'warehouse'" class="field">
+        <div v-if="form.property_type === 'commercial'" class="field">
           <label>Площадь до</label>
           <input v-model.number="form.max_area" class="input" type="number" />
         </div>

@@ -178,6 +178,8 @@
         </div>
         <h2 class="h3">Параметры</h2>
         <div class="stack" style="margin-top: 12px">
+          <InfoRow label="Тип объекта"       :value="property.property_type_name || property.premises_type || '—'" />
+          <InfoRow label="Кадастровый номер" :value="property.cadastral_number || '—'" />
           <InfoRow label="Стоимость"        :value="formatMoney(property.price) + ' ₽'" />
           <InfoRow label="Стоимость за м²"  :value="property.price_per_sqm
                                                   ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
@@ -185,6 +187,14 @@
           <InfoRow label="Количество комнат" :value="formatRoomsValue(property.premises_type, property.rooms_count)" />
           <InfoRow label="Этаж / всего"     :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
           <InfoRow label="Тип помещения"     :value="premisesTypeLabel(property.premises_type)" />
+          <InfoRow label="Опубликован"       :value="property.is_published ? 'Да' : 'Нет'" />
+          <InfoRow label="Опубликован в"     :value="property.published_at ? formatDate(property.published_at) : '—'" />
+          <InfoRow label="Снят с публикации" :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
+          <InfoRow label="Координаты"        :value="property.coordinates_lat && property.coordinates_lon
+                                                  ? `${property.coordinates_lat}, ${property.coordinates_lon}`
+                                                  : '—'" />
+          <InfoRow label="Тип помещения"     :value="property.property_type_name || property.property_type_code || property.premises_type || '—'" />
+          <InfoRow label="Удобства"          :value="amenities.length ? amenities.map((item) => item.amenity_data?.name || item.amenity).filter(Boolean).join(', ') : '—'" />
           <InfoRow label="Владелец"          :value="property.owner_username || '—'" />
           <InfoRow label="Статус"           :value="property.status_name" />
         </div>
@@ -197,6 +207,146 @@
         </div>
         <h2 class="h3">Описание</h2>
         <p style="white-space: pre-wrap">{{ property.description || 'Описание не заполнено.' }}</p>
+      </div>
+    </div>
+
+    <div class="grid grid--2">
+      <div class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">Дом</div>
+          <div class="surface-head__caption">Параметры здания и адреса</div>
+        </div>
+        <h2 class="h3">Информация о доме</h2>
+        <div class="stack" style="margin-top: 12px">
+          <InfoRow label="Адрес" :value="property.full_address || '—'" />
+          <InfoRow label="Город" :value="property.house_data?.street?.city?.name || '—'" />
+          <InfoRow label="Регион" :value="property.house_data?.street?.city?.region || '—'" />
+          <InfoRow label="Улица" :value="property.house_data?.street?.name || '—'" />
+          <InfoRow label="Тип улицы" :value="property.house_data?.street?.street_type || '—'" />
+          <InfoRow label="Дом" :value="property.house_data?.house_number || '—'" />
+          <InfoRow label="Почтовый индекс" :value="property.house_data?.postal_code || '—'" />
+          <InfoRow label="Год постройки" :value="property.building_details?.year_built || '—'" />
+          <InfoRow label="Этажей в доме" :value="property.building_details?.total_floors || '—'" />
+          <InfoRow label="Материал стен" :value="property.building_details?.building_material_data?.name || '—'" />
+          <InfoRow label="Лифты" :value="property.building_details?.elevators_count ?? '—'" />
+        </div>
+      </div>
+
+      <div class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">
+            {{ property.property_type_code === 'commercial' ? 'Коммерция' : 'Жилая часть' }}
+          </div>
+          <div class="surface-head__caption">Детали из связанных таблиц</div>
+        </div>
+        <h2 class="h3">
+          {{ property.property_type_code === 'commercial' ? 'Коммерческие параметры' : 'Жилые параметры' }}
+        </h2>
+        <div v-if="normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial'" class="stack" style="margin-top: 12px">
+          <InfoRow label="Тип помещения" :value="property.commercial_property_details?.commercial_type_data?.name || '—'" />
+          <InfoRow label="Полезная площадь" :value="property.commercial_property_details?.usable_area ? property.commercial_property_details.usable_area + ' м²' : '—'" />
+          <InfoRow label="Высота потолков" :value="property.commercial_property_details?.ceiling_height ? property.commercial_property_details.ceiling_height + ' м' : '—'" />
+          <InfoRow label="Нагрузка на пол" :value="property.commercial_property_details?.floor_load ? property.commercial_property_details.floor_load + ' кг/м²' : '—'" />
+          <InfoRow label="Электрическая мощность" :value="property.commercial_property_details?.electric_power_kw ? property.commercial_property_details.electric_power_kw + ' кВт' : '—'" />
+          <InfoRow label="Отдельный вход" :value="property.commercial_property_details?.has_separate_entrance ? 'Да' : 'Нет'" />
+          <InfoRow label="Витринные окна" :value="property.commercial_property_details?.has_display_windows ? 'Да' : 'Нет'" />
+          <InfoRow label="Первая линия" :value="property.commercial_property_details?.is_first_line ? 'Да' : 'Нет'" />
+          <InfoRow label="Парковочные места" :value="property.commercial_property_details?.parking_spaces ?? '—'" />
+        </div>
+        <div v-else class="stack" style="margin-top: 12px">
+          <InfoRow label="Жилая площадь" :value="property.property_details?.living_area ? property.property_details.living_area + ' м²' : '—'" />
+          <InfoRow label="Площадь кухни" :value="property.property_details?.kitchen_area ? property.property_details.kitchen_area + ' м²' : '—'" />
+          <InfoRow label="Высота потолков" :value="property.property_details?.ceiling_height ? property.property_details.ceiling_height + ' м' : '—'" />
+          <InfoRow label="Балконы" :value="property.property_details?.balcony_count ?? '—'" />
+          <InfoRow label="Санузлы" :value="property.property_details?.bathroom_count ?? '—'" />
+          <InfoRow label="Тип санузла" :value="property.property_details?.bathroom_type_data?.name || '—'" />
+          <InfoRow label="Тип ремонта" :value="property.property_details?.renovation_type_data?.name || '—'" />
+          <InfoRow label="Спальни" :value="property.property_details?.bedrooms_count ?? '—'" />
+          <InfoRow label="Этажей в квартире / доме" :value="property.property_details?.floors_count ?? '—'" />
+          <InfoRow label="Площадь участка" :value="property.property_details?.land_area ? property.property_details.land_area + ' м²' : '—'" />
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid--2">
+      <div class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">Файлы</div>
+          <div class="surface-head__caption">Документы объекта</div>
+        </div>
+        <h2 class="h3">Документы</h2>
+        <div v-if="documents.length" class="stack" style="margin-top: 12px">
+          <a v-for="doc in documents" :key="doc.id" :href="doc.file_url" class="doc-row" target="_blank" rel="noreferrer">
+            <span>{{ doc.document_name }}</span>
+            <span class="muted" style="font-size: 12px">
+              {{ doc.is_verified ? 'Проверен' : 'Не проверен' }}
+              <span v-if="doc.verified_by_username">· {{ doc.verified_by_username }}</span>
+            </span>
+          </a>
+        </div>
+        <div v-else class="muted" style="margin-top: 12px">Документы не загружены.</div>
+      </div>
+
+      <div class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">История цен</div>
+          <div class="surface-head__caption">Изменения стоимости</div>
+        </div>
+        <h2 class="h3">Цены</h2>
+        <div v-if="priceHistory.length" class="table-wrap property-history-table" style="margin-top: 12px">
+          <table class="table">
+            <thead><tr><th>Дата</th><th>Старая</th><th>Новая</th><th>Кем</th></tr></thead>
+            <tbody>
+              <tr v-for="item in priceHistory" :key="item.id">
+                <td>{{ formatDate(item.changed_at) }}</td>
+                <td>{{ item.old_price ? formatMoney(item.old_price) + ' ₽' : '—' }}</td>
+                <td>{{ formatMoney(item.new_price) }} ₽</td>
+                <td>{{ item.changed_by_username || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 12px">История цен отсутствует.</div>
+      </div>
+    </div>
+
+    <div class="panel panel--light" v-if="amenities.length">
+      <div class="surface-head property-surface-head">
+        <div class="surface-head__meta">Удобства</div>
+        <div class="surface-head__caption">{{ amenities.length }} отметок</div>
+      </div>
+      <h2 class="h3">Отмеченные удобства</h2>
+      <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 12px">
+        <span v-for="item in amenities" :key="item.amenity" class="tag tag--panel">
+          {{ item.amenity_data?.name || item.amenity }}
+        </span>
+      </div>
+    </div>
+
+    <div v-if="property.owners?.length" class="panel panel--light">
+      <div class="surface-head property-surface-head">
+        <div class="surface-head__meta">Собственники</div>
+        <div class="surface-head__caption">{{ property.owners.length }} записей</div>
+      </div>
+      <h2 class="h3">Владельцы объекта</h2>
+      <div class="stack" style="margin-top: 12px">
+        <div v-for="owner in property.owners" :key="`${owner.property}-${owner.client_profile}`" class="owner-row">
+          <div class="owner-row__main">
+            <b>
+              {{ [owner.client_last_name, owner.client_first_name, owner.client_middle_name].filter(Boolean).join(' ') || owner.client_username || '—' }}
+            </b>
+            <div class="muted" style="font-size: 12px">
+              {{ owner.client_username || '—' }}
+              <span v-if="owner.ownership_share !== null && owner.ownership_share !== undefined">
+                · {{ owner.ownership_share }}%
+              </span>
+            </div>
+          </div>
+          <div class="owner-row__contacts">
+            <span v-if="owner.client_phone">{{ owner.client_phone }}</span>
+            <span v-if="owner.client_email">{{ owner.client_email }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -260,9 +410,9 @@ import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
 import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
-import { formatMoney as fmtMoney } from '@/utils/formatters'
+import { formatMoney as fmtMoney, formatDate } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
-import { formatRoomsValue } from '@/utils/propertyTypes'
+import { formatRoomsValue, normalizePropertyType, propertyTypeLabel } from '@/utils/propertyTypes'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
@@ -306,6 +456,9 @@ const visiblePhotosCount = computed(() => (
   property.value?.photos?.filter((photo) => !photo.is_hidden).length || 0
 ))
 const historyCount = computed(() => history.value.length)
+const amenities = computed(() => property.value?.amenities || [])
+const documents = computed(() => property.value?.documents || [])
+const priceHistory = computed(() => property.value?.price_history || [])
 const priceLabel = computed(() => (
   property.value?.price ? `${formatMoney(property.value.price)} ₽` : '—'
 ))
@@ -345,10 +498,15 @@ async function submitRequest () {
 async function load() {
   const propertyId = route.params.id
   try {
-    const { data } = await api.get(`/properties/${propertyId}/`)
-    property.value = data
+    const [propertyResponse, historyResponse] = await Promise.all([
+      api.get(`/properties/${propertyId}/`),
+      api.get(`/properties/${propertyId}/history/`).catch(() => ({ data: [] })),
+    ])
+    property.value = propertyResponse.data
+    history.value = Array.isArray(historyResponse.data) ? historyResponse.data : []
   } catch (err) {
     property.value = null
+    history.value = []
     toasts.error(extractError(err, 'Не удалось загрузить объект'))
     return
   }
@@ -363,7 +521,6 @@ async function load() {
       statuses.value = []
     })
 
-  history.value = []
 }
 
 async function changeStatus(id) {
@@ -455,13 +612,7 @@ async function remove() {
 
 function formatMoney (v) { return fmtMoney(v, '0') }
 function premisesTypeLabel (value) {
-  const map = {
-    apartment: 'Квартира',
-    house: 'Дом',
-    office: 'Офис',
-    warehouse: 'Склад',
-  }
-  return map[value] || '—'
+  return propertyTypeLabel(normalizePropertyType(value)) || '—'
 }
 
 watch(() => route.params.id, () => {
@@ -511,6 +662,30 @@ watch(() => route.params.id, () => {
 
 .gallery__item:hover .gallery__img {
   transform: scale(1.04);
+}
+
+.owner-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.owner-row__main,
+.owner-row__contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.owner-row__contacts {
+  align-items: flex-end;
+  text-align: right;
+  color: var(--c-ink-soft);
+  font-size: 13px;
 }
 
 /* ---- Lightbox ---- */

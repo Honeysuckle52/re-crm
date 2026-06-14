@@ -9,7 +9,13 @@ from typing import Any
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
-from django.db import connection, transaction
+from django.db import (
+    InterfaceError,
+    OperationalError,
+    close_old_connections,
+    connection,
+    transaction,
+)
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -306,23 +312,40 @@ def _claim_next_email(
         | Q(status='processing', processing_started_at__lt=cutoff)
     )
 
-    with transaction.atomic():
-        email = _email_claim_queryset().filter(eligible).first()
-        if email is None:
-            return None
-        updated = models.OutgoingEmail.objects.filter(pk=email.pk).filter(
-            eligible,
-        ).update(
-            status='processing',
-            processing_started_at=claim_time,
-            error_message=None,
-        )
-        if not updated:
-            return None
+    email_id = None
+    for attempt in range(2):
+        try:
+            with transaction.atomic():
+                email = _email_claim_queryset().filter(eligible).first()
+                if email is None:
+                    return None
+                email_id = email.pk
+                updated = models.OutgoingEmail.objects.filter(pk=email.pk).filter(
+                    eligible,
+                ).update(
+                    status='processing',
+                    processing_started_at=claim_time,
+                    error_message=None,
+                )
+                if not updated:
+                    return None
+            break
+        except (OperationalError, InterfaceError):
+            close_old_connections()
+            if attempt == 1:
+                raise
+    if email_id is None:
+        return None
 
-    return models.OutgoingEmail.objects.select_related(
-        'recipient', 'sender', 'task', 'request', 'property',
-    ).get(pk=email.pk)
+    for attempt in range(2):
+        try:
+            return models.OutgoingEmail.objects.select_related(
+                'recipient', 'sender', 'task', 'request', 'property',
+            ).get(pk=email_id)
+        except (OperationalError, InterfaceError):
+            close_old_connections()
+            if attempt == 1:
+                raise
 
 
 def process_email_queue(
@@ -331,6 +354,7 @@ def process_email_queue(
     stale_after: timedelta = EMAIL_CLAIM_TIMEOUT,
 ) -> dict[str, int]:
     """Обрабатывает очередь исходящих писем."""
+    close_old_connections()
     summary = {
         'processed': 0,
         'sent': 0,

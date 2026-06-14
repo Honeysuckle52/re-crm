@@ -21,7 +21,7 @@ def env_list(name: str, default: str = '') -> list[str]:
 
 
 SECRET_KEY = os.getenv('SECRET_KEY', '')
-DEBUG = env_bool('DEBUG', False)
+DEBUG = env_bool('DEBUG', True)
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', 'localhost,127.0.0.1' if DEBUG else '')
 
 if not SECRET_KEY:
@@ -262,5 +262,4 @@ DADATA_API_KEY = os.getenv(
 )
 
 # 2GIS Places API — обогащение объектов недвижимости данными и фото.
-# Ключ хранится ТОЛЬКО на сервере и никогда не передаётся в браузер.
-TWOGIS_API_KEY = os.getenv('TWOGIS_API_KEY', '0e9c9bee-64f5-42fa-b8c6-0925a6d20eef')
+TWOGIS_API_KEY = os.getenv('TWOGIS_API_KEY', 'c3270250-2e30-4990-ad62-6c51b8701f0c')

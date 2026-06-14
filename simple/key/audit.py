@@ -25,6 +25,23 @@ def _entity_type_for(entity) -> str:
     raise ValueError(f'Unsupported audit entity: {type(entity)!r}')
 
 
+def _resolve_audit_lookup(model_class, code: str, *, name: str | None = None):
+    code = (code or '').strip()
+    if not code:
+        raise ValueError(f'Empty code for {model_class.__name__}')
+
+    lookup = model_class.objects.filter(code=code).first()
+    if lookup is None:
+        lookup = model_class.objects.create(
+            code=code,
+            name=name or code,
+        )
+    elif name and lookup.name != name:
+        lookup.name = name
+        lookup.save(update_fields=['name'])
+    return lookup
+
+
 def _serialize_audit_value(value):
     if value is None:
         return None
@@ -103,22 +120,35 @@ def log_event(
     task_obj: models.Task | None = None,
     deal_obj: models.Deal | None = None,
 ) -> models.AuditLog:
-    entity_type = _entity_type_for(entity)
+    entity_type = _resolve_audit_lookup(
+        models.AuditEntityType,
+        _entity_type_for(entity),
+    )
+    action = _resolve_audit_lookup(
+        models.AuditAction,
+        action_code,
+        name=action_label,
+    )
     property_obj = property_obj or (entity if isinstance(entity, models.Property) else None)
     request_obj = request_obj or (entity if isinstance(entity, models.Request) else None)
     task_obj = task_obj or (entity if isinstance(entity, models.Task) else None)
     deal_obj = deal_obj or (entity if isinstance(entity, models.Deal) else None)
 
+    metadata_payload = metadata or {}
+    if property_obj is not None:
+        metadata_payload.setdefault('property_id', property_obj.pk)
+    if request_obj is not None:
+        metadata_payload.setdefault('request_id', request_obj.pk)
+    if task_obj is not None:
+        metadata_payload.setdefault('task_id', task_obj.pk)
+    if deal_obj is not None:
+        metadata_payload.setdefault('deal_id', deal_obj.pk)
+
     return models.AuditLog.objects.create(
         entity_type=entity_type,
         entity_id=entity.pk,
-        action_code=action_code,
-        action_label=action_label,
+        action=action,
         message=message or '',
-        metadata=metadata or {},
+        metadata=metadata_payload,
         actor=actor if getattr(actor, 'pk', None) else None,
-        property=property_obj,
-        request=request_obj,
-        task=task_obj,
-        deal=deal_obj,
     )

@@ -77,8 +77,10 @@
           <select class="select" v-model="form.premises_type" required>
             <option value="apartment">Квартира</option>
             <option value="house">Дом</option>
-            <option value="office">Офис</option>
-            <option value="warehouse">Склад</option>
+            <option value="commercial">Коммерческая недвижимость</option>
+            <option value="land">Земельный участок</option>
+            <option value="garage">Гараж</option>
+            <option value="room">Комната</option>
           </select>
         </div>
         <div class="field">
@@ -198,6 +200,161 @@
         </textarea>
       </div>
 
+      <div class="surface-head property-form__section-head">
+        <div>
+          <div class="surface-head__meta">Данные БД</div>
+          <h2 class="h3">Характеристики из связанных таблиц</h2>
+        </div>
+        <div class="surface-head__caption">
+          Поля сохраняются в `building_details`, `property_details` и `commercial_property_details`.
+        </div>
+      </div>
+
+      <div class="grid grid--2 property-form__details-grid">
+        <div class="panel panel--light property-form__details-block">
+          <h3 class="h4">Дом</h3>
+          <div class="grid grid--2 property-form__details-fields">
+            <div class="field">
+              <label>Год постройки</label>
+              <input class="input" type="number" v-model.number="form.building_details.year_built" />
+            </div>
+            <div class="field">
+              <label>Этажей в доме</label>
+              <input class="input" type="number" v-model.number="form.building_details.total_floors" />
+            </div>
+            <div class="field">
+              <label>Материал стен</label>
+              <select class="select" v-model="form.building_details.building_material">
+                <option :value="null">Не указан</option>
+                <option v-for="item in dict.buildingMaterials" :key="item.id" :value="item.id">
+                  {{ item.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Лифты</label>
+              <input class="input" type="number" min="0" v-model.number="form.building_details.elevators_count" />
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel--light property-form__details-block">
+          <h3 class="h4">Жилая часть</h3>
+          <div class="grid grid--2 property-form__details-fields">
+            <div class="field">
+              <label>Жилая площадь, м²</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.property_details.living_area" />
+            </div>
+            <div class="field">
+              <label>Площадь кухни, м²</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.property_details.kitchen_area" />
+            </div>
+            <div class="field">
+              <label>Высота потолков, м</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.property_details.ceiling_height" />
+            </div>
+            <div class="field">
+              <label>Балконы</label>
+              <input class="input" type="number" min="0" v-model.number="form.property_details.balcony_count" />
+            </div>
+            <div class="field">
+              <label>Санузлы</label>
+              <input class="input" type="number" min="0" v-model.number="form.property_details.bathroom_count" />
+            </div>
+            <div class="field">
+              <label>Тип санузла</label>
+              <select class="select" v-model="form.property_details.bathroom_type">
+                <option :value="null">Не указан</option>
+                <option v-for="item in dict.bathroomTypes" :key="item.id" :value="item.id">
+                  {{ item.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Тип ремонта</label>
+              <select class="select" v-model="form.property_details.renovation_type">
+                <option :value="null">Не указан</option>
+                <option v-for="item in dict.renovationTypes" :key="item.id" :value="item.id">
+                  {{ item.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Спальни</label>
+              <input class="input" type="number" min="0" v-model.number="form.property_details.bedrooms_count" />
+            </div>
+            <div class="field">
+              <label>Этажей в квартире / доме</label>
+              <input class="input" type="number" min="1" v-model.number="form.property_details.floors_count" />
+            </div>
+            <div class="field">
+              <label>Площадь участка, м²</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.property_details.land_area" />
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel--light property-form__details-block">
+          <h3 class="h4">Коммерческий блок</h3>
+          <div class="grid grid--2 property-form__details-fields">
+            <div class="field">
+              <label>Тип коммерческого объекта</label>
+              <select class="select" v-model="form.commercial_property_details.commercial_type">
+                <option :value="null">Не указан</option>
+                <option v-for="item in dict.commercialTypes" :key="item.id" :value="item.id">
+                  {{ item.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Полезная площадь, м²</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.usable_area" />
+            </div>
+            <div class="field">
+              <label>Высота потолков, м</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.ceiling_height" />
+            </div>
+            <div class="field">
+              <label>Нагрузка на пол, кг/м²</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.floor_load" />
+            </div>
+            <div class="field">
+              <label>Электрическая мощность, кВт</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.electric_power_kw" />
+            </div>
+            <div class="field">
+              <label>Парковочные места</label>
+              <input class="input" type="number" min="0" v-model.number="form.commercial_property_details.parking_spaces" />
+            </div>
+            <label class="chip-check">
+              <input type="checkbox" v-model="form.commercial_property_details.has_separate_entrance" />
+              Отдельный вход
+            </label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="form.commercial_property_details.has_display_windows" />
+              Витринные окна
+            </label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="form.commercial_property_details.is_first_line" />
+              Первая линия
+            </label>
+          </div>
+        </div>
+
+        <div class="panel panel--light property-form__details-block">
+          <h3 class="h4">Удобства</h3>
+          <div class="property-form__amenities">
+            <label v-for="item in dict.amenities" :key="item.id" class="chip-check">
+              <input
+                type="checkbox"
+                :value="item.id"
+                v-model="form.amenity_ids" />
+              {{ item.name }}
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div v-if="error" class="error">{{ error }}</div>
       <div class="row" style="justify-content: flex-end; gap: 8px">
         <button class="btn" type="button" @click="$router.back()">Отмена</button>
@@ -219,8 +376,10 @@ import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { extractError, useToastsStore } from '../store/toasts'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import {
+  normalizePropertyType,
   propertyTypeUsesFloor,
   propertyTypeUsesRooms,
+  propertyTypeUsesAreaRange,
   propertyTypeUsesTotalFloors,
 } from '@/utils/propertyTypes'
 
@@ -229,21 +388,102 @@ const router = useRouter()
 const toasts = useToastsStore()
 const isEdit = computed(() => !!route.params.id)
 
+function createBuildingDetailsForm() {
+  return {
+    year_built: null,
+    total_floors: null,
+    building_material: null,
+    elevators_count: 0,
+  }
+}
+
+function createPropertyDetailsForm() {
+  return {
+    living_area: null,
+    kitchen_area: null,
+    ceiling_height: null,
+    balcony_count: 0,
+    bathroom_count: 1,
+    bathroom_type: null,
+    renovation_type: null,
+    bedrooms_count: null,
+    floors_count: null,
+    land_area: null,
+  }
+}
+
+function createCommercialPropertyDetailsForm() {
+  return {
+    commercial_type: null,
+    usable_area: null,
+    ceiling_height: null,
+    floor_load: null,
+    electric_power_kw: null,
+    has_separate_entrance: false,
+    has_display_windows: false,
+    is_first_line: false,
+    parking_spaces: null,
+  }
+}
+
+function createAmenityIdsForm() {
+  return []
+}
+
 function defaultForm() {
   return {
-    title: '', operation_type: 1, status: 1,
+    title: '',
+    operation_type: 1,
+    status: 1,
     premises_type: 'apartment',
     address: null,
-    price: null, price_per_sqm: null,
+    price: null,
+    price_per_sqm: null,
     area_total: null,
-    rooms_count: null, floor_number: null, total_floors: null,
+    rooms_count: null,
+    floor_number: null,
+    total_floors: null,
     description: '',
+    building_details: createBuildingDetailsForm(),
+    property_details: createPropertyDetailsForm(),
+    commercial_property_details: createCommercialPropertyDetailsForm(),
+    amenity_ids: createAmenityIdsForm(),
+  }
+}
+
+function mergeFormState(source = {}) {
+  const base = defaultForm()
+  return {
+    ...base,
+    ...source,
+    building_details: {
+      ...base.building_details,
+      ...(source.building_details || {}),
+    },
+    property_details: {
+      ...base.property_details,
+      ...(source.property_details || {}),
+    },
+    commercial_property_details: {
+      ...base.commercial_property_details,
+      ...(source.commercial_property_details || {}),
+    },
+    amenity_ids: Array.isArray(source.amenity_ids)
+      ? [...source.amenity_ids]
+      : [...base.amenity_ids],
   }
 }
 
 const form = reactive(defaultForm())
 
-const dict = reactive({ operations: [] })
+const dict = reactive({
+  operations: [],
+  buildingMaterials: [],
+  bathroomTypes: [],
+  renovationTypes: [],
+  commercialTypes: [],
+  amenities: [],
+})
 const addressQuery = ref('')
 const addressPicked = ref(null)
 const existingAddress = ref('')
@@ -265,10 +505,11 @@ const addressStateLabel = computed(() => {
   if (existingAddress.value) return 'Сохранён'
   return 'Не указан'
 })
-const selectedFeaturesCount = computed(() => 0)
-const isRoomsDisabled = computed(() => !propertyTypeUsesRooms(form.premises_type))
-const isFloorDisabled = computed(() => !propertyTypeUsesFloor(form.premises_type))
-const isTotalFloorsDisabled = computed(() => !propertyTypeUsesTotalFloors(form.premises_type))
+const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
+const selectedFeaturesCount = computed(() => form.amenity_ids.length)
+const isRoomsDisabled = computed(() => !propertyTypeUsesRooms(normalizedPremisesType.value))
+const isFloorDisabled = computed(() => !propertyTypeUsesFloor(normalizedPremisesType.value))
+const isTotalFloorsDisabled = computed(() => !propertyTypeUsesTotalFloors(normalizedPremisesType.value))
 const floorRestrictionHint = computed(() => {
   if (form.premises_type === 'warehouse') return 'Для склада этажи и комнаты не указываются.'
   if (form.premises_type === 'house') return 'Для дома укажите только общее количество этажей.'
@@ -320,7 +561,7 @@ function removePhoto(p, index) {
 
 function buildPropertyDraftData() {
   return {
-    form: { ...form },
+    form: mergeFormState(form),
     addressQuery: addressQuery.value,
     addressPicked: addressPicked.value,
     newPhotoUrl: newPhotoUrl.value,
@@ -330,6 +571,7 @@ function buildPropertyDraftData() {
         url: photo.url,
         is_cover: !!photo.is_cover,
       })),
+    amenityIds: [...form.amenity_ids],
   }
 }
 
@@ -349,13 +591,17 @@ function buildPropertyDirtyState() {
 }
 
 function isPropertyDraftEmpty(draft) {
-  const formData = draft?.form || {}
-  const hasFormValue = Object.entries(formData)
-    .filter(([key]) => !['operation_type', 'status', 'address'].includes(key))
-    .some(([, value]) => {
-      if (Array.isArray(value)) return value.length > 0
-      return value !== '' && value !== null && value !== undefined
-    })
+  const formData = mergeFormState(draft?.form || {})
+  const base = defaultForm()
+  const hasFormValue = JSON.stringify({
+    ...formData,
+    operation_type: base.operation_type,
+    status: base.status,
+    address: null,
+  }) !== JSON.stringify({
+    ...base,
+    address: null,
+  })
 
   return !(
     hasFormValue
@@ -404,6 +650,7 @@ function applyPropertyDraft(draft) {
     _new: true,
     _fromUrl: true,
   }))
+  form.amenity_ids = Array.isArray(draft?.amenityIds) ? [...draft.amenityIds] : []
   pendingFiles.value = []
   removedPhotoIds.value = []
 }
@@ -434,13 +681,28 @@ async function ensureOperationTypesLoaded () {
   dict.operations = unpackPaginated(data).items
 }
 
+async function ensureLookupLoaded(key, endpoint) {
+  if (dict[key].length) return
+  const { data } = await api.get(endpoint, {
+    params: { page_size: LOOKUP_PAGE_SIZE },
+  })
+  dict[key] = unpackPaginated(data).items
+}
+
 async function initializeForm () {
   const seq = ++initSeq
   loading.value = true
   resetPropertyFormState()
 
   try {
-    await ensureOperationTypesLoaded()
+    await Promise.all([
+      ensureOperationTypesLoaded(),
+      ensureLookupLoaded('buildingMaterials', '/building-materials/'),
+      ensureLookupLoaded('bathroomTypes', '/bathroom-types/'),
+      ensureLookupLoaded('renovationTypes', '/renovation-types/'),
+      ensureLookupLoaded('commercialTypes', '/commercial-property-types/'),
+      ensureLookupLoaded('amenities', '/amenities/'),
+    ])
     if (seq !== initSeq) return
 
     if (isEdit.value) {
@@ -459,6 +721,31 @@ async function initializeForm () {
         floor_number: data.floor_number,
         total_floors: data.total_floors,
         description: data.description,
+        building_details: {
+          ...createBuildingDetailsForm(),
+          ...(data.building_details || {}),
+          building_material: data.building_details?.building_material
+            ?? data.building_details?.building_material_data?.id
+            ?? null,
+        },
+        property_details: {
+          ...createPropertyDetailsForm(),
+          ...(data.property_details || {}),
+          bathroom_type: data.property_details?.bathroom_type
+            ?? data.property_details?.bathroom_type_data?.id
+            ?? null,
+          renovation_type: data.property_details?.renovation_type
+            ?? data.property_details?.renovation_type_data?.id
+            ?? null,
+        },
+        commercial_property_details: {
+          ...createCommercialPropertyDetailsForm(),
+          ...(data.commercial_property_details || {}),
+          commercial_type: data.commercial_property_details?.commercial_type
+            ?? data.commercial_property_details?.commercial_type_data?.id
+            ?? null,
+        },
+        amenity_ids: (data.amenities || []).map((item) => item.amenity),
       })
       existingAddress.value = data.full_address || ''
       photos.value = (data.photos || []).map((photo) => ({ ...photo }))
@@ -539,6 +826,20 @@ async function submit() {
       floor_number: isFloorDisabled.value ? null : form.floor_number,
       total_floors: isTotalFloorsDisabled.value ? null : form.total_floors,
       description: form.description,
+      building_details_data: {
+        ...form.building_details,
+        building_material: form.building_details.building_material || null,
+      },
+      property_details_data: {
+        ...form.property_details,
+        bathroom_type: form.property_details.bathroom_type || null,
+        renovation_type: form.property_details.renovation_type || null,
+      },
+      commercial_property_details_data: {
+        ...form.commercial_property_details,
+        commercial_type: form.commercial_property_details.commercial_type || null,
+      },
+      amenity_ids: [...form.amenity_ids],
     }
     if (addressPicked.value) {
       payload.address_data = addressPicked.value

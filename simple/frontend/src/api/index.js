@@ -8,16 +8,34 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access')
-  if (token) config.headers.Authorization = `Bearer ${token}`
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
   return config
 })
 
 let refreshing = null
+const AUTH_REFRESH_SKIP_PATHS = [
+  '/auth/login/',
+  '/auth/refresh/',
+  '/auth/register/',
+  '/auth/verify-email/',
+  '/auth/resend-email-code/',
+  '/auth/logout/',
+  '/auth/verify/',
+]
+
+function isAuthEndpoint(config) {
+  const url = config?.url || ''
+  return AUTH_REFRESH_SKIP_PATHS.some((path) => url.includes(path))
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config
-    if (error.response?.status === 401 && !original._retry) {
+    if (error.response?.status === 401 && original && !original._retry && !isAuthEndpoint(original)) {
       const refresh = localStorage.getItem('refresh')
       if (!refresh) throw error
       original._retry = true

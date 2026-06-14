@@ -5,7 +5,8 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from django.db import connection, transaction
+from django.db import connection, transaction, close_old_connections
+from django.db import DatabaseError, OperationalError, InterfaceError
 from django.db.models import Q
 from django.utils import timezone
 
@@ -131,21 +132,39 @@ def _claim_next_contract(
         | Q(contract_status='processing', contract_processing_started_at__lt=cutoff)
     )
 
-    with transaction.atomic():
-        deal = _deal_claim_queryset().filter(eligible).first()
-        if deal is None:
-            return None
-        updated = models.Deal.objects.filter(pk=deal.pk).filter(eligible).update(
-            contract_status='processing',
-            contract_error_message=None,
-            contract_processing_started_at=claim_time,
-        )
-        if not updated:
-            return None
+    deal_id = None
+    for attempt in range(2):
+        try:
+            with transaction.atomic():
+                deal = _deal_claim_queryset().filter(eligible).first()
+                if deal is None:
+                    return None
+                deal_id = deal.pk
+                updated = models.Deal.objects.filter(pk=deal.pk).filter(eligible).update(
+                    contract_status='processing',
+                    contract_error_message=None,
+                    contract_processing_started_at=claim_time,
+                )
+                if not updated:
+                    return None
+            break
+        except (OperationalError, InterfaceError):
+            close_old_connections()
+            if attempt == 1:
+                raise
 
-    return models.Deal.objects.select_related(
-        'request', 'property', 'agent', 'client', 'operation_type', 'status',
-    ).get(pk=deal.pk)
+    if deal_id is None:
+        return None
+
+    for attempt in range(2):
+        try:
+            return models.Deal.objects.select_related(
+                'request', 'property', 'agent', 'client', 'operation_type', 'status',
+            ).get(pk=deal_id)
+        except (OperationalError, InterfaceError):
+            close_old_connections()
+            if attempt == 1:
+                raise
 
 
 def _generate_contract_file(deal: models.Deal):
@@ -159,6 +178,7 @@ def process_contract_queue(
     stale_after: timedelta = CONTRACT_CLAIM_TIMEOUT,
 ) -> dict[str, int]:
     """Обрабатывает очередь генерации договоров."""
+    close_old_connections()
     summary = {
         'processed': 0,
         'generated': 0,
@@ -173,6 +193,39 @@ def process_contract_queue(
         summary['processed'] += 1
         try:
             pdf = _generate_contract_file(deal)
+        except (OperationalError, InterfaceError, DatabaseError) as exc:
+            logger.warning(
+                'DB connection lost while generating contract for deal %s; retrying once',
+                deal.deal_number,
+            )
+            close_old_connections()
+            try:
+                pdf = _generate_contract_file(deal)
+            except Exception as retry_exc:  # noqa: BLE001
+                exc = retry_exc
+                logger.exception(
+                    'Не удалось сгенерировать договор для сделки %s',
+                    deal.deal_number,
+                )
+                models.Deal.objects.filter(pk=deal.pk).update(
+                    contract_status='failed',
+                    contract_error_message=str(exc)[:2000],
+                    contract_processing_started_at=None,
+                )
+                audit_service.log_event(
+                    entity=deal,
+                    action_code='contract_failed',
+                    action_label='Ошибка генерации договора',
+                    actor=None,
+                    message='Не удалось сформировать PDF-договор.',
+                    metadata={
+                        'error': str(exc)[:500],
+                    },
+                    property_obj=deal.property,
+                    request_obj=deal.request,
+                )
+                summary['failed'] += 1
+                continue
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 'Не удалось сгенерировать договор для сделки %s',

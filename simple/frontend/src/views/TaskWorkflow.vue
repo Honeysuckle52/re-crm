@@ -161,8 +161,10 @@
                 <option value="">Выберите тип</option>
                 <option value="apartment">Квартира</option>
                 <option value="house">Дом</option>
-                <option value="office">Офис</option>
-                <option value="warehouse">Склад</option>
+                <option value="commercial">Коммерческая недвижимость</option>
+                <option value="land">Земельный участок</option>
+                <option value="garage">Гараж</option>
+                <option value="room">Комната</option>
               </select>
             </div>
             <div class="field">

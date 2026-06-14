@@ -7,8 +7,12 @@ import sys
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.staticfiles.handlers import StaticFilesHandler
 from django.contrib.staticfiles.management.commands.runserver import (
     Command as DjangoRunserverCommand,
+)
+from django.core.management.commands.runserver import (
+    Command as BaseRunserverCommand,
 )
 
 from ..background_worker import (
@@ -43,6 +47,12 @@ class Command(DjangoRunserverCommand):
             default=DEFAULT_WORKER_SLEEP,
             help='Пауза между пустыми циклами background worker.',
         )
+
+    def get_handler(self, *args, **options):
+        handler = BaseRunserverCommand.get_handler(self, *args, **options)
+        if not options.get('use_static_handler', True):
+            return handler
+        return StaticFilesHandler(handler)
 
     def inner_run(self, *args, **options):
         worker_process = None

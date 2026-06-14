@@ -23,21 +23,29 @@
     <div class="card__title">{{ property.title || 'Без названия' }}</div>
     <div class="card__price">{{ formatMoney(property.price) }} ₽</div>
     <div class="card__meta">
-      <span v-if="showRooms" class="tag">{{ property.rooms_count }}-комн.</span>
+      <span v-if="showRooms" class="tag">{{ roomsLabel }}</span>
       <span v-if="property.area_total" class="tag">{{ property.area_total }} м²</span>
+      <span v-if="property.property_type_name || property.premises_type" class="tag">
+        {{ property.property_type_name || property.premises_type }}
+      </span>
       <span v-if="property.floor_number" class="tag">
         {{ property.floor_number }}/{{ property.total_floors || '—' }} эт.
       </span>
       <span class="tag tag--accent">{{ property.status_name }}</span>
     </div>
     <div class="muted" style="font-size: 12px">{{ property.full_address }}</div>
+    <div v-if="amenityPreview.length" class="card__amenities">
+      <span v-for="amenity in amenityPreview" :key="amenity" class="tag tag--panel">
+        {{ amenity }}
+      </span>
+    </div>
   </component>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { formatMoney as fmtMoney } from '@/utils/formatters'
-import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
+import { formatRoomsValue, propertyTypeUsesRooms } from '@/utils/propertyTypes'
 
 const props = defineProps({
   property: { type: Object, required: true },
@@ -49,6 +57,17 @@ const props = defineProps({
 const emit = defineEmits(['select'])
 const showRooms = computed(() => (
   propertyTypeUsesRooms(props.property.premises_type) && props.property.rooms_count
+))
+const roomsLabel = computed(() => (
+  formatRoomsValue(props.property.premises_type, props.property.rooms_count)
+))
+const amenityPreview = computed(() => (
+  Array.isArray(props.property.amenities)
+    ? props.property.amenities
+        .slice(0, 3)
+        .map((item) => item?.amenity_data?.name || item?.amenity_name || item?.amenity || '')
+        .filter(Boolean)
+    : []
 ))
 
 function handleClick(event) {
@@ -130,5 +149,12 @@ function formatMoney (v) { return fmtMoney(v, '0') }
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: #000 !important;
+}
+
+.card__amenities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 </style>

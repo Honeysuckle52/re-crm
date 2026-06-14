@@ -68,7 +68,7 @@
           <InfoRow label="Клиент" :value="request.client_username" />
           <InfoRow label="Агент" :value="request.agent_username || 'не назначен'" />
           <InfoRow label="Операция" :value="request.operation_type_name" />
-          <InfoRow label="Тип недвижимости" :value="request.property_type || '—'" />
+          <InfoRow label="Тип недвижимости" :value="request.property_type_name || request.property_type_code || request.property_type || '—'" />
           <InfoRow label="Комнат" :value="formatRoomsValue(request.property_type, request.rooms_count)" />
           <InfoRow
             label="Бюджет"

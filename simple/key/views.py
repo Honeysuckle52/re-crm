@@ -136,10 +136,10 @@ def _apply_property_filters(qs, params):
         qs = qs.filter(area_total__lte=params['max_area'])
     premises_type = (params.get('premises_type') or '').strip()
     if premises_type:
-        qs = qs.filter(premises_type=premises_type)
+        qs = qs.filter(property_type_ref__code=premises_type)
     owner = (params.get('owner') or '').strip()
     if owner and owner != 'me':
-        qs = qs.filter(owner_id=owner)
+        qs = qs.filter(owners__client_profile__user_id=owner).distinct()
     if params.get('min_price'):
         qs = qs.filter(price__gte=params['min_price'])
     if params.get('max_price'):
@@ -343,6 +343,36 @@ class UserRoleViewSet(viewsets.ModelViewSet):
 class PropertyTypeViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyType.objects.all()
     serializer_class = serializers.PropertyTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class BuildingMaterialViewSet(viewsets.ModelViewSet):
+    queryset = models.BuildingMaterial.objects.all()
+    serializer_class = serializers.BuildingMaterialSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class BathroomTypeViewSet(viewsets.ModelViewSet):
+    queryset = models.BathroomType.objects.all()
+    serializer_class = serializers.BathroomTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class RenovationTypeViewSet(viewsets.ModelViewSet):
+    queryset = models.RenovationType.objects.all()
+    serializer_class = serializers.RenovationTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class CommercialPropertyTypeViewSet(viewsets.ModelViewSet):
+    queryset = models.CommercialPropertyType.objects.all()
+    serializer_class = serializers.CommercialPropertyTypeSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class AmenityViewSet(viewsets.ModelViewSet):
+    queryset = models.Amenity.objects.all()
+    serializer_class = serializers.AmenitySerializer
     permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
@@ -616,8 +646,15 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
 
 class PropertyViewSet(viewsets.ModelViewSet):
     queryset = models.Property.objects.select_related(
-        'operation_type', 'status', 'address__house__street__city', 'owner',
-    ).prefetch_related('photos').all()
+        'operation_type', 'status', 'house__street__city',
+        'house__building_details', 'details', 'commercial_details',
+    ).prefetch_related(
+        'photos',
+        'owners__client_profile__user',
+        'amenities__amenity',
+        'documents',
+        'price_history',
+    ).all()
     serializer_class = serializers.PropertySerializer
     permission_classes = [IsEmployeeOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -644,20 +681,20 @@ class PropertyViewSet(viewsets.ModelViewSet):
         public_status_codes = {'active', 'reserved', 'sold', 'rented'}
         if user.is_authenticated and user.is_client:
             if params.get('owner') == 'me':
-                qs = qs.filter(owner=user)
+                qs = qs.filter(owners__client_profile__user=user).distinct()
             elif self.action == 'list':
                 qs = qs.filter(status__code__in=public_status_codes)
             elif self.action == 'retrieve':
                 qs = qs.filter(
                     Q(status__code__in=public_status_codes)
-                    | Q(owner=user),
+                    | Q(owners__client_profile__user=user),
                 )
             if self.action not in {'list', 'retrieve'} and params.get('owner') != 'me':
-                qs = qs.filter(owner=user)
+                qs = qs.filter(owners__client_profile__user=user).distinct()
         elif self.action == 'list' and params.get('owner') != 'me' and not params.get('status'):
             qs = qs.filter(status__code__in=public_status_codes)
         if params.get('owner') == 'me' and user.is_authenticated:
-            qs = qs.filter(owner=user)
+            qs = qs.filter(owners__client_profile__user=user).distinct()
         return _apply_property_filters(qs, params)
 
     @staticmethod
@@ -736,8 +773,12 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def moderation(self, request):
         qs = self.get_queryset().filter(status__code='pending')
         return Response(serializers.PropertySerializer(
-            qs.select_related('operation_type', 'status', 'address__house__street__city', 'owner')
-              .prefetch_related('photos'),
+            qs.select_related(
+                'operation_type', 'status', 'house__street__city',
+                'house__building_details', 'details', 'commercial_details',
+            ).prefetch_related(
+                'photos', 'owners__client_profile__user', 'amenities__amenity',
+            ),
             many=True, context={'request': request}
         ).data)
 
@@ -1023,7 +1064,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 {'detail': 'Сотрудникам нельзя загружать фото к объектам.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if request.user.is_client and property_obj.owner_id != request.user.id:
+        if request.user.is_client and not property_obj.is_owned_by(request.user):
             return Response(
                 {'detail': 'Можно загружать фото только к своему объекту.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -1038,12 +1079,22 @@ class PropertyViewSet(viewsets.ModelViewSet):
         is_first = not property_obj.photos.exists()
         photo = models.PropertyPhoto.objects.create(
             property=property_obj,
-            image=image if image else None,
-            url=url if not image else '',
+            url=url or '',
             caption=request.data.get('caption', '') or '',
-            is_cover=is_first,
             order=property_obj.photos.count(),
         )
+        if image:
+            from django.core.files.storage import default_storage
+            saved_path = default_storage.save(
+                f'property-photos/{timezone.now():%Y/%m}/{getattr(image, "name", "") or "property-photo"}',
+                image,
+            )
+            photo.url = default_storage.url(saved_path)
+        wants_cover = str(request.data.get('is_cover', '')).lower() in {'1', 'true', 'yes'}
+        photo.order = 0 if (is_first or wants_cover) else 1
+        photo.save(update_fields=['url', 'order'])
+        if is_first or wants_cover:
+            self._normalize_cover(property_obj.pk, preferred_photo_id=photo.pk)
         return Response(
             serializers.PropertyPhotoSerializer(
                 photo, context={'request': request}).data,
@@ -1068,17 +1119,15 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
         if preferred_photo_id is not None:
             cover = photos.filter(pk=preferred_photo_id).first()
         if cover is None:
-            cover = photos.filter(is_cover=True).order_by(
-                'order', '-uploaded_at', 'pk',
-            ).first()
-        if cover is None:
             cover = photos.order_by('order', '-uploaded_at', 'pk').first()
+        if cover is None:
+            return
 
-        photos.exclude(pk=cover.pk).filter(is_cover=True).update(is_cover=False)
+        photos.exclude(pk=cover.pk).update(order=1)
         update_fields = []
-        if not cover.is_cover:
-            cover.is_cover = True
-            update_fields.append('is_cover')
+        if cover.order != 0:
+            cover.order = 0
+            update_fields.append('order')
         if cover.is_hidden:
             cover.is_hidden = False
             update_fields.append('is_hidden')
@@ -1090,7 +1139,7 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_authenticated:
             if user.is_client:
-                qs = qs.filter(property__owner=user)
+                qs = qs.filter(property__owners__client_profile__user=user).distinct()
             elif user.is_employee and not user.is_admin_or_manager:
                 qs = qs.none()
         prop = self.request.query_params.get('property')
@@ -1103,7 +1152,7 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         property_obj = serializer.validated_data['property']
         user = self.request.user
-        if user.is_client and property_obj.owner_id != user.id:
+        if user.is_client and not property_obj.is_owned_by(user):
             raise ValidationError(
                 {'detail': 'Можно загружать фото только к своему объекту.'},
             )
@@ -1119,8 +1168,10 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
 
         save_kwargs = {}
         if should_prefer:
-            save_kwargs['is_cover'] = True
             save_kwargs['is_hidden'] = False
+            save_kwargs['order'] = 0
+        else:
+            save_kwargs['order'] = 1
         photo = serializer.save(**save_kwargs)
         self._normalize_cover(
             property_obj.pk,
@@ -1131,10 +1182,14 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
         photo = self.get_object()
         property_obj = serializer.validated_data.get('property', photo.property)
         wants_cover = serializer.validated_data.get('is_cover', photo.is_cover)
+        is_cover_specified = 'is_cover' in serializer.validated_data
 
         save_kwargs = {}
         if wants_cover:
             save_kwargs['is_hidden'] = False
+            save_kwargs['order'] = 0
+        elif is_cover_specified:
+            save_kwargs['order'] = 1
         updated = serializer.save(**save_kwargs)
         self._normalize_cover(
             property_obj.pk,
@@ -1150,12 +1205,10 @@ class PropertyPhotoViewSet(viewsets.ModelViewSet):
     def set_cover(self, request, pk=None):
         """Сделать выбранное фото обложкой объекта."""
         photo = self.get_object()
-        models.PropertyPhoto.objects.filter(
-            property_id=photo.property_id
-        ).exclude(pk=photo.pk).update(is_cover=False)
-        photo.is_cover = True
+        models.PropertyPhoto.objects.filter(property_id=photo.property_id).exclude(pk=photo.pk).update(order=1)
+        photo.order = 0
         photo.is_hidden = False  # обложка не может быть скрытой
-        photo.save(update_fields=['is_cover', 'is_hidden'])
+        photo.save(update_fields=['order', 'is_hidden'])
         return Response(serializers.PropertyPhotoSerializer(
             photo, context={'request': request}).data)
 
@@ -1218,9 +1271,10 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
 class RequestViewSet(viewsets.ModelViewSet):
     """Заявки клиентов."""
     queryset = models.Request.objects.select_related(
-        'client', 'agent', 'operation_type', 'status', 'property',
+        'client_profile__user', 'employee_profile__user',
+        'operation_type', 'status', 'property',
     ).prefetch_related(
-        'matches__property', 'matches__agent', 'matches__confirmed_by',
+        'matches__property', 'matches__employee_profile__user', 'matches__confirmed_by',
     ).all()
     serializer_class = serializers.RequestSerializer
     permission_classes = [IsAuthenticated]
@@ -1229,10 +1283,10 @@ class RequestViewSet(viewsets.ModelViewSet):
     search_fields = [
         '=id',
         'description',
-        'client__username',
-        'client__email',
-        'client__phone',
-        'agent__username',
+        'client_profile__user__username',
+        'client_profile__user__email',
+        'client_profile__user__phone',
+        'employee_profile__user__username',
         'property__title',
     ]
 
@@ -1250,7 +1304,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_authenticated and user.is_client:
-            qs = qs.filter(client=user)
+            qs = qs.filter(client_profile__user=user)
         elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
             mutable_actions = {
                 'update', 'partial_update', 'destroy',
@@ -1259,7 +1313,7 @@ class RequestViewSet(viewsets.ModelViewSet):
                 'confirm_property', 'accept_match',
             }
             if self.action in mutable_actions:
-                qs = qs.filter(agent=user)
+                qs = qs.filter(employee_profile__user=user)
             elif self.action == 'take':
                 qs = qs.filter(
                     _employee_visible_requests_q(user),
@@ -1270,13 +1324,13 @@ class RequestViewSet(viewsets.ModelViewSet):
 
         params = self.request.query_params
         if params.get('client'):
-            qs = qs.filter(client_id=params['client'])
+            qs = qs.filter(client_profile__user_id=params['client'])
         if params.get('agent'):
             value = params['agent']
             if value == 'me' and user.is_employee:
-                qs = qs.filter(agent=user)
+                qs = qs.filter(employee_profile__user=user)
             elif value != 'me':
-                qs = qs.filter(agent_id=value)
+                qs = qs.filter(employee_profile__user_id=value)
         if params.get('property'):
             qs = qs.filter(property_id=params['property'])
         if params.get('operation_type'):
@@ -1299,9 +1353,9 @@ class RequestViewSet(viewsets.ModelViewSet):
         )
         scope = params.get('scope')
         if scope == 'unassigned' and user.is_employee:
-            qs = qs.filter(agent__isnull=True)
+            qs = qs.filter(employee_profile__isnull=True)
         elif scope == 'mine' and user.is_employee:
-            qs = qs.filter(agent=user)
+            qs = qs.filter(employee_profile__user=user)
         return qs
 
     def perform_create(self, serializer):
@@ -1431,7 +1485,7 @@ class RequestViewSet(viewsets.ModelViewSet):
         requests_qs = list(
             self.get_queryset()
             .filter(pk__in=requested_ids)
-            .select_related('status', 'client', 'agent', 'operation_type')
+            .select_related('status', 'client_profile__user', 'employee_profile__user', 'operation_type')
         )
         found_ids = {request_obj.pk for request_obj in requests_qs}
         closed_count = 0
@@ -1649,7 +1703,8 @@ class RequestViewSet(viewsets.ModelViewSet):
 class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
     """Только чтение подборки; модификация — через действия RequestViewSet."""
     queryset = models.RequestPropertyMatch.objects.select_related(
-        'property', 'agent', 'request', 'confirmed_by',
+        'property', 'employee_profile__user', 'request__client_profile__user',
+        'request__employee_profile__user', 'confirmed_by',
     ).all()
     serializer_class = serializers.RequestPropertyMatchSerializer
     permission_classes = [IsAuthenticated]
@@ -1658,7 +1713,7 @@ class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_authenticated and user.is_client:
-            qs = qs.filter(request__client=user)
+            qs = qs.filter(request__client_profile__user=user)
         elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
             qs = qs.filter(_employee_visible_requests_q(user, prefix='request__'))
         request_id = self.request.query_params.get('request')
@@ -1669,7 +1724,7 @@ class RequestPropertyMatchViewSet(viewsets.ReadOnlyModelViewSet):
 
 class DealViewSet(viewsets.ModelViewSet):
     queryset = models.Deal.objects.select_related(
-        'property', 'agent', 'client', 'operation_type', 'status'
+        'property', 'agent', 'client', 'employee_profile__user', 'operation_type', 'status'
     ).all()
     serializer_class = serializers.DealSerializer
     permission_classes = [IsEmployeeOrReadOnly]
@@ -1831,7 +1886,7 @@ class DealViewSet(viewsets.ModelViewSet):
 
 class PropertyViewingViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyViewing.objects.select_related(
-        'property', 'client', 'agent'
+        'property', 'client_profile__user', 'employee_profile__user'
     ).all()
     serializer_class = serializers.PropertyViewingSerializer
     permission_classes = [IsAuthenticated]
@@ -1840,17 +1895,17 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = self.request.user
         if user.is_authenticated and user.is_client:
-            qs = qs.filter(client=user)
+            qs = qs.filter(client_profile__user=user)
         elif user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
             # Агент видит только свои просмотры, менеджер/админ — все.
-            qs = qs.filter(agent=user)
+            qs = qs.filter(employee_profile__user=user)
         return qs
 
 
 class TaskViewSet(viewsets.ModelViewSet):
     """Задачи сотрудников агентства."""
     queryset = models.Task.objects.select_related(
-        'status', 'assignee', 'created_by', 'client', 'property',
+        'status', 'assignee', 'created_by', 'client_profile__user', 'property',
         'request', 'deal',
     ).all()
     serializer_class = serializers.TaskSerializer
@@ -2398,7 +2453,7 @@ class OutgoingEmailViewSet(viewsets.ModelViewSet):
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """Единый журнал значимых действий системы."""
     queryset = models.AuditLog.objects.select_related(
-        'actor', 'property', 'request', 'task', 'deal',
+        'actor', 'entity_type', 'action',
     ).all()
     serializer_class = serializers.AuditLogSerializer
     # Клиентам аудит-лог не показываем: даже фильтрация "только своё"
@@ -2428,11 +2483,17 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if params.get('deal'):
             qs = qs.filter(deal_id=params['deal'])
         if params.get('entity_type'):
-            qs = qs.filter(entity_type=params['entity_type'])
+            entity_type = str(params['entity_type']).strip()
+            if entity_type.isdigit():
+                qs = qs.filter(entity_type_id=entity_type)
+            else:
+                qs = qs.filter(entity_type__code=entity_type)
         if params.get('entity_id'):
             qs = qs.filter(entity_id=params['entity_id'])
+        if params.get('action_id'):
+            qs = qs.filter(action_id=params['action_id'])
         if params.get('action_code'):
-            qs = qs.filter(action_code=params['action_code'])
+            qs = qs.filter(action__code=params['action_code'])
         return qs
 
     @action(
@@ -2497,8 +2558,14 @@ class PropertyExportView(APIView):
 
     def get(self, request):
         queryset = models.Property.objects.select_related(
-            'operation_type', 'status', 'address__house__street__city', 'owner',
-        ).prefetch_related('photos').all()
+            'operation_type', 'status', 'property_type_ref',
+            'house__street__city', 'house__building_details',
+            'details', 'commercial_details',
+        ).prefetch_related(
+            'photos',
+            'owners__client_profile__user',
+            'amenities__amenity',
+        ).all()
         queryset = _apply_property_filters(queryset, request.query_params)
         export_format = request.query_params.get('export_format', 'csv')
         return data_exchange.export_properties(
