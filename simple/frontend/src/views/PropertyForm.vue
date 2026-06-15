@@ -67,44 +67,47 @@
                  v-model.number="form.price" required />
         </div>
         <div class="field">
-          <label>Цена за м²</label>
-          <input class="input" type="number" step="0.01"
-                 v-model.number="form.price_per_sqm" />
-        </div>
-
-        <div class="field">
-          <label>Тип помещения</label>
+          <label>Тип объекта</label>
           <select class="select" v-model="form.premises_type" required>
-            <option value="apartment">Квартира</option>
-            <option value="house">Дом</option>
-            <option value="commercial">Коммерческая недвижимость</option>
-            <option value="land">Земельный участок</option>
-            <option value="garage">Гараж</option>
-            <option value="room">Комната</option>
+            <option v-for="item in dict.propertyTypes" :key="item.id" :value="item.code">
+              {{ item.name }}
+            </option>
           </select>
         </div>
         <div class="field">
           <label>Количество комнат</label>
-            <input class="input" type="number" v-model.number="form.rooms_count"
-                   :disabled="isRoomsDisabled" :placeholder="isRoomsDisabled ? 'Не применяется' : ''" />
-          </div>
-          <div class="field">
-            <label>Этаж / всего этажей</label>
-            <div class="row property-form__floor-row">
-            <input class="input" type="number" v-model.number="form.floor_number"
-                   :disabled="isFloorDisabled" :placeholder="isFloorDisabled ? 'Не применяется' : 'Этаж'" />
-            <input class="input" type="number" v-model.number="form.total_floors"
-                   :disabled="isTotalFloorsDisabled" :placeholder="isTotalFloorsDisabled ? 'Не применяется' : 'Всего'" />
-            </div>
-            <div v-if="floorRestrictionHint" class="muted" style="font-size: 12px; margin-top: 4px">
-              {{ floorRestrictionHint }}
-            </div>
-          </div>
+          <input class="input" type="number" v-model.number="form.rooms_count"
+                 :disabled="isRoomsDisabled" :placeholder="isRoomsDisabled ? 'Не применяется' : ''" />
+        </div>
+        <div class="field">
+          <label>Этаж</label>
+          <input class="input" type="number" v-model.number="form.floor_number"
+                 :disabled="isFloorDisabled" :placeholder="isFloorDisabled ? 'Не применяется' : 'Этаж'" />
+        </div>
 
         <div class="field">
           <label>Общая площадь, м²</label>
           <input class="input" type="number" step="0.01"
                  v-model.number="form.area_total" />
+        </div>
+        <div class="field">
+          <label>Кадастровый номер</label>
+          <input class="input" v-model="form.cadastral_number" />
+        </div>
+        <div class="field" v-if="auth.isStaff">
+          <label>Статус</label>
+          <select class="select" v-model.number="form.status" required>
+            <option v-for="s in dict.statuses" :key="s.id" :value="s.id">
+              {{ s.name }}
+            </option>
+          </select>
+        </div>
+        <div class="field" v-if="auth.isStaff">
+          <label>Публикация</label>
+          <label class="chip-check" style="width: fit-content">
+            <input type="checkbox" v-model="form.is_published" />
+            Опубликован
+          </label>
         </div>
       </div>
 
@@ -283,19 +286,19 @@
               <label>Спальни</label>
               <input class="input" type="number" min="0" v-model.number="form.property_details.bedrooms_count" />
             </div>
-            <div class="field">
+            <div class="field" v-if="propertyTypeHasFloor(normalizedPremisesType)">
               <label>Этажей в квартире / доме</label>
               <input class="input" type="number" min="1" v-model.number="form.property_details.floors_count" />
             </div>
-            <div class="field">
+            <div class="field" v-if="propertyTypeHasLand(normalizedPremisesType)">
               <label>Площадь участка, м²</label>
               <input class="input" type="number" step="0.01" v-model.number="form.property_details.land_area" />
             </div>
           </div>
         </div>
 
-        <div class="panel panel--light property-form__details-block">
-          <h3 class="h4">Коммерческий блок</h3>
+        <div class="panel panel--light property-form__details-block" v-if="isCommercialType">
+          <h3 class="h4">Коммерческая недвижимость</h3>
           <div class="grid grid--2 property-form__details-fields">
             <div class="field">
               <label>Тип коммерческого объекта</label>
@@ -353,6 +356,102 @@
             </label>
           </div>
         </div>
+
+        <div class="panel panel--light property-form__details-block" v-if="auth.isStaff">
+          <h3 class="h4">Документы объекта</h3>
+          <div class="stack" style="gap: 10px">
+            <div class="grid grid--2 property-form__doc-form">
+              <div class="field">
+                <label>Название документа</label>
+                <input class="input" v-model="newDocument.document_name" />
+              </div>
+              <div class="field">
+                <label>Ссылка на файл</label>
+                <input class="input" v-model="newDocument.file_url" />
+              </div>
+              <label class="chip-check">
+                <input type="checkbox" v-model="newDocument.is_verified" />
+                Проверен
+              </label>
+              <button class="btn btn--sm btn--primary" type="button" @click="submitDocument">
+                Добавить документ
+              </button>
+            </div>
+            <div v-for="doc in documents" :key="doc.id" class="property-form__list-row">
+              <div>
+                <b>{{ doc.document_name }}</b>
+                <div class="muted" style="font-size: 12px">
+                  {{ doc.is_verified ? 'Проверен' : 'Не проверен' }}
+                  <span v-if="doc.verified_by_username">· {{ doc.verified_by_username }}</span>
+                </div>
+              </div>
+              <a :href="doc.file_url" target="_blank" rel="noreferrer">Открыть</a>
+            </div>
+            <div v-if="!documents.length" class="muted">Документы не загружены.</div>
+          </div>
+        </div>
+
+        <div class="panel panel--light property-form__details-block" v-if="auth.isStaff && isEdit">
+          <h3 class="h4">Просмотры</h3>
+          <div class="stack" style="gap: 10px">
+            <div v-for="viewing in viewings" :key="viewing.id" class="property-form__list-row">
+              <div>
+                <b>{{ formatViewingClient(viewing) }}</b>
+                <div class="muted" style="font-size: 12px">
+                  {{ formatDate(viewing.scheduled_date || viewing.viewing_date) }}
+                  · {{ formatViewingAgent(viewing) }}
+                  · {{ viewing.status_name || viewing.status?.name || '—' }}
+                </div>
+              </div>
+            </div>
+            <div v-if="!viewings.length" class="muted">Просмотры не запланированы.</div>
+          </div>
+        </div>
+
+        <div class="panel panel--light property-form__details-block" v-if="auth.isStaff && isEdit">
+          <h3 class="h4">История цен</h3>
+          <div class="table-wrap property-form__table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Старая</th>
+                  <th>Новая</th>
+                  <th>Кто изменил</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in priceHistory" :key="item.id">
+                  <td>{{ formatDate(item.changed_at) }}</td>
+                  <td>{{ item.old_price ? `${item.old_price} ₽` : '—' }}</td>
+                  <td>{{ item.new_price ? `${item.new_price} ₽` : '—' }}</td>
+                  <td>{{ item.changed_by_username || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="!priceHistory.length" class="muted">История цен отсутствует.</div>
+        </div>
+
+        <div class="panel panel--light property-form__details-block" v-if="propertyOwners.length">
+          <h3 class="h4">Собственники</h3>
+          <div class="stack" style="gap: 10px">
+            <div v-for="(owner, index) in propertyOwners" :key="`${owner.property}-${owner.client_profile}`" class="property-form__list-row">
+              <div>
+                <b>{{ `Заказчик ${index + 1}` }}</b>
+                <div class="muted" style="font-size: 12px">
+                  {{ formatOwnerName(owner) }}
+                  <span v-if="owner.ownership_share !== null && owner.ownership_share !== undefined">
+                    · {{ owner.ownership_share }}%
+                  </span>
+                </div>
+                <div class="muted" style="font-size: 12px">
+                  {{ formatOwnerContacts(owner) }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
@@ -363,6 +462,59 @@
         </button>
       </div>
     </form>
+
+    <Teleport to="body">
+      <div v-if="viewingDialogOpen" class="modal-overlay" @click.self="closeViewingDialog">
+        <div class="modal" style="max-width: 760px; width: calc(100vw - 32px)">
+          <div class="surface-head">
+            <div class="surface-head__meta">Просмотр объекта</div>
+            <h3 class="h3">Запланировать просмотр</h3>
+          </div>
+
+          <div class="grid grid--2" style="gap: 14px; margin-top: 18px">
+            <RemoteLookupField
+              v-model="viewingForm.client_profile"
+              label="Клиент"
+              endpoint="/client-profiles/"
+              placeholder="Поиск клиента"
+              :map-option="mapClientProfileOption"
+              no-results-text="Клиенты не найдены."
+            />
+            <RemoteLookupField
+              v-model="viewingForm.employee_profile"
+              label="Сотрудник"
+              endpoint="/employee-profiles/"
+              placeholder="Поиск сотрудника"
+              :map-option="mapEmployeeProfileOption"
+              no-results-text="Сотрудники не найдены."
+            />
+            <div class="field">
+              <label>Дата и время</label>
+              <input class="input" type="datetime-local" v-model="viewingForm.scheduled_date" />
+            </div>
+            <div class="field">
+              <label>Статус</label>
+              <select class="select" v-model.number="viewingForm.status">
+                <option v-for="s in dict.viewingStatuses" :key="s.id" :value="s.id">
+                  {{ s.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field" style="grid-column: 1 / -1">
+              <label>Комментарий</label>
+              <textarea class="textarea" v-model="viewingForm.notes" rows="4"></textarea>
+            </div>
+          </div>
+
+          <div class="row" style="justify-content: flex-end; gap: 8px; margin-top: 18px">
+            <button class="btn" type="button" @click="closeViewingDialog">Отмена</button>
+            <button class="btn btn--accent" type="button" :disabled="viewingSaving" @click="submitViewing">
+              {{ viewingSaving ? 'Сохранение…' : 'Запланировать' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -371,20 +523,25 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
+import RemoteLookupField from '../components/RemoteLookupField.vue'
 import { useDraftPersistence } from '../composables/useDraftPersistence'
 import { useUnsavedChangesGuard } from '../composables/useUnsavedChangesGuard'
 import { extractError, useToastsStore } from '../store/toasts'
+import { useAuthStore } from '../store/auth'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { formatDate } from '@/utils/formatters'
 import {
   normalizePropertyType,
+  propertyTypeHasFloor,
+  propertyTypeHasLand,
+  propertyTypeIsCommercial,
   propertyTypeUsesFloor,
   propertyTypeUsesRooms,
-  propertyTypeUsesAreaRange,
-  propertyTypeUsesTotalFloors,
 } from '@/utils/propertyTypes'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const toasts = useToastsStore()
 const isEdit = computed(() => !!route.params.id)
 
@@ -438,11 +595,11 @@ function defaultForm() {
     premises_type: 'apartment',
     address: null,
     price: null,
-    price_per_sqm: null,
     area_total: null,
     rooms_count: null,
     floor_number: null,
-    total_floors: null,
+    cadastral_number: '',
+    is_published: true,
     description: '',
     building_details: createBuildingDetailsForm(),
     property_details: createPropertyDetailsForm(),
@@ -453,23 +610,35 @@ function defaultForm() {
 
 function mergeFormState(source = {}) {
   const base = defaultForm()
+  const rest = source || {}
   return {
     ...base,
-    ...source,
+    title: rest.title ?? base.title,
+    operation_type: rest.operation_type ?? base.operation_type,
+    status: rest.status ?? base.status,
+    premises_type: rest.premises_type ?? base.premises_type,
+    address: rest.address ?? base.address,
+    price: rest.price ?? base.price,
+    area_total: rest.area_total ?? base.area_total,
+    rooms_count: rest.rooms_count ?? base.rooms_count,
+    floor_number: rest.floor_number ?? base.floor_number,
+    cadastral_number: rest.cadastral_number ?? base.cadastral_number,
+    is_published: rest.is_published ?? base.is_published,
+    description: rest.description ?? base.description,
     building_details: {
       ...base.building_details,
-      ...(source.building_details || {}),
+      ...(rest.building_details || {}),
     },
     property_details: {
       ...base.property_details,
-      ...(source.property_details || {}),
+      ...(rest.property_details || {}),
     },
     commercial_property_details: {
       ...base.commercial_property_details,
-      ...(source.commercial_property_details || {}),
+      ...(rest.commercial_property_details || {}),
     },
-    amenity_ids: Array.isArray(source.amenity_ids)
-      ? [...source.amenity_ids]
+    amenity_ids: Array.isArray(rest.amenity_ids)
+      ? [...rest.amenity_ids]
       : [...base.amenity_ids],
   }
 }
@@ -478,10 +647,13 @@ const form = reactive(defaultForm())
 
 const dict = reactive({
   operations: [],
+  statuses: [],
+  propertyTypes: [],
   buildingMaterials: [],
   bathroomTypes: [],
   renovationTypes: [],
   commercialTypes: [],
+  viewingStatuses: [],
   amenities: [],
 })
 const addressQuery = ref('')
@@ -506,14 +678,28 @@ const addressStateLabel = computed(() => {
   return 'Не указан'
 })
 const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
+const isCommercialType = computed(() => propertyTypeIsCommercial(normalizedPremisesType.value))
 const selectedFeaturesCount = computed(() => form.amenity_ids.length)
 const isRoomsDisabled = computed(() => !propertyTypeUsesRooms(normalizedPremisesType.value))
 const isFloorDisabled = computed(() => !propertyTypeUsesFloor(normalizedPremisesType.value))
-const isTotalFloorsDisabled = computed(() => !propertyTypeUsesTotalFloors(normalizedPremisesType.value))
-const floorRestrictionHint = computed(() => {
-  if (form.premises_type === 'warehouse') return 'Для склада этажи и комнаты не указываются.'
-  if (form.premises_type === 'house') return 'Для дома укажите только общее количество этажей.'
-  return ''
+const propertyData = ref(null)
+const propertyOwners = computed(() => propertyData.value?.owners || [])
+const documents = ref([])
+const viewings = ref([])
+const priceHistory = ref([])
+const newDocument = reactive({
+  document_name: '',
+  file_url: '',
+  is_verified: false,
+})
+const viewingDialogOpen = ref(false)
+const viewingSaving = ref(false)
+const viewingForm = reactive({
+  client_profile: null,
+  employee_profile: null,
+  scheduled_date: '',
+  status: null,
+  notes: '',
 })
 const photoCount = computed(() => photos.value.length)
 const coverCount = computed(() => photos.value.filter((photo) => photo.is_cover).length)
@@ -522,6 +708,94 @@ const isPropertyDirty = computed(() => propertyDirtySnapshot.value !== propertyB
 
 function onAddressPick(r) {
   addressPicked.value = r
+}
+
+function mapClientProfileOption(profile) {
+  return {
+    id: profile.id,
+    label: [profile.last_name, profile.first_name, profile.middle_name].filter(Boolean).join(' ') || profile.username || `Клиент #${profile.id}`,
+    hint: profile.username || profile.user?.username || profile.user?.email || '',
+  }
+}
+
+function mapEmployeeProfileOption(profile) {
+  return {
+    id: profile.id,
+    label: [profile.last_name, profile.first_name, profile.middle_name].filter(Boolean).join(' ') || profile.username || `Сотрудник #${profile.id}`,
+    hint: profile.username || profile.user?.username || profile.user?.email || '',
+  }
+}
+
+function formatViewingClient(viewing) {
+  const first = viewing.client_first_name || viewing.client?.first_name || ''
+  const last = viewing.client_last_name || viewing.client?.last_name || ''
+  const middle = viewing.client_middle_name || viewing.client?.middle_name || ''
+  return [last, first, middle].filter(Boolean).join(' ') || viewing.client_username || '—'
+}
+
+function formatViewingAgent(viewing) {
+  const first = viewing.agent_first_name || viewing.agent?.first_name || ''
+  const last = viewing.agent_last_name || viewing.agent?.last_name || ''
+  const middle = viewing.agent_middle_name || viewing.agent?.middle_name || ''
+  return [last, first, middle].filter(Boolean).join(' ') || viewing.agent_username || '—'
+}
+
+function formatOwnerName(owner) {
+  const individualName = [owner.client_last_name, owner.client_first_name, owner.client_middle_name].filter(Boolean).join(' ')
+  return individualName || owner.client_username || '—'
+}
+
+function formatOwnerContacts(owner) {
+  return [owner.client_phone, owner.client_email].filter(Boolean).join(' · ') || '—'
+}
+
+function openViewingDialog() {
+  viewingDialogOpen.value = true
+}
+
+function closeViewingDialog() {
+  viewingDialogOpen.value = false
+}
+
+async function submitDocument() {
+  if (!isEdit.value || !newDocument.document_name.trim() || !newDocument.file_url.trim()) return
+  const payload = {
+    property: route.params.id,
+    document_name: newDocument.document_name.trim(),
+    file_url: newDocument.file_url.trim(),
+    is_verified: !!newDocument.is_verified,
+  }
+  await api.post('/property-documents/', payload)
+  newDocument.document_name = ''
+  newDocument.file_url = ''
+  newDocument.is_verified = false
+  const { data } = await api.get('/property-documents/', { params: { property: route.params.id } })
+  documents.value = unpackPaginated(data).items
+}
+
+async function submitViewing() {
+  if (!isEdit.value || !viewingForm.client_profile || !viewingForm.employee_profile || !viewingForm.scheduled_date) return
+  viewingSaving.value = true
+  try {
+    await api.post('/property-viewings/', {
+      property: route.params.id,
+      client_profile: viewingForm.client_profile,
+      employee_profile: viewingForm.employee_profile,
+      scheduled_date: viewingForm.scheduled_date,
+      status: viewingForm.status,
+      notes: viewingForm.notes,
+    })
+    closeViewingDialog()
+    viewingForm.client_profile = null
+    viewingForm.employee_profile = null
+    viewingForm.scheduled_date = ''
+    viewingForm.status = dict.viewingStatuses[0]?.id || null
+    viewingForm.notes = ''
+    const { data } = await api.get('/property-viewings/', { params: { property: route.params.id } })
+    viewings.value = unpackPaginated(data).items
+  } finally {
+    viewingSaving.value = false
+  }
 }
 
 function onFilesSelected(e) {
@@ -619,11 +893,9 @@ function formatPropertyValidationError(data) {
     status: 'Статус',
     premises_type: 'Тип помещения',
     price: 'Цена',
-    price_per_sqm: 'Цена за м²',
     area_total: 'Площадь',
     rooms_count: 'Количество комнат',
     floor_number: 'Этаж',
-    total_floors: 'Количество этажей',
     address: 'Адрес',
   }
 
@@ -638,7 +910,7 @@ function formatPropertyValidationError(data) {
 }
 
 function applyPropertyDraft(draft) {
-  Object.assign(form, defaultForm(), draft?.form || {})
+  Object.assign(form, mergeFormState(draft?.form || {}))
   addressQuery.value = draft?.addressQuery || ''
   addressPicked.value = draft?.addressPicked || null
   newPhotoUrl.value = draft?.newPhotoUrl || ''
@@ -664,6 +936,20 @@ function resetPropertyFormState () {
   addressQuery.value = ''
   addressPicked.value = null
   existingAddress.value = ''
+  propertyData.value = null
+  documents.value = []
+  viewings.value = []
+  priceHistory.value = []
+  viewingDialogOpen.value = false
+  viewingSaving.value = false
+  viewingForm.client_profile = null
+  viewingForm.employee_profile = null
+  viewingForm.scheduled_date = ''
+  viewingForm.status = null
+  viewingForm.notes = ''
+  newDocument.document_name = ''
+  newDocument.file_url = ''
+  newDocument.is_verified = false
   photos.value.forEach(revokePreview)
   photos.value = []
   pendingFiles.value = []
@@ -697,10 +983,13 @@ async function initializeForm () {
   try {
     await Promise.all([
       ensureOperationTypesLoaded(),
+      ensureLookupLoaded('statuses', '/property-statuses/'),
+      ensureLookupLoaded('propertyTypes', '/property-types/'),
       ensureLookupLoaded('buildingMaterials', '/building-materials/'),
       ensureLookupLoaded('bathroomTypes', '/bathroom-types/'),
       ensureLookupLoaded('renovationTypes', '/renovation-types/'),
       ensureLookupLoaded('commercialTypes', '/commercial-property-types/'),
+      ensureLookupLoaded('viewingStatuses', '/viewing-statuses/'),
       ensureLookupLoaded('amenities', '/amenities/'),
     ])
     if (seq !== initSeq) return
@@ -708,6 +997,7 @@ async function initializeForm () {
     if (isEdit.value) {
       const { data } = await api.get(`/properties/${route.params.id}/`)
       if (seq !== initSeq) return
+      propertyData.value = data
       Object.assign(form, {
         title: data.title,
         operation_type: data.operation_type,
@@ -715,11 +1005,11 @@ async function initializeForm () {
         premises_type: data.premises_type || 'apartment',
         address: data.address,
         price: data.price,
-        price_per_sqm: data.price_per_sqm,
         area_total: data.area_total,
         rooms_count: data.rooms_count,
         floor_number: data.floor_number,
-        total_floors: data.total_floors,
+        cadastral_number: data.cadastral_number,
+        is_published: data.is_published,
         description: data.description,
         building_details: {
           ...createBuildingDetailsForm(),
@@ -749,6 +1039,21 @@ async function initializeForm () {
       })
       existingAddress.value = data.full_address || ''
       photos.value = (data.photos || []).map((photo) => ({ ...photo }))
+      documents.value = unpackPaginated(data.documents).items
+      priceHistory.value = unpackPaginated(data.price_history).items
+      if (isEdit.value) {
+        const [docsResp, priceResp, viewingsResp] = await Promise.all([
+          api.get('/property-documents/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
+          api.get('/property-price-history/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
+          auth.isStaff
+            ? api.get('/property-viewings/', { params: { property: route.params.id } }).catch(() => ({ data: [] }))
+            : Promise.resolve({ data: [] }),
+        ])
+        documents.value = unpackPaginated(docsResp.data).items
+        priceHistory.value = unpackPaginated(priceResp.data).items
+        viewings.value = unpackPaginated(viewingsResp.data).items
+        viewingForm.status = dict.viewingStatuses[0]?.id || null
+      }
       syncPropertyBaseline()
     } else {
       syncPropertyBaseline()
@@ -820,11 +1125,11 @@ async function submit() {
       status: form.status,
       premises_type: form.premises_type,
       price: form.price,
-      price_per_sqm: form.price_per_sqm,
       area_total: form.area_total,
       rooms_count: isRoomsDisabled.value ? null : form.rooms_count,
       floor_number: isFloorDisabled.value ? null : form.floor_number,
-      total_floors: isTotalFloorsDisabled.value ? null : form.total_floors,
+      cadastral_number: form.cadastral_number || null,
+      is_published: !!form.is_published,
       description: form.description,
       building_details_data: {
         ...form.building_details,
@@ -883,8 +1188,25 @@ watch(() => form.premises_type, (value) => {
   if (!propertyTypeUsesFloor(value)) {
     form.floor_number = null
   }
-  if (!propertyTypeUsesTotalFloors(value)) {
-    form.total_floors = null
+  if (propertyTypeIsCommercial(value)) {
+    form.property_details.floors_count = null
+    form.property_details.land_area = null
+    form.property_details.living_area = null
+    form.property_details.kitchen_area = null
+    form.property_details.bathroom_count = 0
+    form.property_details.bathroom_type = null
+    form.property_details.renovation_type = null
+    form.property_details.bedrooms_count = null
+  } else {
+    form.commercial_property_details.commercial_type = null
+    form.commercial_property_details.usable_area = null
+    form.commercial_property_details.ceiling_height = null
+    form.commercial_property_details.floor_load = null
+    form.commercial_property_details.electric_power_kw = null
+    form.commercial_property_details.parking_spaces = null
+    form.commercial_property_details.has_separate_entrance = false
+    form.commercial_property_details.has_display_windows = false
+    form.commercial_property_details.is_first_line = false
   }
 })
 

@@ -160,6 +160,10 @@ def _claim_next_contract(
         try:
             return models.Deal.objects.select_related(
                 'request', 'property', 'agent', 'client', 'operation_type', 'status',
+            ).prefetch_related(
+                'property__owners__client_profile__user',
+                'property__owners__client_profile__individual_details',
+                'property__owners__client_profile__company_details',
             ).get(pk=deal_id)
         except (OperationalError, InterfaceError):
             close_old_connections()

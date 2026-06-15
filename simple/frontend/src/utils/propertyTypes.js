@@ -17,8 +17,8 @@ const PROPERTY_TYPE_LABELS = PROPERTY_TYPE_OPTIONS.reduce((acc, item) => {
 
 const PROPERTY_TYPES_WITH_ROOMS = new Set(['apartment', 'house', 'room'])
 const PROPERTY_TYPES_WITH_FLOOR = new Set(['apartment', 'room'])
-const PROPERTY_TYPES_WITH_TOTAL_FLOORS = new Set(['apartment', 'house', 'room'])
-const PROPERTY_TYPES_WITH_AREA_RANGE = new Set(['commercial', 'land', 'garage'])
+const PROPERTY_TYPES_WITH_LAND = new Set(['house', 'land'])
+const PROPERTY_TYPES_WITH_FLOORS_COUNT = new Set(['apartment', 'room'])
 
 export const PROPERTY_TYPE_VALUES = PROPERTY_TYPE_OPTIONS.map((item) => item.value)
 export { PROPERTY_TYPE_OPTIONS }
@@ -43,12 +43,16 @@ export function propertyTypeUsesFloor(value) {
   return PROPERTY_TYPES_WITH_FLOOR.has(normalizePropertyType(value))
 }
 
-export function propertyTypeUsesTotalFloors(value) {
-  return PROPERTY_TYPES_WITH_TOTAL_FLOORS.has(normalizePropertyType(value))
+export function propertyTypeIsCommercial(value) {
+  return normalizePropertyType(value) === 'commercial'
 }
 
-export function propertyTypeUsesAreaRange(value) {
-  return PROPERTY_TYPES_WITH_AREA_RANGE.has(normalizePropertyType(value))
+export function propertyTypeHasLand(value) {
+  return PROPERTY_TYPES_WITH_LAND.has(normalizePropertyType(value))
+}
+
+export function propertyTypeHasFloor(value) {
+  return PROPERTY_TYPES_WITH_FLOORS_COUNT.has(normalizePropertyType(value))
 }
 
 export function formatRoomsValue(propertyType, roomsCount) {

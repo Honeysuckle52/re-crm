@@ -423,11 +423,6 @@ class UserRoleAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
         'max_in_progress_tasks',
         'max_active_requests',
     )
-    list_editable = (
-        'max_active_tasks',
-        'max_in_progress_tasks',
-        'max_active_requests',
-    )
     search_fields = ('code', 'name', 'description')
     ordering = ('code',)
 

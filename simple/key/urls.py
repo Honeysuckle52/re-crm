@@ -3,7 +3,6 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import (
     TokenBlacklistView,
-    TokenRefreshView,
     TokenVerifyView,
 )
 
@@ -42,12 +41,15 @@ router.register('client-profiles', views.ClientProfileViewSet)
 router.register('properties', views.PropertyViewSet)
 router.register('property-photos', views.PropertyPhotoViewSet)
 router.register('property-documents', views.PropertyDocumentViewSet)
+router.register('property-price-history', views.PropertyPriceHistoryViewSet)
 
 router.register('requests', views.RequestViewSet)
 router.register('request-matches', views.RequestPropertyMatchViewSet,
                 basename='request-matches')
 router.register('deals', views.DealViewSet)
-router.register('viewings', views.PropertyViewingViewSet)
+router.register('viewing-statuses', views.ViewingStatusViewSet)
+router.register('property-viewings', views.PropertyViewingViewSet)
+router.register('viewings', views.PropertyViewingViewSet, basename='viewings')
 router.register('tasks', views.TaskViewSet)
 router.register('outgoing-emails', views.OutgoingEmailViewSet)
 router.register('audit-log', views.AuditLogViewSet, basename='audit-log')
@@ -62,7 +64,7 @@ urlpatterns = [
     ),
     path('auth/login/', views.LoginView.as_view(), name='login'),
     path('auth/logout/', TokenBlacklistView.as_view(), name='logout'),
-    path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/refresh/', views.TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('auth/me/', views.MeView.as_view(), name='me'),
 

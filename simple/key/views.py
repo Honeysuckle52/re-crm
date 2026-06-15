@@ -3,11 +3,11 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Sum, Q
+from django.db.models import Count, Sum, Q, F
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from rest_framework import status, viewsets, filters
+from rest_framework import status, viewsets, filters, serializers as drf_serializers
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -15,6 +15,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer as BaseTokenRefreshSerializer
+from rest_framework_simplejwt.views import TokenRefreshView as BaseTokenRefreshView
 
 from django.http import FileResponse, Http404
 
@@ -40,6 +43,20 @@ from . import request_lifecycle
 
 User = get_user_model()
 log = logging.getLogger(__name__)
+
+
+class TokenRefreshSerializer(BaseTokenRefreshSerializer):
+    """Refresh serializer that returns 401 for tokens referencing deleted users."""
+
+    def validate(self, attrs):
+        try:
+            return super().validate(attrs)
+        except User.DoesNotExist as exc:
+            raise InvalidToken('User not found') from exc
+
+
+class TokenRefreshView(BaseTokenRefreshView):
+    serializer_class = TokenRefreshSerializer
 
 
 def _employee_visible_requests_q(user, *, prefix: str = '') -> Q:
@@ -125,11 +142,21 @@ def _apply_property_filters(qs, params):
     if params.get('status'):
         qs = qs.filter(status_id=params['status'])
     if params.get('rooms'):
-        qs = qs.filter(rooms_count=params['rooms'])
+        rooms = str(params['rooms']).strip()
+        if rooms.endswith('+') and rooms[:-1].isdigit():
+            qs = qs.filter(rooms_count__gte=int(rooms[:-1]))
+        else:
+            qs = qs.filter(rooms_count=rooms)
     if params.get('floor_number'):
         qs = qs.filter(floor_number=params['floor_number'])
     if params.get('total_floors'):
-        qs = qs.filter(total_floors=params['total_floors'])
+        total_floors = str(params['total_floors']).strip()
+        if total_floors.endswith('+') and total_floors[:-1].isdigit():
+            qs = qs.filter(house__building_details__total_floors__gte=int(total_floors[:-1]))
+        else:
+            qs = qs.filter(house__building_details__total_floors=total_floors)
+    if params.get('floor_number__gt'):
+        qs = qs.filter(floor_number__gt=params['floor_number__gt'])
     if params.get('min_area'):
         qs = qs.filter(area_total__gte=params['min_area'])
     if params.get('max_area'):
@@ -144,6 +171,39 @@ def _apply_property_filters(qs, params):
         qs = qs.filter(price__gte=params['min_price'])
     if params.get('max_price'):
         qs = qs.filter(price__lte=params['max_price'])
+    if params.get('renovation_type'):
+        qs = qs.filter(details__renovation_type_id=params['renovation_type'])
+    if params.get('bathroom_type'):
+        qs = qs.filter(details__bathroom_type_id=params['bathroom_type'])
+    if params.get('building_material'):
+        qs = qs.filter(house__building_details__building_material_id=params['building_material'])
+    if params.get('commercial_type'):
+        qs = qs.filter(commercial_details__commercial_type_id=params['commercial_type'])
+    if _parse_bool_param(params.get('has_separate_entrance')) is True:
+        qs = qs.filter(commercial_details__has_separate_entrance=True)
+    if _parse_bool_param(params.get('is_first_line')) is True:
+        qs = qs.filter(commercial_details__is_first_line=True)
+    if _parse_bool_param(params.get('has_display_windows')) is True:
+        qs = qs.filter(commercial_details__has_display_windows=True)
+    if params.get('min_parking_spaces'):
+        qs = qs.filter(commercial_details__parking_spaces__gte=params['min_parking_spaces'])
+    if params.get('min_land_area'):
+        qs = qs.filter(details__land_area__gte=params['min_land_area'])
+    if params.get('max_land_area'):
+        qs = qs.filter(details__land_area__lte=params['max_land_area'])
+    if params.get('year_built_from'):
+        qs = qs.filter(house__building_details__year_built__gte=params['year_built_from'])
+    if params.get('year_built_to'):
+        qs = qs.filter(house__building_details__year_built__lte=params['year_built_to'])
+    if _parse_bool_param(params.get('not_last_floor')) is True:
+        qs = qs.filter(
+            Q(floor_number__lt=F('house__building_details__total_floors')),
+        )
+    amenity_ids = (params.get('amenity_ids') or '').strip()
+    if amenity_ids:
+        for raw_id in [part.strip() for part in amenity_ids.split(',') if part.strip()]:
+            qs = qs.filter(amenities__amenity_id=raw_id)
+        qs = qs.distinct()
     search = (params.get('search') or '').strip()
     if search:
         search_filter = (
@@ -373,6 +433,18 @@ class CommercialPropertyTypeViewSet(viewsets.ModelViewSet):
 class AmenityViewSet(viewsets.ModelViewSet):
     queryset = models.Amenity.objects.all()
     serializer_class = serializers.AmenitySerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
+class ViewingStatusSerializer(drf_serializers.ModelSerializer):
+    class Meta:
+        model = models.ViewingStatus
+        fields = ['id', 'code', 'name']
+
+
+class ViewingStatusViewSet(viewsets.ModelViewSet):
+    queryset = models.ViewingStatus.objects.all()
+    serializer_class = ViewingStatusSerializer
     permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
@@ -625,6 +697,16 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
     queryset = models.EmployeeProfile.objects.select_related('user').order_by('id')
     serializer_class = serializers.EmployeeProfileSerializer
     permission_classes = [IsEmployee]
+    filter_backends = [filters.SearchFilter]
+    search_fields = [
+        'user__username',
+        'user__email',
+        'user__phone',
+        'first_name',
+        'last_name',
+        'position',
+        'internal_phone',
+    ]
 
 
 class ClientProfileViewSet(viewsets.ModelViewSet):
@@ -635,6 +717,15 @@ class ClientProfileViewSet(viewsets.ModelViewSet):
     ).order_by('id')
     serializer_class = serializers.ClientProfileSerializer
     permission_classes = [IsOwnClientProfileOrEmployee]
+    filter_backends = [filters.SearchFilter]
+    search_fields = [
+        'user__username',
+        'user__email',
+        'user__phone',
+        'first_name',
+        'last_name',
+        'middle_name',
+    ]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -856,7 +947,16 @@ class PropertyViewSet(viewsets.ModelViewSet):
             serializer.instance,
             changed_fields,
         )
+        old_price = serializer.instance.price
         property_obj = serializer.save()
+        new_price = property_obj.price
+        if 'price' in changed_fields and old_price != new_price:
+            models.PropertyPriceHistory.objects.create(
+                property=property_obj,
+                old_price=old_price,
+                new_price=new_price,
+                changed_by=self.request.user,
+            )
         field_changes = audit_service.diff_field_snapshots(
             before_snapshot,
             audit_service.snapshot_fields(property_obj, changed_fields),
@@ -1257,6 +1357,22 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.PropertyDocumentSerializer
     permission_classes = [IsEmployee]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        property_id = self.request.query_params.get('property')
+        if property_id:
+            qs = qs.filter(property_id=property_id)
+        return qs
+
+    def perform_create(self, serializer):
+        doc = serializer.save()
+        if doc.is_verified and not doc.verified_by_id:
+            doc.verified_by = self.request.user
+        if doc.is_verified and not doc.verified_at:
+            doc.verified_at = timezone.now()
+        if doc.is_verified:
+            doc.save(update_fields=['verified_by', 'verified_at'])
+
     @action(detail=True, methods=['post'])
     def verify(self, request, pk=None):
         """Отметить документ как проверенный."""
@@ -1266,6 +1382,19 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
         doc.verified_at = timezone.now()
         doc.save()
         return Response(serializers.PropertyDocumentSerializer(doc).data)
+
+
+class PropertyPriceHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = models.PropertyPriceHistory.objects.select_related('changed_by', 'property').all()
+    serializer_class = serializers.PropertyPriceHistorySerializer
+    permission_classes = [IsEmployee]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        property_id = self.request.query_params.get('property')
+        if property_id:
+            qs = qs.filter(property_id=property_id)
+        return qs
 
 
 class RequestViewSet(viewsets.ModelViewSet):
@@ -1733,6 +1862,12 @@ class DealViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if getattr(self, 'action', None) in {'contract', 'regenerate_contract'}:
+            qs = qs.prefetch_related(
+                'property__owners__client_profile__user',
+                'property__owners__client_profile__individual_details',
+                'property__owners__client_profile__company_details',
+            )
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(client=user)
@@ -1893,6 +2028,9 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        property_id = self.request.query_params.get('property')
+        if property_id:
+            qs = qs.filter(property_id=property_id)
         user = self.request.user
         if user.is_authenticated and user.is_client:
             qs = qs.filter(client_profile__user=user)

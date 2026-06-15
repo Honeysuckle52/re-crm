@@ -337,9 +337,20 @@ def _passport_line(client) -> str:
 def _company_requisites_line(client) -> str:
     profile = getattr(client, 'client_profile', None)
     details = getattr(profile, 'company_details', None) if profile else None
-    if not details or not details.company_inn:
+    if not details:
         return '—'
-    return f'ИНН: {details.company_inn}'
+    pieces = []
+    if details.company_name:
+        pieces.append(f'наименование: {details.company_name}')
+    if details.company_inn:
+        pieces.append(f'ИНН: {details.company_inn}')
+    if details.company_kpp:
+        pieces.append(f'КПП: {details.company_kpp}')
+    if details.company_ogrn:
+        pieces.append(f'ОГРН: {details.company_ogrn}')
+    if details.legal_address:
+        pieces.append(f'юридический адрес: {details.legal_address}')
+    return ', '.join(pieces) or '—'
 
 
 def _client_requisites_label(client) -> str:
@@ -360,14 +371,136 @@ def _client_address_line(client) -> str:
     return '\u2014'
 
 
-def _client_contact_line(client) -> str:
+def _client_contact_line(client, *, include_preferred_contact_method: bool = True) -> str:
     profile = getattr(client, 'client_profile', None)
     parts = [client.phone or '—', client.email or '—']
-    if profile and profile.preferred_contact_method:
+    if include_preferred_contact_method and profile and profile.preferred_contact_method:
         parts.append(
             f'предпочтительный способ связи: {profile.preferred_contact_method}',
         )
     return ' / '.join(p for p in parts if p)
+
+
+def _customer_display_name(client) -> str:
+    profile = getattr(client, 'client_profile', None)
+    if not profile:
+        return _client_full_name(client)
+
+    if profile.client_kind == profile.CLIENT_KIND_COMPANY:
+        details = getattr(profile, 'company_details', None)
+        company_name = getattr(details, 'company_name', None) if details else None
+        if company_name:
+            return company_name
+        first_name = getattr(profile, 'first_name', None)
+        last_name = getattr(profile, 'last_name', None)
+        if first_name and (not last_name or last_name == 'Компания'):
+            return first_name
+
+    return _client_full_name(client)
+
+
+def _deal_owner_relations(deal):
+    prop = getattr(deal, 'property', None)
+    if not prop or not getattr(prop, 'pk', None):
+        return []
+    cache = getattr(prop, '_prefetched_objects_cache', {})
+    if 'owners' in cache:
+        return list(prop.owners.all())
+    return list(
+        prop.owners.select_related(
+            'client_profile__user',
+            'client_profile__individual_details',
+            'client_profile__company_details',
+        ).all()
+    )
+
+
+def _build_customer_entries(deal) -> tuple[list[dict], bool]:
+    owners = _deal_owner_relations(deal)
+    if owners:
+        entries = []
+        total = len(owners)
+        for index, owner in enumerate(owners, start=1):
+            profile = getattr(owner, 'client_profile', None)
+            user = getattr(profile, 'user', None) if profile else None
+            if not user:
+                continue
+            label = 'Заказчик' if total == 1 else f'Заказчик {index}'
+            share = ''
+            if total > 1 and owner.ownership_share not in (None, ''):
+                share = _format_decimal(owner.ownership_share)
+            if share:
+                label = f'{label} ({share}%)'
+            entries.append(
+                {
+                    'label': label,
+                    'name': _customer_display_name(user),
+                    'requisites_label': _client_requisites_label(user),
+                    'requisites_line': _client_requisites_line(user),
+                    'contact_line': _client_contact_line(
+                        user,
+                        include_preferred_contact_method=False,
+                    ),
+                },
+            )
+        if entries:
+            return entries, True
+
+    client = getattr(deal, 'client', None)
+    if client:
+        return [
+            {
+                'label': 'Заказчик',
+                'name': _client_full_name(client),
+                'requisites_label': _client_requisites_label(client),
+                'requisites_line': _client_requisites_line(client),
+                'contact_line': _client_contact_line(client),
+            },
+        ], False
+
+    return [], False
+
+
+def _customer_intro_text(entries, *, owner_mode: bool) -> str:
+    names = ', '.join(entry['name'] for entry in entries if entry.get('name'))
+    if owner_mode and len(entries) > 1:
+        return f'Заказчик: {names}, далее совместно именуемые Заказчик.'
+    return f'Заказчик: {names}.'
+
+
+def _customer_info_rows(entries) -> list[tuple[str, str]]:
+    rows = []
+    for entry in entries:
+        rows.append(
+            (
+                entry['label'],
+                '\n'.join([
+                    entry['name'],
+                    f'{entry["requisites_label"]}: {entry["requisites_line"]}',
+                    f'Контакты: {entry["contact_line"]}',
+                ]),
+            ),
+        )
+    return rows
+
+
+def _customer_signature_markup(entry, *, include_contacts: bool) -> str:
+    signature_line = '______________________________'
+    parts = [
+        f'<b>{_paragraph_text(entry["label"])}</b><br/>',
+        f'{_paragraph_text(entry["name"])}<br/>',
+    ]
+    if include_contacts:
+        parts.append(f'Контакты: {_paragraph_text(entry["contact_line"])}<br/>')
+    parts.append(
+        (
+            f'{_paragraph_text(entry["requisites_label"])}: '
+            f'{_paragraph_text(entry["requisites_line"])}<br/><br/>'
+            f'{signature_line}<br/>'
+            f'<font size="8">подпись / расшифровка</font>'
+        ),
+    )
+    return ''.join(parts)
 
 
 def _agency_name() -> str:
@@ -532,7 +665,7 @@ def _meta_header_table(deal, *, styles) -> Table:
     return table
 
 
-def _signature_table(deal, *, styles) -> Table:
+def _signature_table(deal, *, styles, customer_entries=None, owner_mode: bool = False) -> Table:
     signature = styles['signature']
     small = styles['signature_note']
     signature_line = '______________________________'
@@ -549,20 +682,46 @@ def _signature_table(deal, *, styles) -> Table:
         ),
         signature,
     )
-    right = Paragraph(
-        (
-            f'<b>Заказчик</b><br/>'
-            f'{_paragraph_text(_client_full_name(deal.client))}<br/>'
-            f'Контакты: {_paragraph_text(_client_contact_line(deal.client))}<br/>'
-            f'{_client_requisites_label(deal.client)}: '
-            f'{_paragraph_text(_client_requisites_line(deal.client))}<br/><br/>'
-            f'{signature_line}<br/>'
-            f'<font size="8">подпись / расшифровка</font>'
-        ),
-        signature,
+    entries = customer_entries
+    if entries is None:
+        entries, owner_mode = _build_customer_entries(deal)
+    entries = entries or []
+    right_entries = entries[:]
+    if not right_entries and getattr(deal, 'client', None):
+        right_entries = [
+            {
+                'label': 'Заказчик',
+                'name': _client_full_name(deal.client),
+                'requisites_label': _client_requisites_label(deal.client),
+                'requisites_line': _client_requisites_line(deal.client),
+                'contact_line': _client_contact_line(deal.client),
+            },
+        ]
+
+    rows = []
+    if right_entries:
+        if owner_mode and len(right_entries) > 1:
+            rows.append([
+                left,
+                Paragraph(_customer_signature_markup(right_entries[0], include_contacts=False), signature),
+            ])
+            for entry in right_entries[1:]:
+                rows.append([
+                    Paragraph(_customer_signature_markup(entry, include_contacts=False), signature),
+                    '',
+                ])
+        else:
+            rows.append([
+                left,
+                Paragraph(_customer_signature_markup(right_entries[0], include_contacts=True), signature),
+            ])
+
+    table = Table(
+        rows,
+        colWidths=[(CONTENT_WIDTH - 10) / 2, (CONTENT_WIDTH - 10) / 2],
+        hAlign='LEFT',
     )
-    table = Table([[left, right]], colWidths=[(CONTENT_WIDTH - 10) / 2, (CONTENT_WIDTH - 10) / 2], hAlign='LEFT')
-    table.setStyle(TableStyle([
+    table_style = [
         ('BACKGROUND', (0, 0), (-1, -1), colors.white),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -570,7 +729,15 @@ def _signature_table(deal, *, styles) -> Table:
         ('RIGHTPADDING', (1, 0), (1, -1), 0),
         ('TOPPADDING', (0, 0), (-1, -1), 0),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-    ]))
+    ]
+    if owner_mode and len(right_entries) > 1:
+        for row_index in range(1, len(rows)):
+            table_style.extend([
+                ('SPAN', (0, row_index), (1, row_index)),
+                ('LEFTPADDING', (0, row_index), (0, row_index), 0),
+                ('RIGHTPADDING', (0, row_index), (0, row_index), 0),
+            ])
+    table.setStyle(TableStyle(table_style))
     note = Paragraph(
         (
             f'Документ сформирован автоматически CRM {_paragraph_text(_agency_name())} '
@@ -767,6 +934,8 @@ def render_contract_pdf(deal) -> ContentFile:
         Spacer(1, 7),
     ])
 
+    customer_entries, owner_mode = _build_customer_entries(deal)
+
     story.append(_section_heading('1. Стороны договора', styles['section']))
     story.append(
         Paragraph(
@@ -774,7 +943,7 @@ def render_contract_pdf(deal) -> ContentFile:
                 f'Исполнитель: {_paragraph_text(_agency_legal_name())}, '
                 f'в лице {_paragraph_text(_agency_signatory_name(deal.agent))}, '
                 f'действующего на основании {_paragraph_text(_agency_signatory_basis())}. '
-                f'Заказчик: {_paragraph_text(_client_full_name(deal.client))}. '
+                f'{_paragraph_text(_customer_intro_text(customer_entries, owner_mode=owner_mode))} '
                 f'Стороны подтверждают намерение организовать и сопровождать '
                 f'подготовку и совершение {deal_transaction_label} по объекту '
                 f'недвижимости на условиях настоящего договора.'
@@ -790,11 +959,8 @@ def render_contract_pdf(deal) -> ContentFile:
                 ('Должность / роль', _agency_signatory_title(deal.agent)),
                 ('Основание полномочий', _agency_signatory_basis()),
                 ('Контакты исполнителя', _agency_contact_line()),
-                ('Заказчик', _client_full_name(deal.client)),
-                (_client_requisites_label(deal.client), _client_requisites_line(deal.client)),
-                ('Адрес заказчика', _client_address_line(deal.client)),
-                ('Контакты заказчика', _client_contact_line(deal.client)),
-            ],
+            ]
+            + _customer_info_rows(customer_entries),
             label_style=styles['label'],
             value_style=styles['table_value'],
         ),
@@ -941,7 +1107,12 @@ def render_contract_pdf(deal) -> ContentFile:
     story.extend([
         Spacer(1, 10),
         _section_heading('9. Реквизиты и подписи сторон', styles['section']),
-        _signature_table(deal, styles=styles),
+        _signature_table(
+            deal,
+            styles=styles,
+            customer_entries=customer_entries,
+            owner_mode=owner_mode,
+        ),
     ])
 
     doc.build(

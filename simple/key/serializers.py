@@ -176,11 +176,7 @@ class TaskStatusSerializer(serializers.ModelSerializer):
 class UserRoleSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.UserRole
-        fields = [
-            'id', 'code', 'name', 'description',
-            'max_active_tasks', 'max_in_progress_tasks',
-            'max_active_requests',
-        ]
+        fields = ['id', 'code', 'name', 'description']
 
 
 class CodeNameLookupSerializer(serializers.ModelSerializer):
@@ -1754,12 +1750,45 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
         queryset=User.objects.filter(user_type='client'),
         required=False,
         allow_null=True,
+        write_only=True,
     )
     agent = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(user_type='employee'),
         required=False,
         allow_null=True,
+        write_only=True,
     )
+    client_profile = serializers.PrimaryKeyRelatedField(
+        queryset=models.ClientProfile.objects.select_related('user').all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
+    employee_profile = serializers.PrimaryKeyRelatedField(
+        queryset=models.EmployeeProfile.objects.select_related('user').all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
+    status = serializers.PrimaryKeyRelatedField(
+        queryset=models.ViewingStatus.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    status_name = serializers.CharField(source='status.name', read_only=True)
+    status_code = serializers.CharField(source='status.code', read_only=True)
+    client_username = serializers.CharField(source='client_profile.user.username', read_only=True)
+    client_first_name = serializers.CharField(source='client_profile.first_name', read_only=True)
+    client_last_name = serializers.CharField(source='client_profile.last_name', read_only=True)
+    client_middle_name = serializers.CharField(source='client_profile.middle_name', read_only=True)
+    client_email = serializers.CharField(source='client_profile.user.email', read_only=True)
+    client_phone = serializers.CharField(source='client_profile.user.phone', read_only=True)
+    agent_username = serializers.CharField(source='employee_profile.user.username', read_only=True)
+    agent_first_name = serializers.CharField(source='employee_profile.first_name', read_only=True)
+    agent_last_name = serializers.CharField(source='employee_profile.last_name', read_only=True)
+    agent_middle_name = serializers.CharField(source='employee_profile.middle_name', read_only=True)
+    agent_email = serializers.CharField(source='employee_profile.user.email', read_only=True)
+    agent_phone = serializers.CharField(source='employee_profile.user.phone', read_only=True)
     scheduled_date = serializers.DateTimeField(source='viewing_date')
     notes = serializers.CharField(
         source='comment',
@@ -1770,26 +1799,47 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.PropertyViewing
-        fields = ['id', 'property', 'client', 'agent',
-                  'scheduled_date', 'notes', 'created_at']
+        fields = [
+            'id', 'property',
+            'client', 'client_profile',
+            'agent', 'employee_profile',
+            'status', 'status_name', 'status_code',
+            'client_username', 'client_first_name', 'client_last_name',
+            'client_middle_name', 'client_email', 'client_phone',
+            'agent_username', 'agent_first_name', 'agent_last_name',
+            'agent_middle_name', 'agent_email', 'agent_phone',
+            'scheduled_date', 'notes', 'created_at',
+        ]
         read_only_fields = ['created_at']
 
     def create(self, validated_data):
         client = validated_data.pop('client', None)
         agent = validated_data.pop('agent', None)
+        client_profile = validated_data.pop('client_profile', None)
+        employee_profile = validated_data.pop('employee_profile', None)
         if client is not None:
             validated_data['client_profile'] = getattr(client, 'client_profile', None)
+        elif client_profile is not None:
+            validated_data['client_profile'] = client_profile
         if agent is not None:
             validated_data['employee_profile'] = getattr(agent, 'employee_profile', None)
+        elif employee_profile is not None:
+            validated_data['employee_profile'] = employee_profile
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
         client = validated_data.pop('client', None)
         agent = validated_data.pop('agent', None)
+        client_profile = validated_data.pop('client_profile', None)
+        employee_profile = validated_data.pop('employee_profile', None)
         if client is not None:
             instance.client = client
+        elif client_profile is not None:
+            instance.client_profile = client_profile
         if agent is not None:
             instance.agent = agent
+        elif employee_profile is not None:
+            instance.employee_profile = employee_profile
         return super().update(instance, validated_data)
 
 

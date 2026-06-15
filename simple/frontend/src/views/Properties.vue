@@ -67,44 +67,11 @@
           </div>
 
           <div class="field">
-            <label>Тип помещения</label>
+            <label>Тип объекта</label>
             <select class="select" v-model="filters.premises_type">
               <option value="">Все</option>
-              <option value="apartment">Квартира</option>
-              <option value="house">Дом</option>
-              <option value="commercial">Коммерческая недвижимость</option>
-              <option value="land">Земельный участок</option>
-              <option value="garage">Гараж</option>
-              <option value="room">Комната</option>
-            </select>
-          </div>
-
-          <div v-if="filters.premises_type === 'apartment'" class="field">
-            <label>Этаж</label>
-            <input class="input" type="number" v-model.number="filters.floor_number" />
-          </div>
-
-          <div v-if="filters.premises_type === 'house'" class="field">
-            <label>Этажей в доме</label>
-            <input class="input" type="number" v-model.number="filters.total_floors" />
-          </div>
-
-          <div v-if="filters.premises_type === 'commercial'" class="field">
-            <label>Площадь от</label>
-            <input class="input" type="number" v-model.number="filters.min_area" />
-          </div>
-
-          <div v-if="filters.premises_type === 'commercial'" class="field">
-            <label>Площадь до</label>
-            <input class="input" type="number" v-model.number="filters.max_area" />
-          </div>
-
-          <div v-if="propertyTypeUsesRooms(filters.premises_type)" class="field">
-            <label>Комнат</label>
-            <select class="select" v-model="filters.rooms">
-              <option value="">Любое</option>
-              <option v-for="n in [1, 2, 3, 4, 5]" :key="n" :value="n">
-                {{ n }}
+              <option v-for="item in dict.propertyTypes" :key="item.id" :value="item.code">
+                {{ item.name }}
               </option>
             </select>
           </div>
@@ -120,11 +87,186 @@
           </div>
 
           <div class="field">
+            <label>Площадь от</label>
+            <input class="input" type="number" v-model.number="filters.min_area" />
+          </div>
+
+          <div class="field">
+            <label>Площадь до</label>
+            <input class="input" type="number" v-model.number="filters.max_area" />
+          </div>
+
+          <div class="field">
             <label>Поиск</label>
             <input
               class="input"
               v-model="filters.search"
               placeholder="Название или описание" />
+          </div>
+
+          <div v-if="canUseBuildingMaterial" class="field">
+            <label>Материал стен</label>
+            <select class="select" v-model="filters.building_material">
+              <option value="">Любой</option>
+              <option v-for="item in dict.buildingMaterials" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="canUseYearBuilt" class="field">
+            <label>Год постройки от</label>
+            <input class="input" type="number" v-model.number="filters.year_built_from" />
+          </div>
+
+          <div v-if="canUseYearBuilt" class="field">
+            <label>Год постройки до</label>
+            <input class="input" type="number" v-model.number="filters.year_built_to" />
+          </div>
+
+          <div v-if="isApartmentOrRoom" class="field">
+            <label>Комнаты</label>
+            <div class="row" style="gap: 6px; flex-wrap: wrap">
+              <button
+                v-for="room in roomOptions"
+                :key="room.value"
+                type="button"
+                class="btn btn--sm"
+                :class="{ 'btn--primary': filters.rooms === room.value }"
+                @click="filters.rooms = room.value"
+              >
+                {{ room.label }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="isApartmentOrRoom" class="field">
+            <label>Этаж</label>
+            <input class="input" type="number" v-model.number="filters.floor_number" />
+          </div>
+
+          <div v-if="isApartmentOrRoom" class="field">
+            <label>Не первый этаж</label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="filters.not_first_floor" />
+              Да
+            </label>
+          </div>
+
+          <div v-if="isApartmentOrRoom" class="field">
+            <label>Не последний этаж</label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="filters.not_last_floor" />
+              Да
+            </label>
+          </div>
+
+          <div v-if="isApartmentOrRoom" class="field">
+            <label>Тип ремонта</label>
+            <select class="select" v-model="filters.renovation_type">
+              <option value="">Любой</option>
+              <option v-for="item in dict.renovationTypes" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="isApartmentOrRoom" class="field">
+            <label>Тип санузла</label>
+            <select class="select" v-model="filters.bathroom_type">
+              <option value="">Любой</option>
+              <option v-for="item in dict.bathroomTypes" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="isHouse" class="field">
+            <label>Этажей в доме</label>
+            <select class="select" v-model="filters.total_floors">
+              <option value="">Любое</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3+">3+</option>
+            </select>
+          </div>
+
+          <div v-if="isHouse" class="field">
+            <label>Площадь участка от</label>
+            <input class="input" type="number" v-model.number="filters.min_land_area" />
+          </div>
+
+          <div v-if="isCommercial" class="field">
+            <label>Тип коммерческой недвижимости</label>
+            <select class="select" v-model="filters.commercial_type">
+              <option value="">Любой</option>
+              <option v-for="item in dict.commercialTypes" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="isCommercial" class="field">
+            <label>Отдельный вход</label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="filters.has_separate_entrance" />
+              Да
+            </label>
+          </div>
+
+          <div v-if="isCommercial" class="field">
+            <label>Первая линия</label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="filters.is_first_line" />
+              Да
+            </label>
+          </div>
+
+          <div v-if="isCommercial" class="field">
+            <label>Витринные окна</label>
+            <label class="chip-check">
+              <input type="checkbox" v-model="filters.has_display_windows" />
+              Да
+            </label>
+          </div>
+
+          <div v-if="isCommercial" class="field">
+            <label>Парковочных мест от</label>
+            <input class="input" type="number" v-model.number="filters.min_parking_spaces" />
+          </div>
+
+          <div v-if="isLand" class="field">
+            <label>Площадь участка от</label>
+            <input class="input" type="number" v-model.number="filters.min_land_area" />
+          </div>
+
+          <div v-if="isLand" class="field">
+            <label>Площадь участка до</label>
+            <input class="input" type="number" v-model.number="filters.max_land_area" />
+          </div>
+
+          <div v-if="isGarage" class="field">
+            <label>Тип ремонта</label>
+            <select class="select" v-model="filters.renovation_type">
+              <option value="">Любой</option>
+              <option v-for="item in dict.renovationTypes" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Удобства</label>
+            <div class="stack" style="gap: 6px; max-height: 220px; overflow: auto">
+              <label v-for="item in dict.amenities" :key="item.id" class="chip-check">
+                <input
+                  type="checkbox"
+                  :value="item.id"
+                  v-model="filters.amenity_ids"
+                />
+                {{ item.name }}
+              </label>
+            </div>
           </div>
 
           <div class="field">
@@ -283,7 +425,12 @@ import { useRoute } from 'vue-router'
 import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
-import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
+import {
+  normalizePropertyType,
+  propertyTypeHasFloor,
+  propertyTypeIsCommercial,
+  propertyTypeUsesRooms,
+} from '@/utils/propertyTypes'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -300,6 +447,21 @@ function defaultFilters() {
     rooms: '',
     floor_number: '',
     total_floors: '',
+    renovation_type: '',
+    bathroom_type: '',
+    building_material: '',
+    commercial_type: '',
+    has_separate_entrance: false,
+    is_first_line: false,
+    has_display_windows: false,
+    min_parking_spaces: null,
+    min_land_area: null,
+    max_land_area: null,
+    amenity_ids: [],
+    year_built_from: '',
+    year_built_to: '',
+    not_last_floor: false,
+    not_first_floor: false,
     min_area: null,
     max_area: null,
     min_price: null,
@@ -315,7 +477,16 @@ const filters = reactive({
   ...defaultFilters(),
 })
 
-const dict = reactive({ operations: [], statuses: [] })
+const dict = reactive({
+  operations: [],
+  statuses: [],
+  propertyTypes: [],
+  renovationTypes: [],
+  bathroomTypes: [],
+  buildingMaterials: [],
+  commercialTypes: [],
+  amenities: [],
+})
 const items = ref([])
 const loading = ref(false)
 const importInput = ref(null)
@@ -326,6 +497,25 @@ const attachRequestDialogOpen = ref(false)
 const attachRequestLoading = ref(false)
 const attachRequestId = ref(null)
 const selectedAttachRequestLabel = ref('')
+const roomOptions = [
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '4', label: '4' },
+  { value: '5+', label: '5+' },
+]
+
+const selectedPremisesType = computed(() => normalizePropertyType(filters.premises_type))
+const isApartmentOrRoom = computed(() => ['apartment', 'room'].includes(selectedPremisesType.value))
+const isHouse = computed(() => selectedPremisesType.value === 'house')
+const isCommercial = computed(() => propertyTypeIsCommercial(selectedPremisesType.value))
+const isLand = computed(() => selectedPremisesType.value === 'land')
+const isGarage = computed(() => selectedPremisesType.value === 'garage')
+const canUseBuildingMaterial = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
+const canUseYearBuilt = computed(() => ['apartment', 'house', 'room'].includes(selectedPremisesType.value))
+const canUseBathroomType = computed(() => ['apartment', 'room'].includes(selectedPremisesType.value))
+const canUseRenovationType = computed(() => ['apartment', 'room', 'garage'].includes(selectedPremisesType.value))
+const canUseLandArea = computed(() => ['house', 'land'].includes(selectedPremisesType.value))
 const {
   selectedIds: selectedPropertyIds,
   selectedCount: selectedPropertyCount,
@@ -336,15 +526,39 @@ const {
   clearSelection: clearPropertySelection,
 } = useBulkSelection(items)
 
+function serializeFilters() {
+  const params = {}
+  for (const [k, v] of Object.entries(filters)) {
+    if (k === 'amenity_ids') {
+      if (Array.isArray(v) && v.length) params[k] = v.join(',')
+      continue
+    }
+    if (k === 'not_first_floor') {
+      if (v) params.floor_number__gt = 1
+      continue
+    }
+    if (k === 'not_last_floor') {
+      if (v) params[k] = 'true'
+      continue
+    }
+    if (typeof v === 'boolean') {
+      if (v) params[k] = 'true'
+      continue
+    }
+    if (v !== '' && v !== null && v !== undefined) {
+      params[k] = k === 'premises_type' ? normalizePropertyType(v) : v
+    }
+  }
+  return params
+}
+
 async function load () {
   loading.value = true
   try {
     const params = {
       page: propertyPage.value,
       page_size: propertyPageSize.value,
-    }
-    for (const [k, v] of Object.entries(filters)) {
-      if (v !== '' && v !== null) params[k] = v
+      ...serializeFilters(),
     }
     const { data } = await api.get('/properties/', { params })
     const payload = unpackPaginated(data)
@@ -366,10 +580,7 @@ function syncRouteFilters() {
 }
 
 function exportParams () {
-  const params = {}
-  for (const [k, v] of Object.entries(filters)) {
-    if (v !== '' && v !== null) params[k] = v
-  }
+  const params = serializeFilters()
   return params
 }
 
@@ -535,12 +746,33 @@ watch(propertyPageSize, async () => {
 })
 
 onMounted(async () => {
-  const [o, s] = await Promise.all([
+  const [
+    operations,
+    statuses,
+    propertyTypes,
+    renovationTypes,
+    bathroomTypes,
+    buildingMaterials,
+    commercialTypes,
+    amenities,
+  ] = await Promise.all([
     api.get('/operation-types/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
     api.get('/property-statuses/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/property-types/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/renovation-types/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/bathroom-types/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/building-materials/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/commercial-property-types/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
+    api.get('/amenities/', { params: { page_size: LOOKUP_PAGE_SIZE } }),
   ])
-  dict.operations = unpackPaginated(o.data).items
-  dict.statuses = unpackPaginated(s.data).items
+  dict.operations = unpackPaginated(operations.data).items
+  dict.statuses = unpackPaginated(statuses.data).items
+  dict.propertyTypes = unpackPaginated(propertyTypes.data).items
+  dict.renovationTypes = unpackPaginated(renovationTypes.data).items
+  dict.bathroomTypes = unpackPaginated(bathroomTypes.data).items
+  dict.buildingMaterials = unpackPaginated(buildingMaterials.data).items
+  dict.commercialTypes = unpackPaginated(commercialTypes.data).items
+  dict.amenities = unpackPaginated(amenities.data).items
   syncRouteFilters()
   await load()
 })
@@ -554,20 +786,50 @@ watch(
 )
 
 watch(() => filters.premises_type, (value) => {
-  if (!propertyTypeUsesRooms(value)) {
+  const type = normalizePropertyType(value)
+  if (!propertyTypeUsesRooms(type)) {
     filters.rooms = ''
+  }
+  if (!propertyTypeHasFloor(type)) {
     filters.floor_number = ''
+    filters.not_first_floor = false
+    filters.not_last_floor = false
+  }
+  if (!canUseBuildingMaterial.value) {
+    filters.building_material = ''
+  }
+  if (!canUseYearBuilt.value) {
+    filters.year_built_from = ''
+    filters.year_built_to = ''
+  }
+  if (!isHouse.value && !isLand.value) {
+    filters.min_land_area = null
+    filters.max_land_area = null
+  }
+  if (!canUseBathroomType.value) {
+    filters.bathroom_type = ''
+  }
+  if (!canUseRenovationType.value) {
+    filters.renovation_type = ''
+  }
+  if (!canUseLandArea.value) {
+    filters.min_land_area = null
+    filters.max_land_area = null
+  } else if (type === 'house') {
+    filters.max_land_area = null
+  }
+  if (!isHouse.value) {
     filters.total_floors = ''
   }
-  if (value === 'apartment') {
-    filters.total_floors = ''
-    filters.min_area = null
-    filters.max_area = null
+  if (!isCommercial.value) {
+    filters.commercial_type = ''
+    filters.has_separate_entrance = false
+    filters.is_first_line = false
+    filters.has_display_windows = false
+    filters.min_parking_spaces = null
   }
-  if (value === 'house') {
-    filters.floor_number = ''
-    filters.min_area = null
-    filters.max_area = null
+  if (!isApartmentOrRoom.value) {
+    filters.not_last_floor = false
   }
 })
 </script>
