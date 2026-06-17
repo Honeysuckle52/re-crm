@@ -212,17 +212,6 @@
             Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
           </div>
         </div>
-        <div v-if="auth.canCreateRequestTaskReport" class="row" style="gap: 8px; flex-wrap: wrap">
-          <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('csv')">
-            CSV
-          </button>
-          <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('xlsx')">
-            XLSX
-          </button>
-          <button class="btn btn--sm" :disabled="exportingRequests" @click="exportRequests('json')">
-            JSON
-          </button>
-        </div>
       </div>
 
       <DataFetchPanel
@@ -340,7 +329,7 @@
                 </span>
               </td>
               <td class="muted" data-label="Создана">
-                {{ new Date(requestItem.created_at).toLocaleDateString('ru-RU') }}
+                {{ formatDate(requestItem.created_at) }}
               </td>
               <td class="table-actions-cell" data-label="Действия">
                 <div class="row requests-table__actions" style="gap: 6px; flex-wrap: wrap">
@@ -423,7 +412,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { bulkCloseRequests } from '../api/bulk'
-import { exportEntityData } from '../api/exports'
 import BulkActionBar from '../components/BulkActionBar.vue'
 import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
@@ -438,7 +426,7 @@ import { useAuthStore } from '../store/auth'
 import { useConfirmStore } from '../store/confirm'
 import { useWorkloadStore } from '../store/workload'
 import { extractError, useToastsStore } from '../store/toasts'
-import { formatMoney } from '@/utils/formatters'
+import { formatMoney, formatDate } from '@/utils/formatters'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import {
   activeRequestStatusCodes,
@@ -465,7 +453,6 @@ const closeLoading = ref(false)
 const requestPage = ref(1)
 const requestPageSize = ref(DEFAULT_PAGE_SIZE)
 const requestCount = ref(0)
-const exportingRequests = ref(false)
 const loadingRequests = ref(false)
 const editingRequestId = ref(null)
 const propertyPickerOpen = ref(false)
@@ -795,14 +782,6 @@ function listParams() {
   return params
 }
 
-function requestExportParams() {
-  const params = requestFilterParams()
-  if (auth.isStaff && scope.value !== 'all') {
-    params.scope = scope.value
-  }
-  return params
-}
-
 async function fetchRequestCount(params = {}) {
   const { data } = await api.get('/requests/', {
     params: { page: 1, ...params },
@@ -960,22 +939,6 @@ async function takeRequest(requestItem) {
   }
 
   await Promise.all([load(), loadRequestCounts(), workload.refresh()])
-}
-
-async function exportRequests(format) {
-  exportingRequests.value = true
-  try {
-    await exportEntityData(
-      '/requests/export/',
-      format,
-      requestExportParams(),
-      `requests.${format}`,
-    )
-  } catch (err) {
-    toasts.error(extractError(err, 'Не удалось выгрузить заявки'))
-  } finally {
-    exportingRequests.value = false
-  }
 }
 
 async function deleteRequest(requestItem) {

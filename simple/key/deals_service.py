@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Создание сделок и фоновая генерация договоров."""
 from __future__ import annotations
 

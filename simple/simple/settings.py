@@ -1,6 +1,8 @@
 """Настройки проекта."""
+# -*- coding: utf-8 -*-
 from datetime import timedelta
 from pathlib import Path
+import json
 import os
 
 from dotenv import load_dotenv
@@ -18,6 +20,16 @@ def env_bool(name: str, default: bool = False) -> bool:
 def env_list(name: str, default: str = '') -> list[str]:
     raw = os.getenv(name, default)
     return [item.strip() for item in raw.split(',') if item.strip()]
+
+
+def env_json(name: str, default):
+    raw = os.getenv(name)
+    if raw in (None, ''):
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ImproperlyConfigured(f'{name} must contain valid JSON.') from exc
 
 
 SECRET_KEY = os.getenv('SECRET_KEY', '')
@@ -102,9 +114,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = 'ru-ru'
-TIME_ZONE = 'Europe/Moscow'
+TIME_ZONE = 'Asia/Irkutsk'
 USE_I18N = True
 USE_TZ = True
+FILE_CHARSET = 'utf-8'
+DEFAULT_CHARSET = 'utf-8'
 
 VITE_ASSETS_DIR = BASE_DIR / "frontend" / "dist" / ".vite"
 
@@ -258,8 +272,27 @@ DADATA_API_URL = os.getenv(
 )
 DADATA_API_KEY = os.getenv(
     'DADATA_API_KEY',
-    '8ceded5bba84e0bd3f20cd7a36057324dc680563',
+    '',
 )
 
 # 2GIS Places API — обогащение объектов недвижимости данными и фото.
-TWOGIS_API_KEY = os.getenv('TWOGIS_API_KEY', 'c3270250-2e30-4990-ad62-6c51b8701f0c')
+TWOGIS_API_KEY = os.getenv('TWOGIS_API_KEY', '')
+SBER_API_URL = os.getenv(
+    'SBER_API_URL',
+    'https://3dsec.sberbank.ru/payment/rest/',
+)
+SBER_USERNAME = os.getenv('SBER_USERNAME', '')
+SBER_PASSWORD = os.getenv('SBER_PASSWORD', '')
+SBER_SANDBOX = env_bool('SBER_SANDBOX', True)
+SBER_PAYMENT_TIMEOUT = int(os.getenv('SBER_PAYMENT_TIMEOUT', '10'))
+SBER_VIEWING_AMOUNTS = env_json(
+    'SBER_VIEWING_AMOUNTS',
+    {
+        'apartment': '500.00',
+        'room': '500.00',
+        'house': '1000.00',
+        'commercial': '2000.00',
+        'land': '1500.00',
+        'garage': '300.00',
+    },
+)

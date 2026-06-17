@@ -1,4 +1,5 @@
-﻿"""ORM-РјРѕРґРµР»Рё РїСЂРёР»РѕР¶РµРЅРёСЏ ``key`` (3NF-РІРµСЂСЃРёСЏ)."""
+# -*- coding: utf-8 -*-
+"""ORM-модели приложения ``key`` (3NF-версия)."""
 from decimal import Decimal
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
@@ -9,89 +10,89 @@ from django.utils import timezone
 
 from .storage import database_backup_storage
 
-# РџРѕР»Рµ ``Task.property`` РїРµСЂРµРєСЂС‹РІР°РµС‚ builtins.property.
+# Поле ``Task.property`` перекрывает builtins.property.
 _property = property
 
 phone_validator = RegexValidator(
     regex=r'^\+7\d{10}$',
-    message='РўРµР»РµС„РѕРЅ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ СЂРѕСЃСЃРёР№СЃРєРёРј РЅРѕРјРµСЂРѕРј РІ С„РѕСЂРјР°С‚Рµ +7XXXXXXXXXX.',
+    message='Телефон должен быть российским номером в формате +7XXXXXXXXXX.',
 )
 passport_series_validator = RegexValidator(
     regex=r'^\d{4}$',
-    message='РЎРµСЂРёСЏ РїР°СЃРїРѕСЂС‚Р° РґРѕР»Р¶РЅР° СЃРѕСЃС‚РѕСЏС‚СЊ РёР· 4 С†РёС„СЂ.',
+    message='Серия паспорта должна состоять из 4 цифр.',
 )
 passport_number_validator = RegexValidator(
     regex=r'^\d{6}$',
-    message='РќРѕРјРµСЂ РїР°СЃРїРѕСЂС‚Р° РґРѕР»Р¶РµРЅ СЃРѕСЃС‚РѕСЏС‚СЊ РёР· 6 С†РёС„СЂ.',
+    message='Номер паспорта должен состоять из 6 цифр.',
 )
 passport_code_validator = RegexValidator(
     regex=r'^\d{3}-\d{3}$',
-    message='РљРѕРґ РїРѕРґСЂР°Р·РґРµР»РµРЅРёСЏ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РІ С„РѕСЂРјР°С‚Рµ 000-000.',
+    message='Код подразделения должен быть в формате 000-000.',
 )
 company_inn_validator = RegexValidator(
     regex=r'^\d{10}$',
-    message='РРќРќ СЋСЂРёРґРёС‡РµСЃРєРѕРіРѕ Р»РёС†Р° РґРѕР»Р¶РµРЅ СЃРѕСЃС‚РѕСЏС‚СЊ РёР· 10 С†РёС„СЂ.',
+    message='ИНН юридического лица должен состоять из 10 цифр.',
 )
 company_ogrn_validator = RegexValidator(
     regex=r'^\d{13}$',
-    message='РћР“Р Рќ РґРѕР»Р¶РµРЅ СЃРѕСЃС‚РѕСЏС‚СЊ РёР· 13 С†РёС„СЂ.',
+    message='ОГРН должен состоять из 13 цифр.',
 )
 company_kpp_validator = RegexValidator(
     regex=r'^\d{9}$',
-    message='РљРџРџ РґРѕР»Р¶РµРЅ СЃРѕСЃС‚РѕСЏС‚СЊ РёР· 9 С†РёС„СЂ.',
+    message='КПП должен состоять из 9 цифр.',
 )
 cadastral_number_validator = RegexValidator(
     regex=r'^\d{2}:\d{2}:\d{6,}:\d+$',
-    message='РќРµРІРµСЂРЅС‹Р№ С„РѕСЂРјР°С‚ РєР°РґР°СЃС‚СЂРѕРІРѕРіРѕ РЅРѕРјРµСЂР°.',
+    message='Неверный формат кадастрового номера.',
 )
 
 
 # =====================================================
-# 1. Р‘РђР—РћР’Р«Р• РљР›РђРЎРЎР« Р РЈРўРР›РРўР«
+# 1. БАЗОВЫЕ КЛАССЫ И УТИЛИТЫ
 # =====================================================
 
 LOOKUP_NAME_DEFAULTS = {
     'PropertyType': {
-        'apartment': 'РљРІР°СЂС‚РёСЂР°',
-        'house': 'Р”РѕРј',
-        'commercial': 'РљРѕРјРјРµСЂС‡РµСЃРєР°СЏ РЅРµРґРІРёР¶РёРјРѕСЃС‚СЊ',
-        'land': 'Р—РµРјРµР»СЊРЅС‹Р№ СѓС‡Р°СЃС‚РѕРє',
-        'garage': 'Р“Р°СЂР°Р¶',
-        'room': 'РљРѕРјРЅР°С‚Р°',
+        'apartment': 'Квартира',
+        'house': 'Дом',
+        'commercial': 'Коммерческая недвижимость',
+        'land': 'Земельный участок',
+        'garage': 'Гараж',
+        'room': 'Комната',
     },
     'TaskPriority': {
-        'low': 'РќРёР·РєРёР№',
-        'normal': 'РћР±С‹С‡РЅС‹Р№',
-        'high': 'Р’С‹СЃРѕРєРёР№',
+        'low': 'Низкий',
+        'normal': 'Обычный',
+        'high': 'Высокий',
     },
     'TaskType': {
-        'contact_client': 'РЎРІСЏР·Р°С‚СЊСЃСЏ СЃ РєР»РёРµРЅС‚РѕРј',
-        'property_search': 'РџРѕРґР±РѕСЂ РѕР±СЉРµРєС‚РѕРІ',
-        'showing': 'РџРѕРєР°Р· РѕР±СЉРµРєС‚Р°',
-        'documents': 'РџРѕРґРіРѕС‚РѕРІРєР° РґРѕРєСѓРјРµРЅС‚РѕРІ',
-        'call': 'Р—РІРѕРЅРѕРє',
-        'other': 'РџСЂРѕС‡РµРµ',
+        'contact_client': 'Связаться с клиентом',
+        'property_search': 'Подбор объектов',
+        'showing': 'Показ объекта',
+        'documents': 'Подготовка документов',
+        'call': 'Звонок',
+        'other': 'Прочее',
     },
     'ClientKind': {
-        'individual': 'Р¤РёР·РёС‡РµСЃРєРѕРµ Р»РёС†Рѕ',
-        'company': 'Р®СЂРёРґРёС‡РµСЃРєРѕРµ Р»РёС†Рѕ',
+        'individual': 'Физическое лицо',
+        'company': 'Юридическое лицо',
     },
     'ContactMethod': {
-        'phone': 'РўРµР»РµС„РѕРЅ',
+        'phone': 'Телефон',
         'email': 'Email',
         'telegram': 'Telegram',
         'whatsapp': 'WhatsApp',
     },
     'ContractStatus': {
-        'not_requested': 'РќРµ Р·Р°РїСЂРѕС€РµРЅ',
-        'pending': 'Р’ РѕС‡РµСЂРµРґРё',
-        'processing': 'Р¤РѕСЂРјРёСЂСѓРµС‚СЃСЏ',
-        'ready': 'Р“РѕС‚РѕРІ',
-        'failed': 'РћС€РёР±РєР°',
+        'not_requested': 'Не запрошен',
+        'pending': 'В очереди',
+        'processing': 'Формируется',
+        'ready': 'Готов',
+        'failed': 'Ошибка',
     },
     'UserType': {
-        'employee': 'РЎРѕС‚СЂСѓРґРЅРёРє',
-        'client': 'РљР»РёРµРЅС‚',
+        'employee': 'Сотрудник',
+        'client': 'Клиент',
     },
 }
 
@@ -125,7 +126,7 @@ def _resolve_lookup_instance(model_class, value):
 
 
 def _resolve_user_profile(value, profile_attr: str):
-    """РќРѕСЂРјР°Р»РёР·СѓРµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РёР»Рё id Рє СЃРІСЏР·Р°РЅРЅРѕРјСѓ РїСЂРѕС„РёР»СЋ."""
+    """Нормализует пользователя или id к связанному профилю."""
     if value in (None, ''):
         return None
 
@@ -184,8 +185,8 @@ def _rewrite_legacy_update_fields(instance, kwargs):
 
 
 class CodeNameLookup(models.Model):
-    code = models.CharField(max_length=50, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=100, verbose_name='РќР°Р·РІР°РЅРёРµ')
+    code = models.CharField(max_length=50, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=100, verbose_name='Название')
 
     class Meta:
         abstract = True
@@ -334,61 +335,61 @@ class AliasManager(models.Manager):
 
 
 # =====================================================
-# 2. РЎРџР РђР’РћР§РќРРљР (LOOKUPS)
+# 2. СПРАВОЧНИКИ (LOOKUPS)
 # =====================================================
 
 class OperationType(models.Model):
-    """РўРёРї РѕРїРµСЂР°С†РёРё СЃ РЅРµРґРІРёР¶РёРјРѕСЃС‚СЊСЋ (РїСЂРѕРґР°Р¶Р° / Р°СЂРµРЅРґР°)."""
-    code = models.CharField(max_length=10, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=50, verbose_name='РќР°Р·РІР°РЅРёРµ')
+    """Тип операции с недвижимостью (продажа / аренда)."""
+    code = models.CharField(max_length=10, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=50, verbose_name='Название')
 
     class Meta:
         db_table = 'operation_types'
-        verbose_name = 'РўРёРї РѕРїРµСЂР°С†РёРё'
-        verbose_name_plural = 'РўРёРїС‹ РѕРїРµСЂР°С†РёР№'
+        verbose_name = 'Тип операции'
+        verbose_name_plural = 'Типы операций'
 
     def __str__(self):
         return self.name
 
 
 class PropertyStatus(models.Model):
-    """РЎС‚Р°С‚СѓСЃ РѕР±СЉРµРєС‚Р° РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё."""
-    code = models.CharField(max_length=10, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=50, verbose_name='РќР°Р·РІР°РЅРёРµ')
+    """Статус объекта недвижимости."""
+    code = models.CharField(max_length=10, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=50, verbose_name='Название')
 
     class Meta:
         db_table = 'property_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Статус объекта'
+        verbose_name_plural = 'Статусы объектов'
 
     def __str__(self):
         return self.name
 
 
 class RequestStatus(models.Model):
-    """РЎС‚Р°С‚СѓСЃ Р·Р°СЏРІРєРё РєР»РёРµРЅС‚Р°."""
-    code = models.CharField(max_length=15, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=50, verbose_name='РќР°Р·РІР°РЅРёРµ')
+    """Статус заявки клиента."""
+    code = models.CharField(max_length=15, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=50, verbose_name='Название')
 
     class Meta:
         db_table = 'request_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ Р·Р°СЏРІРєРё'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ Р·Р°СЏРІРѕРє'
+        verbose_name = 'Статус заявки'
+        verbose_name_plural = 'Статусы заявок'
 
     def __str__(self):
         return self.name
 
 
 class DealStatus(models.Model):
-    """РЎС‚Р°С‚СѓСЃ СЃРґРµР»РєРё вЂ” СЃС‚Р°РґРёСЏ РІРѕСЂРѕРЅРєРё РїСЂРѕРґР°Р¶."""
-    code = models.CharField(max_length=20, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=50, verbose_name='РќР°Р·РІР°РЅРёРµ')
-    order = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0)], verbose_name='РџРѕСЂСЏРґРѕРє')
+    """Статус сделки — стадия воронки продаж."""
+    code = models.CharField(max_length=20, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=50, verbose_name='Название')
+    order = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0)], verbose_name='Порядок')
 
     class Meta:
         db_table = 'deal_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ СЃРґРµР»РєРё'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ СЃРґРµР»РѕРє'
+        verbose_name = 'Статус сделки'
+        verbose_name_plural = 'Статусы сделок'
         ordering = ['order']
 
     def __str__(self):
@@ -396,15 +397,15 @@ class DealStatus(models.Model):
 
 
 class TaskStatus(models.Model):
-    """РЎС‚Р°С‚СѓСЃ Р·Р°РґР°С‡Рё СЃРѕС‚СЂСѓРґРЅРёРєР°."""
-    code = models.CharField(max_length=20, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=50, verbose_name='РќР°Р·РІР°РЅРёРµ')
-    order = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0)], verbose_name='РџРѕСЂСЏРґРѕРє')
+    """Статус задачи сотрудника."""
+    code = models.CharField(max_length=20, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=50, verbose_name='Название')
+    order = models.PositiveSmallIntegerField(default=0, validators=[MinValueValidator(0)], verbose_name='Порядок')
 
     class Meta:
         db_table = 'task_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ Р·Р°РґР°С‡Рё'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ Р·Р°РґР°С‡'
+        verbose_name = 'Статус задачи'
+        verbose_name_plural = 'Статусы задач'
         ordering = ['order']
 
     def __str__(self):
@@ -414,149 +415,149 @@ class TaskStatus(models.Model):
 class PropertyType(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'property_types'
-        verbose_name = 'РўРёРї РїРѕРјРµС‰РµРЅРёСЏ'
-        verbose_name_plural = 'РўРёРїС‹ РїРѕРјРµС‰РµРЅРёР№'
+        verbose_name = 'Тип помещения'
+        verbose_name_plural = 'Типы помещений'
 
 
 class TaskPriority(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'task_priorities'
-        verbose_name = 'РџСЂРёРѕСЂРёС‚РµС‚ Р·Р°РґР°С‡Рё'
-        verbose_name_plural = 'РџСЂРёРѕСЂРёС‚РµС‚С‹ Р·Р°РґР°С‡'
+        verbose_name = 'Приоритет задачи'
+        verbose_name_plural = 'Приоритеты задач'
 
 
 class TaskType(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'task_types'
-        verbose_name = 'РўРёРї Р·Р°РґР°С‡Рё'
-        verbose_name_plural = 'РўРёРїС‹ Р·Р°РґР°С‡'
+        verbose_name = 'Тип задачи'
+        verbose_name_plural = 'Типы задач'
 
 
 class ClientKind(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'client_kinds'
-        verbose_name = 'Р’РёРґ РєР»РёРµРЅС‚Р°'
-        verbose_name_plural = 'Р’РёРґС‹ РєР»РёРµРЅС‚РѕРІ'
+        verbose_name = 'Вид клиента'
+        verbose_name_plural = 'Виды клиентов'
 
 
 class ContactMethod(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'contact_methods'
-        verbose_name = 'РЎРїРѕСЃРѕР± СЃРІСЏР·Рё'
-        verbose_name_plural = 'РЎРїРѕСЃРѕР±С‹ СЃРІСЏР·Рё'
+        verbose_name = 'Способ связи'
+        verbose_name_plural = 'Способы связи'
 
 
 class ContractStatus(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'contract_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ РґРѕРіРѕРІРѕСЂР°'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ РґРѕРіРѕРІРѕСЂРѕРІ'
+        verbose_name = 'Статус договора'
+        verbose_name_plural = 'Статусы договоров'
 
 
 class UserType(CodeNameLookup):
     class Meta(CodeNameLookup.Meta):
         db_table = 'user_types'
-        verbose_name = 'РўРёРї РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ'
-        verbose_name_plural = 'РўРёРїС‹ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№'
+        verbose_name = 'Тип пользователя'
+        verbose_name_plural = 'Типы пользователей'
 
 
 class RenovationType(CodeNameLookup):
-    """РўРёРї СЂРµРјРѕРЅС‚Р°."""
+    """Тип ремонта."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'renovation_types'
-        verbose_name = 'РўРёРї СЂРµРјРѕРЅС‚Р°'
-        verbose_name_plural = 'РўРёРїС‹ СЂРµРјРѕРЅС‚РѕРІ'
+        verbose_name = 'Тип ремонта'
+        verbose_name_plural = 'Типы ремонтов'
 
 
 class BathroomType(CodeNameLookup):
-    """РўРёРї СЃР°РЅСѓР·Р»Р° (СЃРѕРІРјРµС‰С‘РЅРЅС‹Р№/СЂР°Р·РґРµР»СЊРЅС‹Р№)."""
+    """Тип санузла (совмещённый/раздельный)."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'bathroom_types'
-        verbose_name = 'РўРёРї СЃР°РЅСѓР·Р»Р°'
-        verbose_name_plural = 'РўРёРїС‹ СЃР°РЅСѓР·Р»РѕРІ'
+        verbose_name = 'Тип санузла'
+        verbose_name_plural = 'Типы санузлов'
 
 
 class BuildingMaterial(CodeNameLookup):
-    """РњР°С‚РµСЂРёР°Р» СЃС‚РµРЅ."""
+    """Материал стен."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'building_materials'
-        verbose_name = 'РњР°С‚РµСЂРёР°Р» СЃС‚РµРЅ'
-        verbose_name_plural = 'РњР°С‚РµСЂРёР°Р»С‹ СЃС‚РµРЅ'
+        verbose_name = 'Материал стен'
+        verbose_name_plural = 'Материалы стен'
 
 
 class CommercialPropertyType(CodeNameLookup):
-    """РўРёРї РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё."""
+    """Тип коммерческой недвижимости."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'commercial_property_types'
-        verbose_name = 'РўРёРї РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё'
-        verbose_name_plural = 'РўРёРїС‹ РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё'
+        verbose_name = 'Тип коммерческой недвижимости'
+        verbose_name_plural = 'Типы коммерческой недвижимости'
 
 
 class Amenity(CodeNameLookup):
-    """РЈРґРѕР±СЃС‚РІР°/РѕСЃРѕР±РµРЅРЅРѕСЃС‚Рё РѕР±СЉРµРєС‚Р°."""
+    """Удобства/особенности объекта."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'amenities'
-        verbose_name = 'РЈРґРѕР±СЃС‚РІРѕ'
-        verbose_name_plural = 'РЈРґРѕР±СЃС‚РІР°'
+        verbose_name = 'Удобство'
+        verbose_name_plural = 'Удобства'
 
 
 class AuditEntityType(CodeNameLookup):
-    """РўРёРї СЃСѓС‰РЅРѕСЃС‚Рё РґР»СЏ Р°СѓРґРёС‚Р°."""
+    """Тип сущности для аудита."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'audit_entity_types'
-        verbose_name = 'РўРёРї СЃСѓС‰РЅРѕСЃС‚Рё Р°СѓРґРёС‚Р°'
-        verbose_name_plural = 'РўРёРїС‹ СЃСѓС‰РЅРѕСЃС‚РµР№ Р°СѓРґРёС‚Р°'
+        verbose_name = 'Тип сущности аудита'
+        verbose_name_plural = 'Типы сущностей аудита'
 
 
 class AuditAction(CodeNameLookup):
-    """Р”РµР№СЃС‚РІРёРµ РґР»СЏ Р°СѓРґРёС‚Р°."""
+    """Действие для аудита."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'audit_actions'
-        verbose_name = 'Р”РµР№СЃС‚РІРёРµ Р°СѓРґРёС‚Р°'
-        verbose_name_plural = 'Р”РµР№СЃС‚РІРёСЏ Р°СѓРґРёС‚Р°'
+        verbose_name = 'Действие аудита'
+        verbose_name_plural = 'Действия аудита'
 
 
 class RequestMatchStatus(CodeNameLookup):
-    """РЎС‚Р°С‚СѓСЃ СЃРѕРѕС‚РІРµС‚СЃС‚РІРёСЏ Р·Р°СЏРІРєР°-РѕР±СЉРµРєС‚."""
+    """Статус соответствия заявка-объект."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'request_match_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ СЃРѕРѕС‚РІРµС‚СЃС‚РІРёСЏ'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ СЃРѕРѕС‚РІРµС‚СЃС‚РІРёР№'
+        verbose_name = 'Статус соответствия'
+        verbose_name_plural = 'Статусы соответствий'
 
 
 class DocumentType(CodeNameLookup):
-    """РўРёРї РґРѕРєСѓРјРµРЅС‚Р°."""
+    """Тип документа."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'document_types'
-        verbose_name = 'РўРёРї РґРѕРєСѓРјРµРЅС‚Р°'
-        verbose_name_plural = 'РўРёРїС‹ РґРѕРєСѓРјРµРЅС‚РѕРІ'
+        verbose_name = 'Тип документа'
+        verbose_name_plural = 'Типы документов'
 
 
 class DealParticipantRole(CodeNameLookup):
-    """Р РѕР»СЊ СѓС‡Р°СЃС‚РЅРёРєР° СЃРґРµР»РєРё."""
+    """Роль участника сделки."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'deal_participant_roles'
-        verbose_name = 'Р РѕР»СЊ СѓС‡Р°СЃС‚РЅРёРєР° СЃРґРµР»РєРё'
-        verbose_name_plural = 'Р РѕР»Рё СѓС‡Р°СЃС‚РЅРёРєРѕРІ СЃРґРµР»РѕРє'
+        verbose_name = 'Роль участника сделки'
+        verbose_name_plural = 'Роли участников сделок'
 
 
 class ViewingStatus(CodeNameLookup):
-    """РЎС‚Р°С‚СѓСЃ РїСЂРѕСЃРјРѕС‚СЂР° РѕР±СЉРµРєС‚Р°."""
+    """Статус просмотра объекта."""
     class Meta(CodeNameLookup.Meta):
         db_table = 'viewing_statuses'
-        verbose_name = 'РЎС‚Р°С‚СѓСЃ РїСЂРѕСЃРјРѕС‚СЂР°'
-        verbose_name_plural = 'РЎС‚Р°С‚СѓСЃС‹ РїСЂРѕСЃРјРѕС‚СЂРѕРІ'
+        verbose_name = 'Статус просмотра'
+        verbose_name_plural = 'Статусы просмотров'
 
 
 class UserRole(models.Model):
-    """Р РѕР»СЊ СЃРѕС‚СЂСѓРґРЅРёРєР° РІ СЃРёСЃС‚РµРјРµ (Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂ / РјРµРЅРµРґР¶РµСЂ / Р°РіРµРЅС‚)."""
+    """Роль сотрудника в системе (администратор / менеджер / агент)."""
     DEFAULT_MAX_ACTIVE_TASKS = 2
     DEFAULT_MAX_IN_PROGRESS_TASKS = 1
     DEFAULT_MAX_ACTIVE_REQUESTS = 2
 
-    code = models.CharField(max_length=20, unique=True, verbose_name='РљРѕРґ')
-    name = models.CharField(max_length=50, verbose_name='РќР°Р·РІР°РЅРёРµ')
-    description = models.TextField(blank=True, null=True, verbose_name='РћРїРёСЃР°РЅРёРµ')
+    code = models.CharField(max_length=20, unique=True, verbose_name='Код')
+    name = models.CharField(max_length=50, verbose_name='Название')
+    description = models.TextField(blank=True, null=True, verbose_name='Описание')
 
     def __init__(self, *args, **kwargs):
         self._max_active_tasks = self._coerce_limit(
@@ -575,8 +576,8 @@ class UserRole(models.Model):
 
     class Meta:
         db_table = 'user_roles'
-        verbose_name = 'Р РѕР»СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ'
-        verbose_name_plural = 'Р РѕР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№'
+        verbose_name = 'Роль пользователя'
+        verbose_name_plural = 'Роли пользователей'
 
     def __str__(self):
         return self.name
@@ -622,23 +623,23 @@ class UserRole(models.Model):
 
 
 # =====================================================
-# 3. РђР”Р Р•РЎРђ
+# 3. АДРЕСА
 # =====================================================
 
 class City(models.Model):
-    """Р“РѕСЂРѕРґ / РЅР°СЃРµР»С‘РЅРЅС‹Р№ РїСѓРЅРєС‚."""
-    name = models.CharField(max_length=100, verbose_name='РќР°Р·РІР°РЅРёРµ')
-    region = models.CharField(max_length=100, blank=True, null=True, verbose_name='Р РµРіРёРѕРЅ')
+    """Город / населённый пункт."""
+    name = models.CharField(max_length=100, verbose_name='Название')
+    region = models.CharField(max_length=100, blank=True, null=True, verbose_name='Регион')
     external_id = models.UUIDField(
         blank=True, null=True, db_index=True,
-        help_text='Р’РЅРµС€РЅРёР№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ Р°РґСЂРµСЃРЅРѕРіРѕ СЂРµРµСЃС‚СЂР° (РёР· DaData)',
-        verbose_name='Р’РЅРµС€РЅРёР№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ',
+        help_text='Внешний идентификатор адресного реестра (из DaData)',
+        verbose_name='Внешний идентификатор',
     )
 
     class Meta:
         db_table = 'cities'
-        verbose_name = 'Р“РѕСЂРѕРґ'
-        verbose_name_plural = 'Р“РѕСЂРѕРґР°'
+        verbose_name = 'Город'
+        verbose_name_plural = 'Города'
         indexes = [models.Index(fields=['name'])]
         unique_together = [['name', 'region']]
 
@@ -647,16 +648,16 @@ class City(models.Model):
 
 
 class Street(models.Model):
-    """РЈР»РёС†Р°."""
-    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='streets', verbose_name='Р“РѕСЂРѕРґ')
-    name = models.CharField(max_length=150, verbose_name='РќР°Р·РІР°РЅРёРµ')
-    street_type = models.CharField(max_length=20, blank=True, null=True, verbose_name='РўРёРї СѓР»РёС†С‹')
-    external_id = models.UUIDField(blank=True, null=True, db_index=True, verbose_name='Р’РЅРµС€РЅРёР№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ')
+    """Улица."""
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='streets', verbose_name='Город')
+    name = models.CharField(max_length=150, verbose_name='Название')
+    street_type = models.CharField(max_length=20, blank=True, null=True, verbose_name='Тип улицы')
+    external_id = models.UUIDField(blank=True, null=True, db_index=True, verbose_name='Внешний идентификатор')
 
     class Meta:
         db_table = 'streets'
-        verbose_name = 'РЈР»РёС†Р°'
-        verbose_name_plural = 'РЈР»РёС†С‹'
+        verbose_name = 'Улица'
+        verbose_name_plural = 'Улицы'
         unique_together = [['city', 'name']]
 
     def __str__(self):
@@ -664,20 +665,20 @@ class Street(models.Model):
 
 
 class House(models.Model):
-    """Р”РѕРј / СЃС‚СЂРѕРµРЅРёРµ."""
-    street = models.ForeignKey(Street, on_delete=models.CASCADE, related_name='houses', verbose_name='РЈР»РёС†Р°')
-    house_number = models.CharField(max_length=20, verbose_name='РќРѕРјРµСЂ РґРѕРјР°')
-    postal_code = models.CharField(max_length=10, blank=True, null=True, verbose_name='РџРѕС‡С‚РѕРІС‹Р№ РёРЅРґРµРєСЃ')
-    external_id = models.UUIDField(blank=True, null=True, db_index=True, verbose_name='Р’РЅРµС€РЅРёР№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ')
+    """Дом / строение."""
+    street = models.ForeignKey(Street, on_delete=models.CASCADE, related_name='houses', verbose_name='Улица')
+    house_number = models.CharField(max_length=20, verbose_name='Номер дома')
+    postal_code = models.CharField(max_length=10, blank=True, null=True, verbose_name='Почтовый индекс')
+    external_id = models.UUIDField(blank=True, null=True, db_index=True, verbose_name='Внешний идентификатор')
 
     class Meta:
         db_table = 'houses'
-        verbose_name = 'Р”РѕРј'
-        verbose_name_plural = 'Р”РѕРјР°'
+        verbose_name = 'Дом'
+        verbose_name_plural = 'Дома'
         unique_together = [['street', 'house_number']]
 
     def __str__(self):
-        return f'{self.street.city}, {self.street}, Рґ. {self.house_number}'
+        return f'{self.street.city}, {self.street}, д. {self.house_number}'
 
     @property
     def house(self):
@@ -685,7 +686,7 @@ class House(models.Model):
 
 
 class AddressCompatibilityManager:
-    """РЎРѕРІРјРµСЃС‚РёРјРѕСЃС‚СЊ СЃРѕ СЃС‚Р°СЂС‹Рј API Address РїРѕСЃР»Рµ СѓРґР°Р»РµРЅРёСЏ СЃСѓС‰РЅРѕСЃС‚Рё."""
+    """Совместимость со старым API Address после удаления сущности."""
 
     model = House
 
@@ -745,7 +746,7 @@ class AddressCompatibilityManager:
 
 
 class Address:
-    """РќРµРјРёРіСЂРёСЂСѓРµРјР°СЏ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚СЊ: СЃС‚Р°СЂС‹Р№ Address С‚РµРїРµСЂСЊ СѓРєР°Р·С‹РІР°РµС‚ РЅР° House."""
+    """Немигрируемая совместимость: старый Address теперь указывает на House."""
 
     objects = AddressCompatibilityManager()
     DoesNotExist = House.DoesNotExist
@@ -753,20 +754,20 @@ class Address:
 
 
 # =====================================================
-# 4. РџРћР›Р¬Р—РћР’РђРўР•Р›Р Р РџР РћР¤РР›Р
+# 4. ПОЛЬЗОВАТЕЛИ И ПРОФИЛИ
 # =====================================================
 
 class UserManager(BaseUserManager):
-    """РњРµРЅРµРґР¶РµСЂ РєР°СЃС‚РѕРјРЅРѕР№ РјРѕРґРµР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ."""
+    """Менеджер кастомной модели пользователя."""
 
     def get_queryset(self):
         return AliasQuerySet(self.model, using=self._db, hints=self._hints)
 
     def create_user(self, username, email, password=None, **extra):
         if not username:
-            raise ValueError('Р›РѕРіРёРЅ РѕР±СЏР·Р°С‚РµР»РµРЅ')
+            raise ValueError('Логин обязателен')
         if not email:
-            raise ValueError('Р­Р»РµРєС‚СЂРѕРЅРЅР°СЏ РїРѕС‡С‚Р° РѕР±СЏР·Р°С‚РµР»СЊРЅР°')
+            raise ValueError('Электронная почта обязательна')
         email = self.normalize_email(email)
         user = self.model(username=username, email=email, **extra)
         user.set_password(password)
@@ -782,16 +783,16 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """Р•РґРёРЅР°СЏ С‚Р°Р±Р»РёС†Р° СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ Рё РєР»РёРµРЅС‚РѕРІ."""
+    """Единая таблица сотрудников и клиентов."""
     USER_TYPE_CHOICES = [
-        ('employee', 'РЎРѕС‚СЂСѓРґРЅРёРє'),
-        ('client', 'РљР»РёРµРЅС‚'),
+        ('employee', 'Сотрудник'),
+        ('client', 'Клиент'),
     ]
 
     username = models.CharField(
         max_length=50,
         unique=True,
-        verbose_name='Р›РѕРіРёРЅ',
+        verbose_name='Логин',
     )
     email = models.EmailField(max_length=255, unique=True, verbose_name='Email')
     phone = models.CharField(
@@ -800,29 +801,29 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         null=True,
         validators=[phone_validator],
-        verbose_name='РўРµР»РµС„РѕРЅ',
+        verbose_name='Телефон',
     )
 
     user_type_ref = models.ForeignKey(
         UserType,
         on_delete=models.PROTECT,
         related_name='users',
-        verbose_name='РўРёРї РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ',
+        verbose_name='Тип пользователя',
         default=1,
     )
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL,
-                             verbose_name='Р РѕР»СЊ',
+                             verbose_name='Роль',
                              blank=True, null=True, related_name='users')
 
-    is_active = models.BooleanField(default=True, verbose_name='РђРєС‚РёРІРµРЅ')
-    is_staff = models.BooleanField(default=False, verbose_name='РЎРѕС‚СЂСѓРґРЅРёРє')
-    is_email_verified = models.BooleanField(default=False, verbose_name='Email РїРѕРґС‚РІРµСЂР¶РґРµРЅ')
-    is_phone_verified = models.BooleanField(default=False, verbose_name='РўРµР»РµС„РѕРЅ РїРѕРґС‚РІРµСЂР¶РґРµРЅ')
+    is_active = models.BooleanField(default=True, verbose_name='Активен')
+    is_staff = models.BooleanField(default=False, verbose_name='Сотрудник')
+    is_email_verified = models.BooleanField(default=False, verbose_name='Email подтвержден')
+    is_phone_verified = models.BooleanField(default=False, verbose_name='Телефон подтвержден')
 
-    last_login = models.DateTimeField(blank=True, null=True, verbose_name='РџРѕСЃР»РµРґРЅРёР№ РІС…РѕРґ')
+    last_login = models.DateTimeField(blank=True, null=True, verbose_name='Последний вход')
 
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     objects = UserManager()
 
@@ -835,8 +836,8 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = 'users'
-        verbose_name = 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ'
-        verbose_name_plural = 'РџРѕР»СЊР·РѕРІР°С‚РµР»Рё'
+        verbose_name = 'Пользователь'
+        verbose_name_plural = 'Пользователи'
 
     def __str__(self):
         return f'{self.username} ({self.get_user_type_display()})'
@@ -856,16 +857,16 @@ class User(AbstractBaseUser, PermissionsMixin):
             self.phone = None
         if self.user_type == 'client' and (self.is_staff or self.is_superuser):
             raise ValidationError({
-                'user_type': 'РљР»РёРµРЅС‚ РЅРµ РјРѕР¶РµС‚ РёРјРµС‚СЊ РґРѕСЃС‚СѓРї Рє Р°РґРјРёРЅРёСЃС‚СЂР°С‚РёРІРЅРѕР№ РїР°РЅРµР»Рё.',
-                'is_staff': 'Р”Р»СЏ РєР»РёРµРЅС‚Р° РґРѕСЃС‚СѓРї staff РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РІС‹РєР»СЋС‡РµРЅ.',
+                'user_type': 'Клиент не может иметь доступ к административной панели.',
+                'is_staff': 'Для клиента доступ staff должен быть выключен.',
             })
         if self.user_type == 'client' and self.role_id:
             raise ValidationError({
-                'role': 'Р РѕР»СЊ РЅР°Р·РЅР°С‡Р°РµС‚СЃСЏ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРєР°Рј.',
+                'role': 'Р оль назначается только сотрудникам.',
             })
         if self.is_staff and self.user_type != 'employee':
             raise ValidationError({
-                'user_type': 'Р”РѕСЃС‚СѓРї РІ Р°РґРјРёРЅРєСѓ СЂР°Р·СЂРµС€С‘РЅ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРєР°Рј.',
+                'user_type': 'Доступ в админку разрешён только сотрудникам.',
             })
 
     @property
@@ -915,22 +916,22 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 class EmployeeProfile(models.Model):
-    """РџСЂРѕС„РёР»СЊ СЃРѕС‚СЂСѓРґРЅРёРєР°."""
+    """Профиль сотрудника."""
     user = models.OneToOneField(User, on_delete=models.CASCADE,
-                                verbose_name='РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ',
+                                verbose_name='Пользователь',
                                 related_name='employee_profile')
-    first_name = models.CharField(max_length=50, verbose_name='РРјСЏ')
-    last_name = models.CharField(max_length=50, verbose_name='Р¤Р°РјРёР»РёСЏ')
-    position = models.CharField(max_length=100, blank=True, null=True, verbose_name='Р”РѕР»Р¶РЅРѕСЃС‚СЊ')
-    hire_date = models.DateField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РЅР°Р№РјР°')
-    internal_phone = models.CharField(max_length=20, blank=True, null=True, verbose_name='Р’РЅСѓС‚СЂРµРЅРЅРёР№ С‚РµР»РµС„РѕРЅ')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    first_name = models.CharField(max_length=50, verbose_name='Имя')
+    last_name = models.CharField(max_length=50, verbose_name='Фамилия')
+    position = models.CharField(max_length=100, blank=True, null=True, verbose_name='Должность')
+    hire_date = models.DateField(blank=True, null=True, verbose_name='Дата найма')
+    internal_phone = models.CharField(max_length=20, blank=True, null=True, verbose_name='Внутренний телефон')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'employee_profiles'
-        verbose_name = 'РџСЂРѕС„РёР»СЊ СЃРѕС‚СЂСѓРґРЅРёРєР°'
-        verbose_name_plural = 'РџСЂРѕС„РёР»Рё СЃРѕС‚СЂСѓРґРЅРёРєРѕРІ'
+        verbose_name = 'Профиль сотрудника'
+        verbose_name_plural = 'Профили сотрудников'
 
     def __init__(self, *args, **kwargs):
         self._legacy_middle_name = kwargs.pop('middle_name', None)
@@ -944,7 +945,7 @@ class EmployeeProfile(models.Model):
     def clean(self):
         super().clean()
         if self.user_id and self.user.user_type != 'employee':
-            raise ValidationError({'user': 'РџСЂРѕС„РёР»СЊ СЃРѕС‚СЂСѓРґРЅРёРєР° РјРѕР¶РЅРѕ РїСЂРёРІСЏР·Р°С‚СЊ С‚РѕР»СЊРєРѕ Рє РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ С‚РёРїР° "РЎРѕС‚СЂСѓРґРЅРёРє".'})
+            raise ValidationError({'user': 'Профиль сотрудника можно привязать только к пользователю типа "Сотрудник".'})
 
     @property
     def middle_name(self):
@@ -972,7 +973,7 @@ class EmployeeProfile(models.Model):
 
 
 class ClientProfile(models.Model):
-    """РџСЂРѕС„РёР»СЊ РєР»РёРµРЅС‚Р°."""
+    """Профиль клиента."""
     CLIENT_KIND_INDIVIDUAL = 'individual'
     CLIENT_KIND_COMPANY = 'company'
     CLIENT_KIND_CHOICES = _lookup_choices(
@@ -981,25 +982,25 @@ class ClientProfile(models.Model):
     )
 
     user = models.OneToOneField(User, on_delete=models.CASCADE,
-                                verbose_name='РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ',
+                                verbose_name='Пользователь',
                                 related_name='client_profile')
-    first_name = models.CharField(max_length=50, verbose_name='РРјСЏ')
-    last_name = models.CharField(max_length=50, verbose_name='Р¤Р°РјРёР»РёСЏ')
-    middle_name = models.CharField(max_length=50, blank=True, null=True, verbose_name='РћС‚С‡РµСЃС‚РІРѕ')
+    first_name = models.CharField(max_length=50, verbose_name='Имя')
+    last_name = models.CharField(max_length=50, verbose_name='Фамилия')
+    middle_name = models.CharField(max_length=50, blank=True, null=True, verbose_name='Отчество')
     client_kind_ref = models.ForeignKey(
         ClientKind,
         on_delete=models.PROTECT,
         related_name='profiles',
-        verbose_name='Р’РёРґ РєР»РёРµРЅС‚Р°',
+        verbose_name='Вид клиента',
         default=1,
     )
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'client_profiles'
-        verbose_name = 'РџСЂРѕС„РёР»СЊ РєР»РёРµРЅС‚Р°'
-        verbose_name_plural = 'РџСЂРѕС„РёР»Рё РєР»РёРµРЅС‚РѕРІ'
+        verbose_name = 'Профиль клиента'
+        verbose_name_plural = 'Профили клиентов'
 
     QUERY_ALIASES = {
         'client_kind': 'client_kind_ref__code',
@@ -1024,7 +1025,7 @@ class ClientProfile(models.Model):
     def clean(self):
         super().clean()
         if self.user_id and self.user.user_type != 'client':
-            raise ValidationError({'user': 'РџСЂРѕС„РёР»СЊ РєР»РёРµРЅС‚Р° РјРѕР¶РЅРѕ РїСЂРёРІСЏР·Р°С‚СЊ С‚РѕР»СЊРєРѕ Рє РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ С‚РёРїР° "РљР»РёРµРЅС‚".'})
+            raise ValidationError({'user': 'Профиль клиента можно привязать только к пользователю типа "Клиент".'})
 
     @property
     def client_kind(self) -> str | None:
@@ -1072,121 +1073,121 @@ class ClientProfile(models.Model):
 
 
 class ClientIndividualDetails(models.Model):
-    """РџР°СЃРїРѕСЂС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ РєР»РёРµРЅС‚Р°-С„РёР·Р»РёС†Р°."""
+    """Паспортные данные клиента-физлица."""
     profile = models.OneToOneField(
         ClientProfile,
         on_delete=models.CASCADE,
         related_name='individual_details',
-        verbose_name='РџСЂРѕС„РёР»СЊ РєР»РёРµРЅС‚Р°',
+        verbose_name='Профиль клиента',
     )
     passport_series = models.CharField(
         max_length=4,
         blank=True,
         null=True,
         validators=[passport_series_validator],
-        verbose_name='РЎРµСЂРёСЏ РїР°СЃРїРѕСЂС‚Р°',
+        verbose_name='Серия паспорта',
     )
     passport_number = models.CharField(
         max_length=6,
         blank=True,
         null=True,
         validators=[passport_number_validator],
-        verbose_name='РќРѕРјРµСЂ РїР°СЃРїРѕСЂС‚Р°',
+        verbose_name='Номер паспорта',
     )
-    passport_issued_by = models.CharField(max_length=255, blank=True, null=True, verbose_name='РљРµРј РІС‹РґР°РЅ')
-    passport_issued_date = models.DateField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РІС‹РґР°С‡Рё')
+    passport_issued_by = models.CharField(max_length=255, blank=True, null=True, verbose_name='Кем выдан')
+    passport_issued_date = models.DateField(blank=True, null=True, verbose_name='Дата выдачи')
     passport_code = models.CharField(
         max_length=7,
         blank=True,
         null=True,
         validators=[passport_code_validator],
-        verbose_name='РљРѕРґ РїРѕРґСЂР°Р·РґРµР»РµРЅРёСЏ',
+        verbose_name='Код подразделения',
     )
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'client_individual_details'
-        verbose_name = 'РџР°СЃРїРѕСЂС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ РєР»РёРµРЅС‚Р°'
-        verbose_name_plural = 'РџР°СЃРїРѕСЂС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ РєР»РёРµРЅС‚РѕРІ'
+        verbose_name = 'Паспортные данные клиента'
+        verbose_name_plural = 'Паспортные данные клиентов'
 
     def __str__(self):
-        return f'РџР°СЃРїРѕСЂС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ: {self.profile}'
+        return f'Паспортные данные: {self.profile}'
 
 
 class ClientCompanyDetails(models.Model):
-    """Р РµРєРІРёР·РёС‚С‹ РєР»РёРµРЅС‚Р°-СЋСЂР»РёС†Р°."""
+    """Реквизиты клиента-юрлица."""
     profile = models.OneToOneField(
         ClientProfile,
         on_delete=models.CASCADE,
         related_name='company_details',
-        verbose_name='РџСЂРѕС„РёР»СЊ РєР»РёРµРЅС‚Р°',
+        verbose_name='Профиль клиента',
     )
-    company_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='РќР°Р·РІР°РЅРёРµ РєРѕРјРїР°РЅРёРё')
+    company_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='Название компании')
     company_inn = models.CharField(
         max_length=10,
         blank=True,
         null=True,
         db_index=True,
         validators=[company_inn_validator],
-        verbose_name='РРќРќ',
+        verbose_name='ИНН',
     )
     company_ogrn = models.CharField(
         max_length=13,
         blank=True,
         null=True,
         validators=[company_ogrn_validator],
-        verbose_name='РћР“Р Рќ',
+        verbose_name='ОГРН',
     )
     company_kpp = models.CharField(
         max_length=9,
         blank=True,
         null=True,
         validators=[company_kpp_validator],
-        verbose_name='РљРџРџ',
+        verbose_name='КПП',
     )
-    legal_address = models.TextField(blank=True, null=True, verbose_name='Р®СЂРёРґРёС‡РµСЃРєРёР№ Р°РґСЂРµСЃ')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    legal_address = models.TextField(blank=True, null=True, verbose_name='Юридический адрес')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'client_company_details'
-        verbose_name = 'Р РµРєРІРёР·РёС‚С‹ СЋСЂР»РёС†Р°'
-        verbose_name_plural = 'Р РµРєРІРёР·РёС‚С‹ СЋСЂР»РёС†'
+        verbose_name = 'Реквизиты юрлица'
+        verbose_name_plural = 'Реквизиты юрлиц'
 
     def __str__(self):
-        return f'Р®СЂР»РёС†Рѕ: {self.profile}'
+        return f'Юрлицо: {self.profile}'
 
 
 # =====================================================
-# 5. РќР•Р”Р’РР–РРњРћРЎРўР¬ Р Р”Р•РўРђР›Р
+# 5. НЕДВИЖИМОСТЬ И ДЕТАЛИ
 # =====================================================
 
 class BuildingDetails(models.Model):
-    """Р”РµС‚Р°Р»Рё РґРѕРјР°/СЃС‚СЂРѕРµРЅРёСЏ."""
-    house = models.OneToOneField(House, on_delete=models.CASCADE, related_name='building_details', verbose_name='Р”РѕРј')
-    year_built = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Р“РѕРґ РїРѕСЃС‚СЂРѕР№РєРё')
-    total_floors = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Р’СЃРµРіРѕ СЌС‚Р°Р¶РµР№')
+    """Детали дома/строения."""
+    house = models.OneToOneField(House, on_delete=models.CASCADE, related_name='building_details', verbose_name='Дом')
+    year_built = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Год постройки')
+    total_floors = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Всего этажей')
     building_material = models.ForeignKey(
         BuildingMaterial,
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
-        verbose_name='РњР°С‚РµСЂРёР°Р» СЃС‚РµРЅ',
+        verbose_name='Материал стен',
     )
-    elevators_count = models.PositiveSmallIntegerField(default=0, verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ Р»РёС„С‚РѕРІ')
+    elevators_count = models.PositiveSmallIntegerField(default=0, verbose_name='Количество лифтов')
 
     class Meta:
         db_table = 'building_details'
-        verbose_name = 'Р”РµС‚Р°Р»Рё РґРѕРјР°'
-        verbose_name_plural = 'Р”РµС‚Р°Р»Рё РґРѕРјРѕРІ'
+        verbose_name = 'Детали дома'
+        verbose_name_plural = 'Детали домов'
 
     def __str__(self):
-        return f'Р”РµС‚Р°Р»Рё РґРѕРјР°: {self.house}'
+        return f'Детали дома: {self.house}'
 
 
 class Property(models.Model):
-    """РћР±СЉРµРєС‚ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё."""
+    """Объект недвижимости."""
     PROPERTY_TYPE_APARTMENT = 'apartment'
     PROPERTY_TYPE_HOUSE = 'house'
     PROPERTY_TYPE_COMMERCIAL = 'commercial'
@@ -1211,30 +1212,30 @@ class Property(models.Model):
         ),
     )
 
-    title = models.CharField(max_length=255, blank=True, null=True, verbose_name='РќР°Р·РІР°РЅРёРµ')
+    title = models.CharField(max_length=255, blank=True, null=True, verbose_name='Название')
     operation_type = models.ForeignKey(
         OperationType,
         on_delete=models.PROTECT,
-        verbose_name='РўРёРї РѕРїРµСЂР°С†РёРё',
+        verbose_name='Тип операции',
         related_name='properties',
     )
     status = models.ForeignKey(
         PropertyStatus,
         on_delete=models.PROTECT,
-        verbose_name='РЎС‚Р°С‚СѓСЃ',
+        verbose_name='Статус',
         related_name='properties',
         default=1,
     )
     house = models.ForeignKey(
         House,
         on_delete=models.PROTECT,
-        verbose_name='Р”РѕРј',
+        verbose_name='Дом',
         related_name='properties',
     )
     property_type_ref = models.ForeignKey(
         PropertyType,
         on_delete=models.PROTECT,
-        verbose_name='РўРёРї РїРѕРјРµС‰РµРЅРёСЏ',
+        verbose_name='Тип помещения',
         related_name='properties',
         default=1,
     )
@@ -1244,7 +1245,7 @@ class Property(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('-90')), MaxValueValidator(Decimal('90'))],
-        verbose_name='РЁРёСЂРѕС‚Р°',
+        verbose_name='Широта',
     )
     coordinates_lon = models.DecimalField(
         max_digits=11,
@@ -1252,7 +1253,7 @@ class Property(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('-180')), MaxValueValidator(Decimal('180'))],
-        verbose_name='Р”РѕР»РіРѕС‚Р°',
+        verbose_name='Долгота',
     )
     cadastral_number = models.CharField(
         max_length=50,
@@ -1260,40 +1261,40 @@ class Property(models.Model):
         null=True,
         unique=True,
         validators=[cadastral_number_validator],
-        verbose_name='РљР°РґР°СЃС‚СЂРѕРІС‹Р№ РЅРѕРјРµСЂ',
+        verbose_name='Кадастровый номер',
     )
-    price = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(0)], verbose_name='Р¦РµРЅР°')
+    price = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(0)], verbose_name='Цена')
     area_total = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         blank=True,
         null=True,
-        verbose_name='РћР±С‰Р°СЏ РїР»РѕС‰Р°РґСЊ',
+        verbose_name='Общая площадь',
         validators=[MinValueValidator(Decimal('0.01'))],
     )
     rooms_count = models.IntegerField(
         blank=True,
         null=True,
-        verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ РєРѕРјРЅР°С‚',
+        verbose_name='Количество комнат',
         validators=[MinValueValidator(0), MaxValueValidator(100)],
     )
     floor_number = models.IntegerField(
         blank=True,
         null=True,
-        verbose_name='Р­С‚Р°Р¶',
+        verbose_name='Этаж',
         validators=[MinValueValidator(-5), MaxValueValidator(300)],
     )
-    description = models.TextField(blank=True, null=True, verbose_name='РћРїРёСЃР°РЅРёРµ')
-    is_published = models.BooleanField(default=True, verbose_name='РћРїСѓР±Р»РёРєРѕРІР°РЅРѕ')
-    published_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РїСѓР±Р»РёРєР°С†РёРё')
-    unpublished_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° СЃРЅСЏС‚РёСЏ СЃ РїСѓР±Р»РёРєР°С†РёРё')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    description = models.TextField(blank=True, null=True, verbose_name='Описание')
+    is_published = models.BooleanField(default=True, verbose_name='Опубликовано')
+    published_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата публикации')
+    unpublished_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата снятия с публикации')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'properties'
-        verbose_name = 'РћР±СЉРµРєС‚ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё'
-        verbose_name_plural = 'РћР±СЉРµРєС‚С‹ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё'
+        verbose_name = 'Объект недвижимости'
+        verbose_name_plural = 'Объекты недвижимости'
         ordering = ['-created_at']
         constraints = [
             models.CheckConstraint(condition=models.Q(price__gte=0), name='property_price_non_negative'),
@@ -1367,7 +1368,7 @@ class Property(models.Model):
                 setattr(self, attr, value)
 
     def __str__(self):
-        return self.title or f'РћР±СЉРµРєС‚ в„–{self.pk}'
+        return self.title or f'Объект в„–{self.pk}'
 
     @property
     def address(self):
@@ -1542,17 +1543,17 @@ class Property(models.Model):
         super().clean()
         errors = {}
         if self.price is not None and self.price < 0:
-            errors['price'] = 'Р¦РµРЅР° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕР№.'
+            errors['price'] = 'Цена не может быть отрицательной.'
         if self.area_total is not None and self.area_total <= 0:
-            errors['area_total'] = 'РџР»РѕС‰Р°РґСЊ РґРѕР»Р¶РЅР° Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ РЅСѓР»СЏ.'
+            errors['area_total'] = 'Площадь должна быть больше нуля.'
         if self.premises_type == self.PROPERTY_TYPE_COMMERCIAL and self.rooms_count is not None:
-            errors['rooms_count'] = 'Р”Р»СЏ РѕС„РёСЃР° РёР»Рё СЃРєР»Р°РґР° РєРѕР»РёС‡РµСЃС‚РІРѕ РєРѕРјРЅР°С‚ РЅРµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ.'
+            errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
         if self.rooms_count is not None and self.rooms_count < 0:
-            errors['rooms_count'] = 'РљРѕР»РёС‡РµСЃС‚РІРѕ РєРѕРјРЅР°С‚ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅС‹Рј.'
+            errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
         total_floors = self.total_floors
         if self.floor_number is not None and total_floors is not None:
             if self.floor_number > total_floors:
-                errors['floor_number'] = 'Р­С‚Р°Р¶ РѕР±СЉРµРєС‚Р° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РІС‹С€Рµ РѕР±С‰РµРіРѕ РєРѕР»РёС‡РµСЃС‚РІР° СЌС‚Р°Р¶РµР№ РґРѕРјР°.'
+                errors['floor_number'] = 'Этаж объекта не может быть выше общего количества этажей дома.'
         if errors:
             raise ValidationError(errors)
 
@@ -1614,7 +1615,7 @@ class Property(models.Model):
 
     @property
     def building_details(self):
-        """РЎРѕРІРјРµСЃС‚РёРјРѕСЃС‚СЊ СЃ РґРµС‚Р°Р»СЏРјРё РґРѕРјР°."""
+        """Совместимость с деталями дома."""
         if getattr(self, 'house_id', None) is None:
             return None
         return BuildingDetails.objects.filter(house_id=self.house_id).first()
@@ -1639,30 +1640,30 @@ class Property(models.Model):
 
 
 class PropertyPriceHistory(models.Model):
-    """РСЃС‚РѕСЂРёСЏ РёР·РјРµРЅРµРЅРёСЏ С†РµРЅ РѕР±СЉРµРєС‚РѕРІ."""
-    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='price_history', verbose_name='РћР±СЉРµРєС‚')
-    old_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True, verbose_name='РЎС‚Р°СЂР°СЏ С†РµРЅР°')
-    new_price = models.DecimalField(max_digits=15, decimal_places=2, verbose_name='РќРѕРІР°СЏ С†РµРЅР°')
-    changed_by = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='РР·РјРµРЅРёР»', related_name='price_changes')
-    changed_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° РёР·РјРµРЅРµРЅРёСЏ')
+    """История изменения цен объектов."""
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='price_history', verbose_name='Объект')
+    old_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True, verbose_name='Старая цена')
+    new_price = models.DecimalField(max_digits=15, decimal_places=2, verbose_name='Новая цена')
+    changed_by = models.ForeignKey(User, on_delete=models.PROTECT, verbose_name='Изменил', related_name='price_changes')
+    changed_at = models.DateTimeField(default=timezone.now, verbose_name='Дата изменения')
 
     class Meta:
         db_table = 'property_price_history'
-        verbose_name = 'РСЃС‚РѕСЂРёСЏ С†РµРЅ'
-        verbose_name_plural = 'РСЃС‚РѕСЂРёСЏ С†РµРЅ'
+        verbose_name = 'История цен'
+        verbose_name_plural = 'История цен'
         ordering = ['-changed_at']
 
     def __str__(self):
-        return f'Р¦РµРЅР° РѕР±СЉРµРєС‚Р° #{self.property_id}: {self.old_price} в†’ {self.new_price}'
+        return f'Цена объекта #{self.property_id}: {self.old_price} → {self.new_price}'
 
 
 class PropertyStatusHistory(models.Model):
-    """РСЃС‚РѕСЂРёСЏ СЃРјРµРЅ СЃС‚Р°С‚СѓСЃР° РѕР±СЉРµРєС‚Р° РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё."""
+    """История смен статуса объекта недвижимости."""
     property = models.ForeignKey(
         Property,
         on_delete=models.CASCADE,
         related_name='status_history',
-        verbose_name='РћР±СЉРµРєС‚',
+        verbose_name='Объект',
     )
     old_status = models.ForeignKey(
         PropertyStatus,
@@ -1670,52 +1671,52 @@ class PropertyStatusHistory(models.Model):
         related_name='property_status_history_old',
         blank=True,
         null=True,
-        verbose_name='РЎС‚Р°СЂС‹Р№ СЃС‚Р°С‚СѓСЃ',
+        verbose_name='Старый статус',
     )
     new_status = models.ForeignKey(
         PropertyStatus,
         on_delete=models.PROTECT,
         related_name='property_status_history_new',
-        verbose_name='РќРѕРІС‹Р№ СЃС‚Р°С‚СѓСЃ',
+        verbose_name='Новый статус',
     )
     changed_by = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
         related_name='property_status_changes',
-        verbose_name='РР·РјРµРЅРёР»',
+        verbose_name='Изменил',
     )
-    changed_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° РёР·РјРµРЅРµРЅРёСЏ')
+    changed_at = models.DateTimeField(default=timezone.now, verbose_name='Дата изменения')
 
     class Meta:
         db_table = 'property_status_history'
-        verbose_name = 'РСЃС‚РѕСЂРёСЏ СЃС‚Р°С‚СѓСЃР° РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'РСЃС‚РѕСЂРёСЏ СЃС‚Р°С‚СѓСЃРѕРІ РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'История статуса объекта'
+        verbose_name_plural = 'История статусов объектов'
         ordering = ['-changed_at']
 
     def __str__(self):
-        old_status = self.old_status.name if self.old_status_id else 'вЂ”'
-        new_status = self.new_status.name if self.new_status_id else 'вЂ”'
-        return f'РЎС‚Р°С‚СѓСЃ РѕР±СЉРµРєС‚Р° #{self.property_id}: {old_status} в†’ {new_status}'
+        old_status = self.old_status.name if self.old_status_id else '—'
+        new_status = self.new_status.name if self.new_status_id else '—'
+        return f'Статус объекта #{self.property_id}: {old_status} → {new_status}'
 
 
 class PropertyOwner(models.Model):
-    """РЎРѕР±СЃС‚РІРµРЅРЅРёРє РѕР±СЉРµРєС‚Р° РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё (РїРѕРґРґРµСЂР¶РёРІР°РµС‚ РґРѕР»РµРІСѓСЋ СЃРѕР±СЃС‚РІРµРЅРЅРѕСЃС‚СЊ)."""
-    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='owners', verbose_name='РћР±СЉРµРєС‚')
-    client_profile = models.ForeignKey(ClientProfile, on_delete=models.PROTECT, related_name='owned_properties', verbose_name='РЎРѕР±СЃС‚РІРµРЅРЅРёРє')
+    """Собственник объекта недвижимости (поддерживает долевую собственность)."""
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='owners', verbose_name='Объект')
+    client_profile = models.ForeignKey(ClientProfile, on_delete=models.PROTECT, related_name='owned_properties', verbose_name='Собственник')
     ownership_share = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('0.01')), MaxValueValidator(Decimal('100'))],
-        verbose_name='Р”РѕР»СЏ СЃРѕР±СЃС‚РІРµРЅРЅРѕСЃС‚Рё (%)',
+        verbose_name='Доля собственности (%)',
     )
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'property_owners'
-        verbose_name = 'РЎРѕР±СЃС‚РІРµРЅРЅРёРє РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'РЎРѕР±СЃС‚РІРµРЅРЅРёРєРё РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Собственник объекта'
+        verbose_name_plural = 'Собственники объектов'
         unique_together = [['property', 'client_profile']]
         ordering = ['created_at', 'property_id', 'client_profile_id']
 
@@ -1725,15 +1726,15 @@ class PropertyOwner(models.Model):
 
 
 class PropertyDetails(models.Model):
-    """Р”РµС‚Р°Р»СЊРЅР°СЏ РёРЅС„РѕСЂРјР°С†РёСЏ РѕР± РѕР±СЉРµРєС‚Рµ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё (РґР»СЏ Р¶РёР»РѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё)."""
-    property = models.OneToOneField(Property, on_delete=models.CASCADE, related_name='details', verbose_name='РћР±СЉРµРєС‚')
+    """Детальная информация об объекте недвижимости (для жилой недвижимости)."""
+    property = models.OneToOneField(Property, on_delete=models.CASCADE, related_name='details', verbose_name='Объект')
     living_area = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('0.01'))],
-        verbose_name='Р–РёР»Р°СЏ РїР»РѕС‰Р°РґСЊ',
+        verbose_name='Жилая площадь',
     )
     kitchen_area = models.DecimalField(
         max_digits=8,
@@ -1741,58 +1742,58 @@ class PropertyDetails(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('0.01'))],
-        verbose_name='РџР»РѕС‰Р°РґСЊ РєСѓС…РЅРё',
+        verbose_name='Площадь кухни',
     )
     ceiling_height = models.DecimalField(
         max_digits=4,
         decimal_places=2,
         blank=True,
         null=True,
-        verbose_name='Р’С‹СЃРѕС‚Р° РїРѕС‚РѕР»РєРѕРІ (Рј)',
+        verbose_name='Высота потолков (м)',
     )
-    balcony_count = models.PositiveSmallIntegerField(default=0, verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ Р±Р°Р»РєРѕРЅРѕРІ/Р»РѕРґР¶РёР№')
-    bathroom_count = models.PositiveSmallIntegerField(default=1, verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ СЃР°РЅСѓР·Р»РѕРІ')
+    balcony_count = models.PositiveSmallIntegerField(default=0, verbose_name='Количество балконов/лоджий')
+    bathroom_count = models.PositiveSmallIntegerField(default=1, verbose_name='Количество санузлов')
     bathroom_type = models.ForeignKey(
         BathroomType,
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
-        verbose_name='РўРёРї СЃР°РЅСѓР·Р»Р°',
+        verbose_name='Тип санузла',
     )
     renovation_type = models.ForeignKey(
         RenovationType,
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
-        verbose_name='РўРёРї СЂРµРјРѕРЅС‚Р°',
+        verbose_name='Тип ремонта',
     )
-    bedrooms_count = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ СЃРїР°Р»РµРЅ')
-    floors_count = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ СЌС‚Р°Р¶РµР№ (РґР»СЏ РґРѕРјР°)')
+    bedrooms_count = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Количество спален')
+    floors_count = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Количество этажей (для дома)')
     land_area = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('0.01'))],
-        verbose_name='РџР»РѕС‰Р°РґСЊ СѓС‡Р°СЃС‚РєР°',
+        verbose_name='Площадь участка',
     )
 
     class Meta:
         db_table = 'property_details'
-        verbose_name = 'Р”РµС‚Р°Р»Рё РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'Р”РµС‚Р°Р»Рё РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Детали объекта'
+        verbose_name_plural = 'Детали объектов'
 
     def __str__(self):
-        return f'Р”РµС‚Р°Р»Рё РѕР±СЉРµРєС‚Р° #{self.property_id}'
+        return f'Детали объекта #{self.property_id}'
 
 
 class CommercialPropertyDetails(models.Model):
-    """Р”РµС‚Р°Р»СЊРЅР°СЏ РёРЅС„РѕСЂРјР°С†РёСЏ Рѕ РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё."""
-    property = models.OneToOneField(Property, on_delete=models.CASCADE, related_name='commercial_details', verbose_name='РћР±СЉРµРєС‚')
+    """Детальная информация о коммерческой недвижимости."""
+    property = models.OneToOneField(Property, on_delete=models.CASCADE, related_name='commercial_details', verbose_name='Объект')
     commercial_type = models.ForeignKey(
         CommercialPropertyType,
         on_delete=models.PROTECT,
-        verbose_name='РўРёРї РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё',
+        verbose_name='Тип коммерческой недвижимости',
     )
     usable_area = models.DecimalField(
         max_digits=10,
@@ -1800,21 +1801,21 @@ class CommercialPropertyDetails(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(Decimal('0.01'))],
-        verbose_name='РџРѕР»РµР·РЅР°СЏ РїР»РѕС‰Р°РґСЊ',
+        verbose_name='Полезная площадь',
     )
     ceiling_height = models.DecimalField(
         max_digits=4,
         decimal_places=2,
         blank=True,
         null=True,
-        verbose_name='Р’С‹СЃРѕС‚Р° РїРѕС‚РѕР»РєРѕРІ (Рј)',
+        verbose_name='Высота потолков (м)',
     )
     floor_load = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         blank=True,
         null=True,
-        verbose_name='РќР°РіСЂСѓР·РєР° РЅР° РїРѕР» (РєРі/РјВІ)',
+        verbose_name='Нагрузка на пол (кг/м²)',
     )
     electric_power_kw = models.DecimalField(
         max_digits=10,
@@ -1822,31 +1823,31 @@ class CommercialPropertyDetails(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(0)],
-        verbose_name='Р­Р»РµРєС‚СЂРёС‡РµСЃРєР°СЏ РјРѕС‰РЅРѕСЃС‚СЊ (РєР’С‚)',
+        verbose_name='Электрическая мощность (кВт)',
     )
-    has_separate_entrance = models.BooleanField(default=False, verbose_name='РћС‚РґРµР»СЊРЅС‹Р№ РІС…РѕРґ')
-    has_display_windows = models.BooleanField(default=False, verbose_name='Р’РёС‚СЂРёРЅРЅС‹Рµ РѕРєРЅР°')
-    is_first_line = models.BooleanField(default=False, verbose_name='РџРµСЂРІР°СЏ Р»РёРЅРёСЏ РґРѕРјРѕРІ')
-    parking_spaces = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='РџР°СЂРєРѕРІРѕС‡РЅС‹Рµ РјРµСЃС‚Р°')
+    has_separate_entrance = models.BooleanField(default=False, verbose_name='Отдельный вход')
+    has_display_windows = models.BooleanField(default=False, verbose_name='Витринные окна')
+    is_first_line = models.BooleanField(default=False, verbose_name='Первая линия домов')
+    parking_spaces = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Парковочные места')
 
     class Meta:
         db_table = 'commercial_property_details'
-        verbose_name = 'Р”РµС‚Р°Р»Рё РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё'
-        verbose_name_plural = 'Р”РµС‚Р°Р»Рё РєРѕРјРјРµСЂС‡РµСЃРєРѕР№ РЅРµРґРІРёР¶РёРјРѕСЃС‚Рё'
+        verbose_name = 'Детали коммерческой недвижимости'
+        verbose_name_plural = 'Детали коммерческой недвижимости'
 
     def __str__(self):
-        return f'РљРѕРјРјРµСЂС‡РµСЃРєРёРµ РґРµС‚Р°Р»Рё РѕР±СЉРµРєС‚Р° #{self.property_id}'
+        return f'Коммерческие детали объекта #{self.property_id}'
 
 
 class PropertyAmenity(models.Model):
-    """РЎРІСЏР·СЊ РѕР±СЉРµРєС‚Р° СЃ СѓРґРѕР±СЃС‚РІР°РјРё/РѕСЃРѕР±РµРЅРЅРѕСЃС‚СЏРјРё."""
-    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='amenities', verbose_name='РћР±СЉРµРєС‚')
-    amenity = models.ForeignKey(Amenity, on_delete=models.CASCADE, verbose_name='РЈРґРѕР±СЃС‚РІРѕ')
+    """Связь объекта с удобствами/особенностями."""
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='amenities', verbose_name='Объект')
+    amenity = models.ForeignKey(Amenity, on_delete=models.CASCADE, verbose_name='Удобство')
 
     class Meta:
         db_table = 'property_amenities'
-        verbose_name = 'РЈРґРѕР±СЃС‚РІРѕ РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'РЈРґРѕР±СЃС‚РІР° РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Удобство объекта'
+        verbose_name_plural = 'Удобства объектов'
         unique_together = [['property', 'amenity']]
 
     def __str__(self):
@@ -1854,20 +1855,20 @@ class PropertyAmenity(models.Model):
 
 
 class PropertyPhoto(models.Model):
-    """Р¤РѕС‚РѕРіСЂР°С„РёСЏ РѕР±СЉРµРєС‚Р°."""
+    """Фотография объекта."""
     property = models.ForeignKey(Property, on_delete=models.CASCADE,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  related_name='photos')
     url = models.TextField(blank=True, null=True, verbose_name='URL')
-    caption = models.CharField(max_length=255, blank=True, null=True, verbose_name='РџРѕРґРїРёСЃСЊ')
-    is_hidden = models.BooleanField(default=False, verbose_name='РЎРєСЂС‹С‚Рѕ')
-    order = models.PositiveIntegerField(default=0, verbose_name='РџРѕСЂСЏРґРѕРє')
-    uploaded_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° Р·Р°РіСЂСѓР·РєРё')
+    caption = models.CharField(max_length=255, blank=True, null=True, verbose_name='Подпись')
+    is_hidden = models.BooleanField(default=False, verbose_name='Скрыто')
+    order = models.PositiveIntegerField(default=0, verbose_name='Порядок')
+    uploaded_at = models.DateTimeField(default=timezone.now, verbose_name='Дата загрузки')
 
     class Meta:
         db_table = 'property_photos'
-        verbose_name = 'Р¤РѕС‚Рѕ РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'Р¤РѕС‚Рѕ РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Фото объекта'
+        verbose_name_plural = 'Фото объектов'
         ordering = ['order', '-uploaded_at']
 
     def __init__(self, *args, **kwargs):
@@ -1892,38 +1893,40 @@ class PropertyPhoto(models.Model):
 
 
 class PropertyDocument(models.Model):
-    """Р”РѕРєСѓРјРµРЅС‚, РїСЂРёРІСЏР·Р°РЅРЅС‹Р№ Рє РѕР±СЉРµРєС‚Сѓ (РІС‹РїРёСЃРєР° Р•Р“Р Рќ, РґРѕРіРѕРІРѕСЂ Рё С‚. Рї.)."""
+    """Документ, привязанный к объекту (выписка ЕГРН, договор и т. п.)."""
     property = models.ForeignKey(Property, on_delete=models.CASCADE,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  related_name='documents')
-    document_name = models.CharField(max_length=255, verbose_name='РќР°Р·РІР°РЅРёРµ РґРѕРєСѓРјРµРЅС‚Р°')
-    file_url = models.TextField(verbose_name='URL С„Р°Р№Р»Р°')
-    is_verified = models.BooleanField(default=False, verbose_name='РџСЂРѕРІРµСЂРµРЅРѕ')
+    document_name = models.CharField(max_length=255, verbose_name='Название документа')
+    file_url = models.TextField(verbose_name='URL файла')
+    is_verified = models.BooleanField(default=False, verbose_name='Проверено')
     verified_by = models.ForeignKey(User, on_delete=models.SET_NULL,
                                     blank=True, null=True,
-                                    verbose_name='РџСЂРѕРІРµСЂРёР»',
+                                    verbose_name='Проверил',
                                     related_name='verified_documents')
-    verified_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РїСЂРѕРІРµСЂРєРё')
-    uploaded_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° Р·Р°РіСЂСѓР·РєРё')
+    verified_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата проверки')
+    uploaded_at = models.DateTimeField(default=timezone.now, verbose_name='Дата загрузки')
 
     class Meta:
         db_table = 'property_documents'
-        verbose_name = 'Р”РѕРєСѓРјРµРЅС‚ РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'Р”РѕРєСѓРјРµРЅС‚С‹ РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Документ объекта'
+        verbose_name_plural = 'Документы объектов'
 
     def clean(self):
         super().clean()
         errors = {}
         if self.is_verified and not self.verified_by_id:
-            errors['verified_by'] = 'Р”Р»СЏ РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅРѕРіРѕ РґРѕРєСѓРјРµРЅС‚Р° РЅСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ РїСЂРѕРІРµСЂРёРІС€РµРіРѕ СЃРѕС‚СЂСѓРґРЅРёРєР°.'
+            errors['verified_by'] = 'Для подтверждённого документа нужно указать проверившего сотрудника.'
         if self.verified_at and not self.is_verified:
-            errors['verified_at'] = 'Р”Р°С‚Р° РїСЂРѕРІРµСЂРєРё РґРѕРїСѓСЃРєР°РµС‚СЃСЏ С‚РѕР»СЊРєРѕ РґР»СЏ РїРѕРґС‚РІРµСЂР¶РґС‘РЅРЅРѕРіРѕ РґРѕРєСѓРјРµРЅС‚Р°.'
+            errors['verified_at'] = 'Дата проверки допускается только для подтверждённого документа.'
         if errors:
             raise ValidationError(errors)
 
 
 class PropertyViewing(models.Model):
-    """Р—Р°РїР»Р°РЅРёСЂРѕРІР°РЅРЅС‹Р№ РїСЂРѕСЃРјРѕС‚СЂ РѕР±СЉРµРєС‚Р° РєР»РёРµРЅС‚РѕРј."""
+    """Запланированный просмотр объекта клиентом."""
+    PAYMENT_REQUIRED_STATUS_CODES = ('confirmed', 'completed')
+    PAYMENT_OPTIONAL_STATUS_CODES = ('cancelled', 'no_show')
     QUERY_ALIASES = {
         'client': 'client_profile__user',
         'client_id': 'client_profile__user_id',
@@ -1933,33 +1936,44 @@ class PropertyViewing(models.Model):
     objects = AliasManager()
 
     property = models.ForeignKey(Property, on_delete=models.PROTECT,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  related_name='viewings')
     client_profile = models.ForeignKey(ClientProfile, on_delete=models.PROTECT,
                                        related_name='viewings',
-                                       verbose_name='РљР»РёРµРЅС‚')
+                                       verbose_name='Клиент')
     employee_profile = models.ForeignKey(EmployeeProfile, on_delete=models.PROTECT,
                                          related_name='viewings',
-                                         verbose_name='РЎРѕС‚СЂСѓРґРЅРёРє')
-    viewing_date = models.DateTimeField(verbose_name='Р”Р°С‚Р° РїСЂРѕСЃРјРѕС‚СЂР°')
+                                         verbose_name='Сотрудник')
+    viewing_date = models.DateTimeField(verbose_name='Дата просмотра')
     status = models.ForeignKey(ViewingStatus, on_delete=models.PROTECT,
-                               verbose_name='РЎС‚Р°С‚СѓСЃ', default=1)
-    comment = models.TextField(blank=True, null=True, verbose_name='РљРѕРјРјРµРЅС‚Р°СЂРёР№')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+                               verbose_name='Статус', default=1)
+    comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'property_viewings'
-        verbose_name = 'РџСЂРѕСЃРјРѕС‚СЂ РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'РџСЂРѕСЃРјРѕС‚СЂС‹ РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Просмотр объекта'
+        verbose_name_plural = 'Просмотры объектов'
         ordering = ['-viewing_date']
 
     def clean(self):
         super().clean()
         errors = {}
         if self.client_profile_id and self.client_profile.user.user_type != 'client':
-            errors['client_profile'] = 'РљР»РёРµРЅС‚РѕРј РїСЂРѕСЃРјРѕС‚СЂР° РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ С‚РёРїР° "РљР»РёРµРЅС‚".'
+            errors['client_profile'] = 'Клиентом просмотра может быть только пользователь типа "Клиент".'
         if self.employee_profile_id and self.employee_profile.user.user_type != 'employee':
-            errors['employee_profile'] = 'РЎРѕС‚СЂСѓРґРЅРёРєРѕРј РїСЂРѕСЃРјРѕС‚СЂР° РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРє.'
+            errors['employee_profile'] = 'Сотрудником просмотра может быть только сотрудник.'
+        status_code = self.status.code if self.status_id else None
+        payment = self.payment_object
+        payment_status = payment.status if payment else None
+        if (
+            status_code in self.PAYMENT_REQUIRED_STATUS_CODES
+            and payment_status != 'paid'
+        ):
+            errors['status'] = (
+                'Нельзя перевести просмотр в статус '
+                'подтвержденного/завершенного без подтверждённой оплаты.'
+            )
         if errors:
             raise ValidationError(errors)
 
@@ -2011,25 +2025,152 @@ class PropertyViewing(models.Model):
     def notes(self, value):
         self.comment = value
 
+    @_property
+    def payment_object(self):
+        try:
+            return self.payment
+        except Exception:
+            return None
+
+
+class ViewingPayment(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_PAID = 'paid'
+    STATUS_FAILED = 'failed'
+    STATUS_REFUNDED = 'refunded'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Ожидает оплаты'),
+        (STATUS_PAID, 'Оплачен'),
+        (STATUS_FAILED, 'Ошибка оплаты'),
+        (STATUS_REFUNDED, 'Возвращён'),
+    ]
+
+    viewing = models.OneToOneField(
+        PropertyViewing,
+        on_delete=models.PROTECT,
+        related_name='payment',
+        verbose_name='Просмотр',
+    )
+    client = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='viewing_payments',
+        verbose_name='Клиент',
+        limit_choices_to={'user_type_ref__code': 'client'},
+    )
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.PROTECT,
+        related_name='viewing_payments',
+        verbose_name='Объект',
+    )
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name='Сумма',
+        validators=[MinValueValidator(Decimal('1.00')), MaxValueValidator(Decimal('100000.00'))],
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+        verbose_name='Статус оплаты',
+    )
+    sber_order_id = models.CharField(
+        max_length=128,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name='ID заказа Сбербанка',
+    )
+    sber_transaction_id = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True,
+        verbose_name='ID транзакции Сбербанка',
+    )
+    payment_url = models.TextField(blank=True, null=True, verbose_name='Ссылка на оплату')
+    paid_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата оплаты')
+    created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
+
+    class Meta:
+        db_table = 'viewing_payments'
+        verbose_name = 'Оплата просмотра'
+        verbose_name_plural = 'Оплаты просмотров'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f'Оплата просмотра #{self.viewing_id} ({self.get_status_display()})'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.client_id and self.client.user_type != 'client':
+            errors['client'] = 'Плательщиком может быть только пользователь типа "Клиент".'
+        if self.viewing_id:
+            if self.client_id and self.viewing.client_profile.user_id != self.client_id:
+                errors['client'] = 'Клиент оплаты должен совпадать с клиентом просмотра.'
+            if self.property_id and self.viewing.property_id != self.property_id:
+                errors['property'] = 'Объект оплаты должен совпадать с объектом просмотра.'
+        if self.status == self.STATUS_PAID and not self.paid_at:
+            errors['paid_at'] = 'Для оплаченного просмотра необходимо указать дату оплаты.'
+        if self.status != self.STATUS_PAID and self.paid_at and self.status != self.STATUS_REFUNDED:
+            errors['paid_at'] = 'Дата оплаты допустима только для оплаченного или возвращённого платежа.'
+        if errors:
+            raise ValidationError(errors)
+
+
+class PaymentHistory(models.Model):
+    payment = models.ForeignKey(
+        ViewingPayment,
+        on_delete=models.CASCADE,
+        related_name='history',
+        verbose_name='Платёж',
+    )
+    old_status = models.CharField(max_length=16, blank=True, null=True, verbose_name='Предыдущий статус')
+    new_status = models.CharField(max_length=16, verbose_name='Новый статус')
+    comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
+    sber_response = models.JSONField(blank=True, null=True, verbose_name='Ответ Сбербанка')
+    created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Дата создания')
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='payment_history_changes',
+        verbose_name='Изменил',
+    )
+
+    class Meta:
+        db_table = 'payment_history'
+        verbose_name = 'История оплаты просмотра'
+        verbose_name_plural = 'История оплат просмотров'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f'История платежа #{self.payment_id}: {self.old_status or "—"} → {self.new_status}'
+
 
 class PropertyExternalSource(models.Model):
     property = models.ForeignKey(
         Property,
         on_delete=models.CASCADE,
         related_name='external_sources',
-        verbose_name='РћР±СЉРµРєС‚',
+        verbose_name='Объект',
     )
-    source_name = models.CharField(max_length=50, verbose_name='РСЃС‚РѕС‡РЅРёРє')
-    external_id = models.CharField(max_length=128, verbose_name='Р’РЅРµС€РЅРёР№ РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ')
-    source_object_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='РќР°Р·РІР°РЅРёРµ РѕР±СЉРµРєС‚Р°')
-    source_address = models.TextField(blank=True, null=True, verbose_name='РђРґСЂРµСЃ РёСЃС‚РѕС‡РЅРёРєР°')
-    source_rubric = models.CharField(max_length=255, blank=True, null=True, verbose_name='Р СѓР±СЂРёРєР° РёСЃС‚РѕС‡РЅРёРєР°')
-    synced_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° СЃРёРЅС…СЂРѕРЅРёР·Р°С†РёРё')
+    source_name = models.CharField(max_length=50, verbose_name='Источник')
+    external_id = models.CharField(max_length=128, verbose_name='Внешний идентификатор')
+    source_object_name = models.CharField(max_length=255, blank=True, null=True, verbose_name='Название объекта')
+    source_address = models.TextField(blank=True, null=True, verbose_name='Адрес источника')
+    source_rubric = models.CharField(max_length=255, blank=True, null=True, verbose_name='Рубрика источника')
+    synced_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата синхронизации')
 
     class Meta:
         db_table = 'property_external_sources'
-        verbose_name = 'Р’РЅРµС€РЅРёР№ РёСЃС‚РѕС‡РЅРёРє РѕР±СЉРµРєС‚Р°'
-        verbose_name_plural = 'Р’РЅРµС€РЅРёРµ РёСЃС‚РѕС‡РЅРёРєРё РѕР±СЉРµРєС‚РѕРІ'
+        verbose_name = 'Внешний источник объекта'
+        verbose_name_plural = 'Внешние источники объектов'
         constraints = [
             models.UniqueConstraint(
                 fields=['property', 'source_name', 'external_id'],
@@ -2042,21 +2183,21 @@ class PropertyExternalSource(models.Model):
 
 
 # =====================================================
-# 6. Р—РђРЇР’РљР, РЎР”Р•Р›РљР, РЈР§РђРЎРўРќРРљР Р Р”РћРљРЈРњР•РќРўР«
+# 6. Р—РђРЇР’РљР, РЎР”Р•Р›РљР, РЈР§РђРЎРўРќРРљР Р ДОКУМЕНТЫ
 # =====================================================
 
 class Request(models.Model):
-    """Р—Р°СЏРІРєР° РєР»РёРµРЅС‚Р° РЅР° РїРѕРґР±РѕСЂ РёР»Рё РєРѕРЅРєСЂРµС‚РЅС‹Р№ РѕР±СЉРµРєС‚."""
+    """Заявка клиента на подбор или конкретный объект."""
     LEGACY_STATUS_CODE_ALIASES = {
         'closed': 'completed',
     }
     STATUS_DISPLAY_NAMES = {
-        'open': 'РћС‚РєСЂС‹С‚Р°',
-        'processing': 'Р’ РѕР±СЂР°Р±РѕС‚РєРµ',
-        'completed': 'Р—Р°РІРµСЂС€РµРЅР°',
-        'cancelled': 'РћС‚РјРµРЅРµРЅР°',
-        'rejected': 'РћС‚РєР»РѕРЅРµРЅР°',
-        'lost': 'РџРѕС‚РµСЂСЏРЅР°',
+        'open': 'Открыта',
+        'processing': 'В обработке',
+        'completed': 'Завершена',
+        'cancelled': 'Отменена',
+        'rejected': 'Отклонена',
+        'lost': 'Потеряна',
     }
     ACTIVE_STATUS_CODES = ('open', 'processing')
     TERMINAL_STATUS_CODES = (
@@ -2066,56 +2207,56 @@ class Request(models.Model):
 
     client_profile = models.ForeignKey(ClientProfile, on_delete=models.PROTECT,
                                        related_name='requests',
-                                       verbose_name='РљР»РёРµРЅС‚')
+                                       verbose_name='Клиент')
     employee_profile = models.ForeignKey(EmployeeProfile, on_delete=models.PROTECT,
                                          related_name='handled_requests',
                                          blank=True, null=True,
-                                         verbose_name='РЎРѕС‚СЂСѓРґРЅРёРє')
+                                         verbose_name='Сотрудник')
     property = models.ForeignKey('Property', on_delete=models.PROTECT,
                                  related_name='direct_requests',
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  blank=True, null=True)
 
     operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
-                                       verbose_name='РўРёРї РѕРїРµСЂР°С†РёРё',
+                                       verbose_name='Тип операции',
                                        related_name='requests')
     status = models.ForeignKey(RequestStatus, on_delete=models.PROTECT,
-                               verbose_name='РЎС‚Р°С‚СѓСЃ',
+                               verbose_name='Статус',
                                related_name='requests', default=1)
     property_type = models.ForeignKey(PropertyType, on_delete=models.SET_NULL,
                                       blank=True, null=True,
-                                      verbose_name='РўРёРї РїРѕРјРµС‰РµРЅРёСЏ')
+                                      verbose_name='Тип помещения')
     preferred_city = models.ForeignKey(City, on_delete=models.SET_NULL,
                                        blank=True, null=True,
-                                       verbose_name='РџСЂРµРґРїРѕС‡РёС‚Р°РµРјС‹Р№ РіРѕСЂРѕРґ')
-    preferred_district = models.CharField(max_length=100, blank=True, null=True, verbose_name='РџСЂРµРґРїРѕС‡РёС‚Р°РµРјС‹Р№ СЂР°Р№РѕРЅ')
+                                       verbose_name='Предпочитаемый город')
+    preferred_district = models.CharField(max_length=100, blank=True, null=True, verbose_name='Предпочитаемый район')
     min_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True,
-                                    validators=[MinValueValidator(0)], verbose_name='РњРёРЅРёРјР°Р»СЊРЅР°СЏ С†РµРЅР°')
+                                    validators=[MinValueValidator(0)], verbose_name='Минимальная цена')
     max_price = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True,
-                                    validators=[MinValueValidator(0)], verbose_name='РњР°РєСЃРёРјР°Р»СЊРЅР°СЏ С†РµРЅР°')
+                                    validators=[MinValueValidator(0)], verbose_name='Максимальная цена')
     min_area = models.DecimalField(max_digits=8, decimal_places=2,
                                    blank=True, null=True,
-                                   verbose_name='РњРёРЅРёРјР°Р»СЊРЅР°СЏ РїР»РѕС‰Р°РґСЊ',
+                                   verbose_name='Минимальная площадь',
                                    validators=[MinValueValidator(Decimal('0.01'))])
     max_area = models.DecimalField(max_digits=8, decimal_places=2,
                                    blank=True, null=True,
-                                   verbose_name='РњР°РєСЃРёРјР°Р»СЊРЅР°СЏ РїР»РѕС‰Р°РґСЊ',
+                                   verbose_name='Максимальная площадь',
                                    validators=[MinValueValidator(Decimal('0.01'))])
     rooms_count = models.IntegerField(blank=True, null=True,
-                                      verbose_name='РљРѕР»РёС‡РµСЃС‚РІРѕ РєРѕРјРЅР°С‚',
+                                      verbose_name='Количество комнат',
                                       validators=[MinValueValidator(0), MaxValueValidator(100)])
 
-    address_preferences = models.TextField(blank=True, null=True, verbose_name='РџРѕР¶РµР»Р°РЅРёСЏ РїРѕ Р°РґСЂРµСЃСѓ')
-    description = models.TextField(blank=True, null=True, verbose_name='РћРїРёСЃР°РЅРёРµ')
+    address_preferences = models.TextField(blank=True, null=True, verbose_name='Пожелания по адресу')
+    description = models.TextField(blank=True, null=True, verbose_name='Описание')
 
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
-    closed_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° Р·Р°РєСЂС‹С‚РёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
+    closed_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата закрытия')
 
     class Meta:
         db_table = 'requests'
-        verbose_name = 'Р—Р°СЏРІРєР° РєР»РёРµРЅС‚Р°'
-        verbose_name_plural = 'Р—Р°СЏРІРєРё РєР»РёРµРЅС‚РѕРІ'
+        verbose_name = 'Заявка клиента'
+        verbose_name_plural = 'Заявки клиентов'
         ordering = ['-created_at']
         constraints = [
             models.CheckConstraint(
@@ -2157,7 +2298,7 @@ class Request(models.Model):
     }
 
     def __str__(self):
-        return f'Р—Р°СЏРІРєР° в„–{self.pk} РѕС‚ {self.client_profile.user.username}'
+        return f'Заявка в„–{self.pk} от {self.client_profile.user.username}'
 
     @_property
     def client(self):
@@ -2195,19 +2336,19 @@ class Request(models.Model):
         super().clean()
         errors = {}
         if self.client_profile_id and self.client_profile.user.user_type != 'client':
-            errors['client_profile'] = 'Р’ РїРѕР»Рµ РєР»РёРµРЅС‚Р° РјРѕР¶РЅРѕ РІС‹Р±СЂР°С‚СЊ С‚РѕР»СЊРєРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ С‚РёРїР° "РљР»РёРµРЅС‚".'
+            errors['client_profile'] = 'В поле клиента можно выбрать только пользователя типа "Клиент".'
         if self.employee_profile_id and self.employee_profile.user.user_type != 'employee':
-            errors['employee_profile'] = 'Р’ РїРѕР»Рµ СЃРѕС‚СЂСѓРґРЅРёРєР° РјРѕР¶РЅРѕ РІС‹Р±СЂР°С‚СЊ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРєР°.'
+            errors['employee_profile'] = 'В поле сотрудника можно выбрать только сотрудника.'
         if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
-            errors['min_price'] = 'РњРёРЅРёРјР°Р»СЊРЅР°СЏ С†РµРЅР° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ РјР°РєСЃРёРјР°Р»СЊРЅРѕР№.'
+            errors['min_price'] = 'Минимальная цена не может быть больше максимальной.'
         if self.min_area is not None and self.max_area is not None and self.min_area > self.max_area:
-            errors['min_area'] = 'РњРёРЅРёРјР°Р»СЊРЅР°СЏ РїР»РѕС‰Р°РґСЊ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ РјР°РєСЃРёРјР°Р»СЊРЅРѕР№.'
+            errors['min_area'] = 'Минимальная площадь не может быть больше максимальной.'
         if self.property_type and self.property_type.code == 'commercial' and self.rooms_count is not None:
-            errors['rooms_count'] = 'Р”Р»СЏ РѕС„РёСЃР° РёР»Рё СЃРєР»Р°РґР° РєРѕР»РёС‡РµСЃС‚РІРѕ РєРѕРјРЅР°С‚ РЅРµ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ.'
+            errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
         if self.rooms_count is not None and self.rooms_count < 0:
-            errors['rooms_count'] = 'РљРѕР»РёС‡РµСЃС‚РІРѕ РєРѕРјРЅР°С‚ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅС‹Рј.'
+            errors['rooms_count'] = 'Количество комнат не может быть отрицательным.'
         if self.closed_at and not self.status_id:
-            errors['closed_at'] = 'РџРµСЂРµРґ Р·Р°РєСЂС‹С‚РёРµРј Р·Р°СЏРІРєРё РЅСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ СЃС‚Р°С‚СѓСЃ.'
+            errors['closed_at'] = 'Перед закрытием заявки нужно указать статус.'
         if errors:
             raise ValidationError(errors)
 
@@ -2262,7 +2403,7 @@ class Request(models.Model):
 
 
 class RequestPropertyMatch(models.Model):
-    """Р’Р°СЂРёР°РЅС‚ РѕР±СЉРµРєС‚Р° РїРѕ Р·Р°СЏРІРєРµ РєР»РёРµРЅС‚Р°."""
+    """Вариант объекта по заявке клиента."""
     QUERY_ALIASES = {
         'agent': 'employee_profile__user',
         'agent_id': 'employee_profile__user_id',
@@ -2274,31 +2415,31 @@ class RequestPropertyMatch(models.Model):
     objects = AliasManager()
 
     request = models.ForeignKey(Request, on_delete=models.CASCADE,
-                                verbose_name='Р—Р°СЏРІРєР°',
+                                verbose_name='Заявка',
                                 related_name='matches')
     property = models.ForeignKey('Property', on_delete=models.PROTECT,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  related_name='request_matches')
     employee_profile = models.ForeignKey(EmployeeProfile, on_delete=models.PROTECT,
                                          related_name='proposed_matches',
-                                         verbose_name='РЎРѕС‚СЂСѓРґРЅРёРє')
+                                         verbose_name='Сотрудник')
     status = models.ForeignKey(RequestMatchStatus, on_delete=models.PROTECT,
-                               verbose_name='РЎС‚Р°С‚СѓСЃ', default=1)
-    agent_note = models.TextField(blank=True, null=True, verbose_name='Р—Р°РјРµС‚РєР° СЃРѕС‚СЂСѓРґРЅРёРєР°')
-    confirmed_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ')
+                               verbose_name='Статус', default=1)
+    agent_note = models.TextField(blank=True, null=True, verbose_name='Заметка сотрудника')
+    confirmed_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата подтверждения')
     confirmed_by = models.ForeignKey(
         User, on_delete=models.SET_NULL,
         blank=True, null=True,
         related_name='confirmed_request_matches',
         limit_choices_to={'user_type_ref__code': 'employee'},
-        verbose_name='РџРѕРґС‚РІРµСЂРґРёР»',
+        verbose_name='Подтвердил',
     )
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'request_property_matches'
-        verbose_name = 'Р’Р°СЂРёР°РЅС‚ РїРѕ Р·Р°СЏРІРєРµ'
-        verbose_name_plural = 'Р’Р°СЂРёР°РЅС‚С‹ РїРѕ Р·Р°СЏРІРєР°Рј'
+        verbose_name = 'Вариант по заявке'
+        verbose_name_plural = 'Варианты по заявкам'
         ordering = ['-created_at']
         constraints = [
             models.UniqueConstraint(fields=['request', 'property'],
@@ -2306,7 +2447,7 @@ class RequestPropertyMatch(models.Model):
         ]
 
     def __str__(self):
-        return f'Р—Р°СЏРІРєР° в„–{self.request_id} в†” РѕР±СЉРµРєС‚ в„–{self.property_id}'
+        return f'Заявка в„–{self.request_id} в†” объект в„–{self.property_id}'
 
     @_property
     def agent(self):
@@ -2332,16 +2473,16 @@ class RequestPropertyMatch(models.Model):
 
 
 class Deal(models.Model):
-    """РЎРґРµР»РєР° РїРѕ РѕР±СЉРµРєС‚Сѓ Рё РєР»РёРµРЅС‚Сѓ."""
-    deal_number = models.CharField(max_length=50, unique=True, verbose_name='РќРѕРјРµСЂ СЃРґРµР»РєРё')
+    """Сделка по объекту и клиенту."""
+    deal_number = models.CharField(max_length=50, unique=True, verbose_name='Номер сделки')
     property = models.ForeignKey(Property, on_delete=models.PROTECT,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  related_name='deals')
     client = models.ForeignKey(
         User,
         on_delete=models.PROTECT,
         related_name='client_deals',
-        verbose_name='РљР»РёРµРЅС‚',
+        verbose_name='Клиент',
         blank=True,
         null=True,
         limit_choices_to={'user_type_ref__code': 'client'},
@@ -2350,7 +2491,7 @@ class Deal(models.Model):
         User,
         on_delete=models.PROTECT,
         related_name='agent_deals',
-        verbose_name='РђРіРµРЅС‚',
+        verbose_name='Агент',
         blank=True,
         null=True,
         limit_choices_to={'user_type_ref__code': 'employee'},
@@ -2359,28 +2500,28 @@ class Deal(models.Model):
         EmployeeProfile,
         on_delete=models.PROTECT,
         related_name='deals',
-        verbose_name='РЎРѕС‚СЂСѓРґРЅРёРє',
+        verbose_name='Сотрудник',
         blank=True,
         null=True,
     )
     operation_type = models.ForeignKey(OperationType, on_delete=models.PROTECT,
-                                       verbose_name='РўРёРї РѕРїРµСЂР°С†РёРё',
+                                       verbose_name='Тип операции',
                                        related_name='deals')
     status = models.ForeignKey(DealStatus, on_delete=models.PROTECT,
                                related_name='deals',
-                               verbose_name='РЎС‚Р°С‚СѓСЃ',
+                               verbose_name='Статус',
                                blank=True, null=True)
 
     request = models.OneToOneField(
         Request, on_delete=models.SET_NULL,
         related_name='deal', blank=True, null=True,
-        verbose_name='Р—Р°СЏРІРєР°',
+        verbose_name='Заявка',
     )
 
-    price_final = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(0)], verbose_name='РС‚РѕРіРѕРІР°СЏ С†РµРЅР°')
+    price_final = models.DecimalField(max_digits=15, decimal_places=2, validators=[MinValueValidator(0)], verbose_name='Итоговая цена')
     commission_percent = models.DecimalField(max_digits=5, decimal_places=2,
                                              blank=True, null=True,
-                                             verbose_name='РџСЂРѕС†РµРЅС‚ РєРѕРјРёСЃСЃРёРё',
+                                             verbose_name='Процент комиссии',
                                              validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))])
     commission_amount = models.DecimalField(
         max_digits=15,
@@ -2388,51 +2529,51 @@ class Deal(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(0)],
-        verbose_name='РЎСѓРјРјР° РєРѕРјРёСЃСЃРёРё',
+        verbose_name='Сумма комиссии',
     )
-    deal_date = models.DateField(verbose_name='Р”Р°С‚Р° СЃРґРµР»РєРё')
-    notes = models.TextField(blank=True, null=True, verbose_name='РџСЂРёРјРµС‡Р°РЅРёСЏ')
+    deal_date = models.DateField(verbose_name='Дата сделки')
+    notes = models.TextField(blank=True, null=True, verbose_name='Примечания')
 
     contract_status_ref = models.ForeignKey(
         ContractStatus,
         on_delete=models.PROTECT,
         related_name='deals',
-        verbose_name='РЎС‚Р°С‚СѓСЃ РґРѕРіРѕРІРѕСЂР°',
+        verbose_name='Статус договора',
         default=1,
     )
     contract_file = models.FileField(
         upload_to='deals/contracts/%Y/%m/',
         blank=True,
         null=True,
-        verbose_name='Р¤Р°Р№Р» РґРѕРіРѕРІРѕСЂР°',
+        verbose_name='Файл договора',
     )
     contract_error_message = models.TextField(
         blank=True,
         null=True,
-        verbose_name='РџСЂРёС‡РёРЅР° РѕС€РёР±РєРё РґРѕРіРѕРІРѕСЂР°',
+        verbose_name='Причина ошибки договора',
     )
     contract_requested_at = models.DateTimeField(
         blank=True,
         null=True,
-        verbose_name='Р”Р°С‚Р° Р·Р°РїСЂРѕСЃР° РґРѕРіРѕРІРѕСЂР°',
+        verbose_name='Дата запроса договора',
     )
     contract_processing_started_at = models.DateTimeField(
         blank=True,
         null=True,
-        verbose_name='Р”Р°С‚Р° РЅР°С‡Р°Р»Р° С„РѕСЂРјРёСЂРѕРІР°РЅРёСЏ РґРѕРіРѕРІРѕСЂР°',
+        verbose_name='Дата начала формирования договора',
     )
     contract_generated_at = models.DateTimeField(
         blank=True,
         null=True,
-        verbose_name='Р”Р°С‚Р° С„РѕСЂРјРёСЂРѕРІР°РЅРёСЏ РґРѕРіРѕРІРѕСЂР°',
+        verbose_name='Дата формирования договора',
     )
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'deals'
-        verbose_name = 'РЎРґРµР»РєР°'
-        verbose_name_plural = 'РЎРґРµР»РєРё'
+        verbose_name = 'Сделка'
+        verbose_name_plural = 'Сделки'
         ordering = ['-deal_date']
         constraints = [
             models.CheckConstraint(condition=models.Q(price_final__gte=0), name='deal_price_final_non_negative'),
@@ -2456,7 +2597,7 @@ class Deal(models.Model):
     objects = AliasManager()
 
     def __str__(self):
-        return f'РЎРґРµР»РєР° {self.deal_number}'
+        return f'Сделка {self.deal_number}'
 
     def __init__(self, *args, **kwargs):
         legacy_contract_status = kwargs.pop('contract_status', None)
@@ -2471,27 +2612,27 @@ class Deal(models.Model):
         super().clean()
         errors = {}
         if self.client_id and self.client.user_type != 'client':
-            errors['client'] = 'РљР»РёРµРЅС‚РѕРј СЃРґРµР»РєРё РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ С‚РёРїР° "РљР»РёРµРЅС‚".'
+            errors['client'] = 'Клиентом сделки может быть только пользователь типа "Клиент".'
         if self.agent_id and self.agent.user_type != 'employee':
-            errors['agent'] = 'РђРіРµРЅС‚РѕРј СЃРґРµР»РєРё РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРє.'
+            errors['agent'] = 'Агентом сделки может быть только сотрудник.'
         if self.employee_profile_id and self.employee_profile.user.user_type != 'employee':
-            errors['employee_profile'] = 'РЎРѕС‚СЂСѓРґРЅРёРєРѕРј СЃРґРµР»РєРё РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРє.'
+            errors['employee_profile'] = 'Сотрудником сделки может быть только сотрудник.'
         if self.request_id and self.client_id and self.request.client_profile.user_id != self.client_id:
-            errors['client'] = 'РљР»РёРµРЅС‚ СЃРґРµР»РєРё РґРѕР»Р¶РµРЅ СЃРѕРІРїР°РґР°С‚СЊ СЃ РєР»РёРµРЅС‚РѕРј Р·Р°СЏРІРєРё.'
+            errors['client'] = 'Клиент сделки должен совпадать с клиентом заявки.'
         if self.request_id and self.agent_id and self.request.employee_profile_id:
             request_agent_user_id = self.request.employee_profile.user_id
             if request_agent_user_id != self.agent_id:
-                errors['agent'] = 'РђРіРµРЅС‚ СЃРґРµР»РєРё РґРѕР»Р¶РµРЅ СЃРѕРІРїР°РґР°С‚СЊ СЃ СЃРѕС‚СЂСѓРґРЅРёРєРѕРј Р·Р°СЏРІРєРё.'
+                errors['agent'] = 'Агент сделки должен совпадать с сотрудником заявки.'
         if self.price_final is not None and self.price_final < 0:
-            errors['price_final'] = 'РС‚РѕРіРѕРІР°СЏ С†РµРЅР° РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕР№.'
+            errors['price_final'] = 'Итоговая цена не может быть отрицательной.'
         if self.commission_percent is not None and not (Decimal('0') <= self.commission_percent <= Decimal('100')):
-            errors['commission_percent'] = 'РџСЂРѕС†РµРЅС‚ РєРѕРјРёСЃСЃРёРё РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 0 РґРѕ 100.'
+            errors['commission_percent'] = 'Процент комиссии должен быть от 0 до 100.'
         if self.commission_amount is not None and self.commission_amount < 0:
-            errors['commission_amount'] = 'РЎСѓРјРјР° РєРѕРјРёСЃСЃРёРё РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕР№.'
+            errors['commission_amount'] = 'Сумма комиссии не может быть отрицательной.'
         if self.contract_status == 'ready' and not self.contract_file:
-            errors['contract_file'] = 'Р”Р»СЏ СЃС‚Р°С‚СѓСЃР° "Р“РѕС‚РѕРІ" РЅСѓР¶РЅРѕ РїСЂРёРєСЂРµРїРёС‚СЊ С„Р°Р№Р» РґРѕРіРѕРІРѕСЂР°.'
+            errors['contract_file'] = 'Для статуса "Готов" нужно прикрепить файл договора.'
         if self.contract_status == 'failed' and not self.contract_error_message:
-            errors['contract_error_message'] = 'Р”Р»СЏ СЃС‚Р°С‚СѓСЃР° РѕС€РёР±РєРё РЅСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ РїСЂРёС‡РёРЅСѓ.'
+            errors['contract_error_message'] = 'Для статуса ошибки нужно указать причину.'
         if errors:
             raise ValidationError(errors)
 
@@ -2529,16 +2670,16 @@ class Deal(models.Model):
 
 
 class DealParticipant(models.Model):
-    """РЈС‡Р°СЃС‚РЅРёРє СЃРґРµР»РєРё (РєР»РёРµРЅС‚ СЃ СЂРѕР»СЊСЋ)."""
-    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name='participants', verbose_name='РЎРґРµР»РєР°')
-    client_profile = models.ForeignKey(ClientProfile, on_delete=models.PROTECT, related_name='deals', verbose_name='РљР»РёРµРЅС‚')
-    role = models.ForeignKey(DealParticipantRole, on_delete=models.PROTECT, verbose_name='Р РѕР»СЊ')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    """Участник сделки (клиент с ролью)."""
+    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name='participants', verbose_name='Сделка')
+    client_profile = models.ForeignKey(ClientProfile, on_delete=models.PROTECT, related_name='deals', verbose_name='Клиент')
+    role = models.ForeignKey(DealParticipantRole, on_delete=models.PROTECT, verbose_name='Роль')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'deal_participants'
-        verbose_name = 'РЈС‡Р°СЃС‚РЅРёРє СЃРґРµР»РєРё'
-        verbose_name_plural = 'РЈС‡Р°СЃС‚РЅРёРєРё СЃРґРµР»РѕРє'
+        verbose_name = 'Участник сделки'
+        verbose_name_plural = 'Участники сделок'
         unique_together = [['deal', 'client_profile', 'role']]
 
     def __str__(self):
@@ -2546,27 +2687,27 @@ class DealParticipant(models.Model):
 
 
 class DealDocument(models.Model):
-    """Р”РѕРєСѓРјРµРЅС‚ СЃРґРµР»РєРё."""
-    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name='documents', verbose_name='РЎРґРµР»РєР°')
-    document_type = models.ForeignKey(DocumentType, on_delete=models.PROTECT, verbose_name='РўРёРї РґРѕРєСѓРјРµРЅС‚Р°')
-    file_url = models.TextField(blank=True, null=True, verbose_name='URL С„Р°Р№Р»Р°')
-    document_number = models.CharField(max_length=50, blank=True, null=True, verbose_name='РќРѕРјРµСЂ РґРѕРєСѓРјРµРЅС‚Р°')
-    template_path = models.CharField(max_length=255, blank=True, null=True, verbose_name='РџСѓС‚СЊ Рє С€Р°Р±Р»РѕРЅСѓ')
-    generated_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РіРµРЅРµСЂР°С†РёРё')
-    generated_by = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, verbose_name='РЎРіРµРЅРµСЂРёСЂРѕРІР°Р»')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    """Документ сделки."""
+    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name='documents', verbose_name='Сделка')
+    document_type = models.ForeignKey(DocumentType, on_delete=models.PROTECT, verbose_name='Тип документа')
+    file_url = models.TextField(blank=True, null=True, verbose_name='URL файла')
+    document_number = models.CharField(max_length=50, blank=True, null=True, verbose_name='Номер документа')
+    template_path = models.CharField(max_length=255, blank=True, null=True, verbose_name='Путь к шаблону')
+    generated_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата генерации')
+    generated_by = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, verbose_name='Сгенерировал')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'deal_documents'
-        verbose_name = 'Р”РѕРєСѓРјРµРЅС‚ СЃРґРµР»РєРё'
-        verbose_name_plural = 'Р”РѕРєСѓРјРµРЅС‚С‹ СЃРґРµР»РѕРє'
+        verbose_name = 'Документ сделки'
+        verbose_name_plural = 'Документы сделок'
 
     def __str__(self):
         return f'{self.deal.deal_number} в†’ {self.document_type.name}'
 
 
 class Task(models.Model):
-    """Р—Р°РґР°С‡Р° СЃРѕС‚СЂСѓРґРЅРёРєР°."""
+    """Задача сотрудника."""
     TERMINAL_STATUS_CODES = ('done', 'cancelled')
     PRIORITY_LOW = 'low'
     PRIORITY_NORMAL = 'normal'
@@ -2597,68 +2738,68 @@ class Task(models.Model):
         ),
     )
 
-    title = models.CharField(max_length=255, verbose_name='РќР°Р·РІР°РЅРёРµ')
-    description = models.TextField(blank=True, null=True, verbose_name='РћРїРёСЃР°РЅРёРµ')
+    title = models.CharField(max_length=255, verbose_name='Название')
+    description = models.TextField(blank=True, null=True, verbose_name='Описание')
     priority_ref = models.ForeignKey(
         TaskPriority,
         on_delete=models.PROTECT,
         related_name='tasks',
-        verbose_name='РџСЂРёРѕСЂРёС‚РµС‚',
+        verbose_name='Приоритет',
         default=2,
     )
     task_type_ref = models.ForeignKey(
         TaskType,
         on_delete=models.PROTECT,
         related_name='tasks',
-        verbose_name='РўРёРї Р·Р°РґР°С‡',
+        verbose_name='Тип задач',
         default=6,
     )
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
-                               verbose_name='РЎС‚Р°С‚СѓСЃ',
+                               verbose_name='Статус',
                                related_name='tasks')
 
     assignee = models.ForeignKey(User, on_delete=models.PROTECT,
                                  related_name='assigned_tasks',
-                                 verbose_name='РСЃРїРѕР»РЅРёС‚РµР»СЊ',
+                                 verbose_name='Исполнитель',
                                  limit_choices_to={'user_type_ref__code': 'employee'})
     created_by = models.ForeignKey(User, on_delete=models.PROTECT,
-                                   verbose_name='РЎРѕР·РґР°С‚РµР»СЊ',
+                                   verbose_name='Создатель',
                                    related_name='created_tasks')
 
     client_profile = models.ForeignKey(ClientProfile, on_delete=models.SET_NULL,
                                        blank=True, null=True,
                                        related_name='tasks',
-                                       verbose_name='РљР»РёРµРЅС‚')
+                                       verbose_name='Клиент')
     property = models.ForeignKey(Property, on_delete=models.SET_NULL,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  blank=True, null=True, related_name='tasks')
     request = models.ForeignKey(Request, on_delete=models.SET_NULL,
-                                verbose_name='Р—Р°СЏРІРєР°',
+                                verbose_name='Заявка',
                                 blank=True, null=True, related_name='tasks')
     deal = models.ForeignKey(Deal, on_delete=models.SET_NULL,
-                             verbose_name='РЎРґРµР»РєР°',
+                             verbose_name='Сделка',
                              blank=True, null=True, related_name='tasks')
 
-    due_date = models.DateTimeField(blank=True, null=True, verbose_name='РЎСЂРѕРє')
-    completed_at = models.DateTimeField(blank=True, null=True, verbose_name='Р—Р°РєСЂС‹С‚Р°')
+    due_date = models.DateTimeField(blank=True, null=True, verbose_name='Срок')
+    completed_at = models.DateTimeField(blank=True, null=True, verbose_name='Закрыта')
     result = models.TextField(blank=True, null=True,
-                              verbose_name='Р РµР·СѓР»СЊС‚Р°С‚',
-                              help_text='Р РµР·СѓР»СЊС‚Р°С‚ РІС‹РїРѕР»РЅРµРЅРёСЏ Р·Р°РґР°С‡Рё')
+                              verbose_name='Результат',
+                              help_text='Результат выполнения задачи')
     steps_log = models.JSONField(
         default=list, blank=True,
-        help_text='Р–СѓСЂРЅР°Р» СЌС‚Р°РїРѕРІ РІС‹РїРѕР»РЅРµРЅРёСЏ (СЃРїРёСЃРѕРє РѕР±СЉРµРєС‚РѕРІ).',
-        verbose_name='Р–СѓСЂРЅР°Р» СЌС‚Р°РїРѕРІ',
+        help_text='Журнал этапов выполнения (список объектов).',
+        verbose_name='Журнал этапов',
     )
     is_auto_closed = models.BooleanField(default=False,
-                                         verbose_name='Р—Р°РєСЂС‹С‚Р° Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё',
-                                         help_text='Р—Р°РєСЂС‹С‚Р° Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё СЃРёСЃС‚РµРјРѕР№')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Р”Р°С‚Р° РѕР±РЅРѕРІР»РµРЅРёСЏ')
+                                         verbose_name='Закрыта автоматически',
+                                         help_text='Закрыта автоматически системой')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
 
     class Meta:
         db_table = 'tasks'
-        verbose_name = 'Р—Р°РґР°С‡Р°'
-        verbose_name_plural = 'Р—Р°РґР°С‡Рё'
+        verbose_name = 'Задача'
+        verbose_name_plural = 'Задачи'
         ordering = ['-created_at']
 
     QUERY_ALIASES = {
@@ -2705,13 +2846,13 @@ class Task(models.Model):
         super().clean()
         errors = {}
         if self.assignee_id and self.assignee.user_type != 'employee':
-            errors['assignee'] = 'РСЃРїРѕР»РЅРёС‚РµР»РµРј Р·Р°РґР°С‡Рё РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРє.'
+            errors['assignee'] = 'Исполнителем задачи может быть только сотрудник.'
         if self.created_by_id and self.created_by.user_type != 'employee':
-            errors['created_by'] = 'РЎРѕР·РґР°С‚РµР»РµРј Р·Р°РґР°С‡Рё РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ СЃРѕС‚СЂСѓРґРЅРёРє.'
+            errors['created_by'] = 'Создателем задачи должен быть сотрудник.'
         if self.client_profile_id and self.client_profile.user.user_type != 'client':
-            errors['client_profile'] = 'Р’ РїРѕР»Рµ РєР»РёРµРЅС‚Р° РјРѕР¶РЅРѕ РІС‹Р±СЂР°С‚СЊ С‚РѕР»СЊРєРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ С‚РёРїР° "РљР»РёРµРЅС‚".'
+            errors['client_profile'] = 'В поле клиента можно выбрать только пользователя типа "Клиент".'
         if self.completed_at and self.status_id and self.status.code not in self.TERMINAL_STATUS_CODES:
-            errors['completed_at'] = 'Р”Р°С‚Р° Р·Р°РІРµСЂС€РµРЅРёСЏ РґРѕРїСѓСЃРєР°РµС‚СЃСЏ С‚РѕР»СЊРєРѕ РґР»СЏ С„РёРЅР°Р»СЊРЅРѕРіРѕ СЃС‚Р°С‚СѓСЃР° Р·Р°РґР°С‡Рё.'
+            errors['completed_at'] = 'Дата завершения допускается только для финального статуса задачи.'
         if errors:
             raise ValidationError(errors)
 
@@ -2762,55 +2903,55 @@ class Task(models.Model):
 
 
 # =====================================================
-# 7. РђРЈР”РРў, РџРћР§РўРђ, Р Р•Р—Р•Р Р’РќРћР• РљРћРџРР РћР’РђРќРР•
+# 7. АУДИТ, ПОЧТА, РЕЗЕРВНОЕ КОПИРОВАНИЕ
 # =====================================================
 
 class OutgoingEmail(models.Model):
-    """РћС‡РµСЂРµРґСЊ РёСЃС…РѕРґСЏС‰РёС… РїРёСЃРµРј."""
+    """Очередь исходящих писем."""
     STATUS_CHOICES = [
-        ('processing', 'РћР±СЂР°Р±Р°С‚С‹РІР°РµС‚СЃСЏ'),
-        ('pending', 'РћР¶РёРґР°РµС‚ РѕС‚РїСЂР°РІРєРё'),
-        ('sent', 'РћС‚РїСЂР°РІР»РµРЅРѕ'),
-        ('failed', 'РћС€РёР±РєР° РѕС‚РїСЂР°РІРєРё'),
+        ('processing', 'Обрабатывается'),
+        ('pending', 'Ожидает отправки'),
+        ('sent', 'Отправлено'),
+        ('failed', 'Ошибка отправки'),
     ]
 
     recipient = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name='outgoing_emails',
-        verbose_name='РџРѕР»СѓС‡Р°С‚РµР»СЊ',
+        verbose_name='Получатель',
     )
     sender = models.ForeignKey(User, on_delete=models.SET_NULL,
                                blank=True, null=True,
                                related_name='sent_emails',
-                               verbose_name='РћС‚РїСЂР°РІРёС‚РµР»СЊ',
+                               verbose_name='Отправитель',
                                limit_choices_to={'user_type_ref__code': 'employee'})
-    subject = models.CharField(max_length=255, verbose_name='РўРµРјР°')
-    body = models.TextField(verbose_name='РўРµРєСЃС‚ РїРёСЃСЊРјР°')
-    html_body = models.TextField(blank=True, default='', verbose_name='HTML-С‚РµРєСЃС‚')
+    subject = models.CharField(max_length=255, verbose_name='Тема')
+    body = models.TextField(verbose_name='Текст письма')
+    html_body = models.TextField(blank=True, default='', verbose_name='HTML-текст')
     trigger_code = models.CharField(max_length=64, blank=True, null=True, db_index=True, verbose_name='Trigger code')
-    context = models.JSONField(default=dict, blank=True, verbose_name='РљРѕРЅС‚РµРєСЃС‚')
+    context = models.JSONField(default=dict, blank=True, verbose_name='Контекст')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES,
-                              verbose_name='РЎС‚Р°С‚СѓСЃ',
+                              verbose_name='Статус',
                               default='pending', db_index=True)
 
     task = models.ForeignKey(Task, on_delete=models.SET_NULL,
-                             verbose_name='Р—Р°РґР°С‡Р°',
+                             verbose_name='Задача',
                              blank=True, null=True, related_name='emails')
     request = models.ForeignKey(Request, on_delete=models.SET_NULL,
-                                verbose_name='Р—Р°СЏРІРєР°',
+                                verbose_name='Заявка',
                                 blank=True, null=True, related_name='emails')
     property = models.ForeignKey(Property, on_delete=models.SET_NULL,
-                                 verbose_name='РћР±СЉРµРєС‚',
+                                 verbose_name='Объект',
                                  blank=True, null=True, related_name='emails')
 
     error_message = models.TextField(blank=True, null=True, verbose_name='Error message')
-    processing_started_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РЅР°С‡Р°Р»Р° РѕР±СЂР°Р±РѕС‚РєРё')
-    sent_at = models.DateTimeField(blank=True, null=True, verbose_name='Р”Р°С‚Р° РѕС‚РїСЂР°РІРєРё')
-    created_at = models.DateTimeField(default=timezone.now, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    processing_started_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата начала обработки')
+    sent_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата отправки')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'outgoing_emails'
-        verbose_name = 'РСЃС…РѕРґСЏС‰РµРµ РїРёСЃСЊРјРѕ'
-        verbose_name_plural = 'РСЃС…РѕРґСЏС‰РёРµ РїРёСЃСЊРјР°'
+        verbose_name = 'Исходящее письмо'
+        verbose_name_plural = 'Исходящие письма'
         ordering = ['-created_at']
         constraints = [
             models.CheckConstraint(
@@ -2826,23 +2967,23 @@ class OutgoingEmail(models.Model):
         super().clean()
         errors = {}
         if self.sender_id and self.sender.user_type != 'employee':
-            errors['sender'] = 'РћС‚РїСЂР°РІРёС‚РµР»РµРј РјРѕР¶РµС‚ Р±С‹С‚СЊ С‚РѕР»СЊРєРѕ СЃРѕС‚СЂСѓРґРЅРёРє.'
+            errors['sender'] = 'Отправителем может быть только сотрудник.'
         if self.status == 'sent' and not self.sent_at:
-            errors['sent_at'] = 'Р”Р»СЏ РѕС‚РїСЂР°РІР»РµРЅРЅРѕРіРѕ РїРёСЃСЊРјР° РЅСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ РґР°С‚Сѓ РѕС‚РїСЂР°РІРєРё.'
+            errors['sent_at'] = 'Для отправленного письма нужно указать дату отправки.'
         if self.status == 'failed' and not self.error_message:
-            errors['error_message'] = 'Р”Р»СЏ РѕС€РёР±РєРё РѕС‚РїСЂР°РІРєРё РЅСѓР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ РїСЂРёС‡РёРЅСѓ.'
+            errors['error_message'] = 'Для ошибки отправки нужно указать причину.'
         if errors:
             raise ValidationError(errors)
 
 
 class AuditLog(models.Model):
-    """Р•РґРёРЅС‹Р№ Р¶СѓСЂРЅР°Р» Р·РЅР°С‡РёРјС‹С… РґРµР№СЃС‚РІРёР№ СЃРёСЃС‚РµРјС‹."""
+    """Единый журнал значимых действий системы."""
 
-    entity_type = models.ForeignKey(AuditEntityType, on_delete=models.PROTECT, verbose_name='РўРёРї СЃСѓС‰РЅРѕСЃС‚Рё')
-    entity_id = models.PositiveIntegerField(db_index=True, verbose_name='РРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ СЃСѓС‰РЅРѕСЃС‚Рё')
-    action = models.ForeignKey(AuditAction, on_delete=models.PROTECT, verbose_name='Р”РµР№СЃС‚РІРёРµ')
-    message = models.TextField(verbose_name='РЎРѕРѕР±С‰РµРЅРёРµ')
-    metadata = models.JSONField(default=dict, blank=True, verbose_name='РњРµС‚Р°РґР°РЅРЅС‹Рµ')
+    entity_type = models.ForeignKey(AuditEntityType, on_delete=models.PROTECT, verbose_name='Тип сущности')
+    entity_id = models.PositiveIntegerField(db_index=True, verbose_name='Идентификатор сущности')
+    action = models.ForeignKey(AuditAction, on_delete=models.PROTECT, verbose_name='Действие')
+    message = models.TextField(verbose_name='Сообщение')
+    metadata = models.JSONField(default=dict, blank=True, verbose_name='Метаданные')
 
     actor = models.ForeignKey(
         User,
@@ -2850,14 +2991,14 @@ class AuditLog(models.Model):
         blank=True,
         null=True,
         related_name='audit_logs',
-        verbose_name='РРЅРёС†РёР°С‚РѕСЂ',
+        verbose_name='Инициатор',
     )
-    created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'audit_logs'
-        verbose_name = 'Р—Р°РїРёСЃСЊ Р¶СѓСЂРЅР°Р»Р°'
-        verbose_name_plural = 'Р–СѓСЂРЅР°Р» РґРµР№СЃС‚РІРёР№'
+        verbose_name = 'Запись журнала'
+        verbose_name_plural = 'Журнал действий'
         ordering = ['-created_at', '-id']
 
     @property
@@ -2892,32 +3033,32 @@ class AuditLog(models.Model):
 
 
 class DatabaseBackup(models.Model):
-    """РЎРѕС…СЂР°РЅРµРЅРЅС‹Р№ С„Р°Р№Р» РїРѕР»РЅРѕР№ СЂРµР·РµСЂРІРЅРѕР№ РєРѕРїРёРё Р±Р°Р·С‹ РґР°РЅРЅС‹С…."""
+    """Сохраненный файл полной резервной копии базы данных."""
 
-    filename = models.CharField(max_length=255, verbose_name='РРјСЏ С„Р°Р№Р»Р°')
+    filename = models.CharField(max_length=255, verbose_name='Имя файла')
     file = models.FileField(
         storage=database_backup_storage,
         upload_to='database_backups/%Y/%m/',
-        verbose_name='Р¤Р°Р№Р»',
+        verbose_name='Файл',
     )
     size_bytes = models.PositiveBigIntegerField(default=0, verbose_name='Size bytes')
-    database_name = models.CharField(max_length=255, verbose_name='РќР°Р·РІР°РЅРёРµ Р±Р°Р·С‹ РґР°РЅРЅС‹С…')
-    engine_label = models.CharField(max_length=120, verbose_name='РЎРЈР‘Р”')
-    tool_label = models.CharField(max_length=120, blank=True, default='', verbose_name='РРЅСЃС‚СЂСѓРјРµРЅС‚')
+    database_name = models.CharField(max_length=255, verbose_name='Название базы данных')
+    engine_label = models.CharField(max_length=120, verbose_name='СУБД')
+    tool_label = models.CharField(max_length=120, blank=True, default='', verbose_name='Инструмент')
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         blank=True,
         null=True,
         related_name='database_backups',
-        verbose_name='РЎРѕР·РґР°С‚РµР»СЊ',
+        verbose_name='Создатель',
     )
-    created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Р”Р°С‚Р° СЃРѕР·РґР°РЅРёСЏ')
+    created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Дата создания')
 
     class Meta:
         db_table = 'database_backups'
-        verbose_name = 'Р РµР·РµСЂРІРЅР°СЏ РєРѕРїРёСЏ Р‘Р”'
-        verbose_name_plural = 'Р РµР·РµСЂРІРЅС‹Рµ РєРѕРїРёРё Р‘Р”'
+        verbose_name = 'Резервная копия БД'
+        verbose_name_plural = 'Резервные копии БД'
         ordering = ['-created_at', '-id']
 
     def __str__(self):

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Регистрация моделей и настройка панели администрирования."""
 from django import forms
 from django.contrib import admin, messages
@@ -870,6 +871,35 @@ class PropertyViewingAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     date_hierarchy = 'viewing_date'
     ordering = ('-viewing_date',)
     autocomplete_fields = ('property', 'client_profile', 'employee_profile')
+
+
+@admin.register(models.ViewingPayment)
+class ViewingPaymentAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('id', 'viewing', 'client', 'property', 'amount', 'status', 'paid_at', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('sber_order_id', 'client__username', 'property__title')
+    list_select_related = ('viewing', 'client', 'property')
+    date_hierarchy = 'created_at'
+    ordering = ('-created_at', '-id')
+    readonly_fields = ('sber_order_id', 'payment_url', 'paid_at', 'created_at', 'updated_at')
+    autocomplete_fields = ('viewing', 'client', 'property')
+
+
+@admin.register(models.PaymentHistory)
+class PaymentHistoryAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    list_display = ('id', 'payment', 'old_status', 'new_status', 'created_at', 'changed_by')
+    list_filter = ('new_status', 'created_at')
+    search_fields = ('payment__sber_order_id', 'payment__client__username', 'comment')
+    list_select_related = ('payment', 'changed_by')
+    date_hierarchy = 'created_at'
+    ordering = ('-created_at', '-id')
+    readonly_fields = ('payment', 'old_status', 'new_status', 'comment', 'sber_response', 'created_at', 'changed_by')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 

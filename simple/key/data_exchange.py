@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Импорт и экспорт данных CRM."""
 from __future__ import annotations
 

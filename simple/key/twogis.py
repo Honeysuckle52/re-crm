@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Клиент 2GIS Places API для обогащения объектов недвижимости данными и фото."""
 from __future__ import annotations
 

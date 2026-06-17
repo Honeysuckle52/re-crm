@@ -197,17 +197,6 @@
         </div>
       </div>
 
-      <div v-if="auth.canCreateRequestTaskReport" class="row task-export-actions" style="gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px">
-        <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('csv')">
-          CSV
-        </button>
-        <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('xlsx')">
-          XLSX
-        </button>
-        <button class="btn btn--sm" :disabled="exportingTasks" @click="exportTasks('json')">
-          JSON
-        </button>
-      </div>
     </div>
 
     <div v-if="viewMode === 'active'" class="panel panel--light">
@@ -309,6 +298,16 @@
                 <div v-if="task.property_title" class="muted" style="font-size: 12px">
                   Объект: {{ task.property_title }}
                 </div>
+                <div
+                  v-if="task.task_type === 'showing'"
+                  class="payment-hint"
+                  :class="task.showing_payment_status === 'paid' ? 'is-paid' : 'is-pending'"
+                >
+                  {{ task.showing_payment_status === 'paid' ? 'Оплата подтверждена' : 'Просмотр не оплачен' }}
+                  <span v-if="task.showing_payment_amount">
+                    · {{ formatMoney(task.showing_payment_amount) }}
+                  </span>
+                </div>
               </td>
               <td>
                 <span class="tag tag--type task-badge">
@@ -384,6 +383,12 @@
                 >
                   Завершить
                 </button>
+                <span
+                  v-if="task.task_type === 'showing' && !canComplete(task) && isOwnOrManaged(task)"
+                  class="task-lock-note"
+                >
+                  Нужна оплата
+                </span>
                 <!-- Status select -->
                 <select
                   class="select select--sm"
@@ -589,6 +594,12 @@
           <p class="muted" style="margin-top: 8px">
             {{ completeModal.task?.title }}
           </p>
+          <div
+            v-if="completeModal.task?.task_type === 'showing' && completeModal.task?.showing_payment_status !== 'paid'"
+            class="payment-modal-warning"
+          >
+            Завершение показа заблокировано, пока предоплата просмотра не подтверждена.
+          </div>
           <div class="field" style="margin-top: 16px">
             <label>Результат выполнения (опционально)</label>
             <textarea
@@ -602,7 +613,7 @@
             <button class="btn" @click="closeCompleteModal">Отмена</button>
             <button
               class="btn btn--accent"
-              :disabled="busyId === completeModal.task?.id"
+              :disabled="busyId === completeModal.task?.id || (completeModal.task?.task_type === 'showing' && completeModal.task?.showing_payment_status !== 'paid')"
               @click="confirmComplete"
             >
               Завершить
@@ -619,7 +630,6 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { bulkTaskAction } from '../api/bulk'
-import { exportEntityData } from '../api/exports'
 import * as tasksApi from '../api/tasks'
 import BulkActionBar from '../components/BulkActionBar.vue'
 import DataFetchPanel from '../components/DataFetchPanel.vue'
@@ -659,7 +669,6 @@ const viewMode = ref('active')
 const activePage = ref(1)
 const historyPage = ref(1)
 const taskPageSize = ref(DEFAULT_PAGE_SIZE)
-const exportingTasks = ref(false)
 const loadingTasks = ref(false)
 const loadingHistory = ref(false)
 const editingTaskId = ref(null)
@@ -976,15 +985,6 @@ function historyListParams({ includeStatusFilter = true, page = historyPage.valu
   return params
 }
 
-function taskExportParams() {
-  const params = viewMode.value === 'history'
-    ? historyListParams({ page: 1 })
-    : activeListParams({ page: 1 })
-  delete params.page
-  delete params.page_size
-  return params
-}
-
 async function load() {
   loadingTasks.value = true
   tasksLoadError.value = ''
@@ -1174,22 +1174,6 @@ async function changeStatus(task, statusId) {
   }
 }
 
-async function exportTasks(format) {
-  exportingTasks.value = true
-  try {
-    await exportEntityData(
-      '/tasks/export/',
-      format,
-      taskExportParams(),
-      `tasks-${viewMode.value}.${format}`,
-    )
-  } catch (err) {
-    toasts.error(extractError(err, 'Не удалось выгрузить задачи'))
-  } finally {
-    exportingTasks.value = false
-  }
-}
-
 function isMine(task) {
   return task.assignee === auth.user?.id
 }
@@ -1223,6 +1207,7 @@ function canPause(task) {
 }
 
 function canComplete(task) {
+  if (task.task_type === 'showing' && task.showing_payment_status !== 'paid') return false
   return isOwnOrManaged(task) && ['new', 'in_progress', 'waiting'].includes(task.status_code)
 }
 
@@ -1846,6 +1831,36 @@ onMounted(async () => {
   border-radius: 999px;
   border: 1px solid rgba(99, 208, 197, 0.2);
   margin-left: 6px;
+}
+
+.payment-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.payment-hint.is-paid {
+  color: #9ef2d6;
+}
+
+.payment-hint.is-pending {
+  color: #ffd4dc;
+}
+
+.task-lock-note {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd4dc;
+}
+
+.payment-modal-warning {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 111, 134, 0.24);
+  background: rgba(255, 111, 134, 0.12);
+  color: #ffd6de;
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 13px;
 }
 
 

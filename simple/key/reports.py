@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Сервисный слой отчётов и экспортов."""
 from __future__ import annotations
 
@@ -92,6 +93,28 @@ TASKS_REPORT = ReportDefinition(
         ('-title', 'Название: Я-А'),
         ('priority', 'Приоритет: по возрастанию'),
         ('-priority', 'Приоритет: по убыванию'),
+    ),
+)
+
+VIEWING_PAYMENTS_REPORT = ReportDefinition(
+    code='viewing-payments',
+    title='Отчёт по оплатам просмотров',
+    filename_prefix='viewing-payments-report',
+    columns=(
+        ('created_at', 'Создан'),
+        ('client_username', 'Клиент'),
+        ('agent_username', 'Агент'),
+        ('property_title', 'Объект'),
+        ('amount', 'Сумма'),
+        ('status', 'Статус'),
+        ('paid_at', 'Оплачен'),
+    ),
+    default_ordering='-created_at',
+    ordering_options=(
+        ('-created_at', 'Создание: сначала новые'),
+        ('created_at', 'Создание: сначала старые'),
+        ('-amount', 'Сумма: по убыванию'),
+        ('amount', 'Сумма: по возрастанию'),
     ),
 )
 
@@ -553,6 +576,65 @@ def build_tasks_report(params, *, user) -> dict:
     return {
         'definition': TASKS_REPORT,
         'title': _report_title(TASKS_REPORT, user),
+        'summary': summary,
+        'rows': rows,
+        'ordering': ordering,
+    }
+
+
+def build_viewing_payments_report(params, *, user) -> dict:
+    date_from = _parse_date_param(params, 'date_from')
+    date_to = _parse_date_param(params, 'date_to')
+    ordering = _resolve_ordering(params, VIEWING_PAYMENTS_REPORT)
+
+    qs = models.ViewingPayment.objects.select_related(
+        'client',
+        'property',
+        'viewing__employee_profile__user',
+    )
+    status_value = (params.get('status') or '').strip()
+    if status_value:
+        qs = qs.filter(status=status_value)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    qs = _ordered_queryset(qs, ordering)
+
+    paid_qs = qs.filter(status=models.ViewingPayment.STATUS_PAID)
+    paid_count = paid_qs.count()
+    total_count = qs.count()
+    paid_sum = paid_qs.aggregate(total=Sum('amount'))['total'] or Decimal('0')
+    failed_count = qs.filter(status=models.ViewingPayment.STATUS_FAILED).count()
+    average_amount = (paid_sum / paid_count).quantize(Decimal('0.01')) if paid_count else Decimal('0.00')
+    conversion = f'{((paid_count / total_count) * 100):.1f}%' if total_count else '0.0%'
+
+    summary = {
+        'Сумма оплат': _format_money(paid_sum),
+        'Успешных оплат': paid_count,
+        'Неуспешных оплат': failed_count,
+        'Средний чек': _format_money(average_amount),
+        'Конверсия': conversion,
+    }
+
+    rows = [{
+        'created_at': _format_date(payment.created_at),
+        'client_username': payment.client.username if payment.client_id else '—',
+        'agent_username': (
+            payment.viewing.employee_profile.user.username
+            if payment.viewing_id and payment.viewing.employee_profile_id
+            else '—'
+        ),
+        'property_title': payment.property.title if payment.property_id else '—',
+        'amount': _format_money(payment.amount),
+        'status': payment.get_status_display(),
+        'paid_at': _format_date(payment.paid_at),
+    } for payment in qs]
+
+    return {
+        'definition': VIEWING_PAYMENTS_REPORT,
+        'title': _report_title(VIEWING_PAYMENTS_REPORT, user),
         'summary': summary,
         'rows': rows,
         'ordering': ordering,

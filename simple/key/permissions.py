@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Права доступа CRM."""
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 

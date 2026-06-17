@@ -268,6 +268,69 @@
       </div>
     </div>
 
+    <div v-if="clientViewings.length" class="panel panel--light">
+      <div class="surface-head property-surface-head">
+        <div>
+          <div class="surface-head__meta">Просмотры</div>
+          <h2 class="h3">Мои просмотры по объекту</h2>
+        </div>
+        <div class="surface-head__caption">{{ clientViewings.length }} записей</div>
+      </div>
+      <div class="stack" style="margin-top: 12px">
+        <div v-for="viewing in clientViewings" :key="viewing.id" class="viewing-card">
+          <div class="viewing-card__main">
+            <div>
+              <b>{{ formatDate(viewing.scheduled_date || viewing.viewing_date) }}</b>
+              <div class="muted" style="font-size: 13px; margin-top: 4px">
+                Статус просмотра: {{ viewing.status_name || '—' }}
+              </div>
+            </div>
+            <div class="viewing-card__meta">
+              <span class="tag" :class="viewing.payment_status === 'paid' ? 'tag--paid' : 'tag--warning'">
+                {{ viewingPaymentStatusLabel(viewing.payment_status) }}
+              </span>
+              <span v-if="viewing.payment_amount" class="muted">
+                {{ formatMoney(viewing.payment_amount) }} ₽
+              </span>
+            </div>
+          </div>
+          <div class="viewing-card__actions">
+            <a
+              v-if="viewing.payment_url && ['pending', 'failed'].includes(viewing.payment_status)"
+              class="btn btn--accent btn--sm"
+              :href="viewing.payment_url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Перейти к оплате
+            </a>
+            <button
+              v-else-if="canInitiateViewingPayment(viewing)"
+              class="btn btn--accent btn--sm"
+              :disabled="payingViewingId === viewing.id"
+              @click="startViewingPayment(viewing)"
+            >
+              {{
+                payingViewingId === viewing.id
+                  ? 'Подготовка…'
+                  : viewing.payment_id
+                    ? 'Получить новую ссылку'
+                    : 'Оплатить просмотр'
+              }}
+            </button>
+            <button
+              v-if="viewing.payment_id && ['pending', 'failed'].includes(viewing.payment_status)"
+              class="btn btn--sm"
+              :disabled="syncingPaymentId === viewing.payment_id"
+              @click="refreshViewingPayment(viewing)"
+            >
+              {{ syncingPaymentId === viewing.payment_id ? 'Проверка…' : 'Проверить оплату' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="grid grid--2">
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
@@ -380,7 +443,7 @@
           <thead><tr><th>Дата</th><th>Статус</th><th>Сотрудник</th></tr></thead>
           <tbody>
             <tr v-for="h in history" :key="h.id">
-              <td>{{ new Date(h.changed_at).toLocaleString('ru-RU') }}</td>
+              <td>{{ formatDate(h.changed_at) }}</td>
               <td>{{ h.status_name }}</td>
               <td>{{ h.changed_by_username }}</td>
             </tr>
@@ -405,6 +468,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import * as viewingPaymentsApi from '../api/viewingPayments'
 import AuditLogPanel from '../components/AuditLogPanel.vue'
 import InfoRow from '../components/InfoRow.vue'
 import { useAuthStore } from '../store/auth'
@@ -421,6 +485,9 @@ const toasts = useToastsStore()
 const property = ref(null)
 const statuses = ref([])
 const history = ref([])
+const clientViewings = ref([])
+const payingViewingId = ref(null)
+const syncingPaymentId = ref(null)
 
 // Lightbox
 const lbEl = ref(null)
@@ -473,6 +540,72 @@ const isOwnProperty = computed(() => (
 ))
 const canLeaveRequest = computed(() => !auth.isStaff && !isOwnProperty.value)
 
+function viewingPaymentStatusLabel(status) {
+  return {
+    paid: 'Оплата подтверждена',
+    pending: 'Ожидает оплаты',
+    failed: 'Ошибка оплаты',
+    refunded: 'Возврат выполнен',
+  }[status] || 'Оплата не создана'
+}
+
+function canInitiateViewingPayment(viewing) {
+  return (
+    auth.isClient
+    && (
+      !viewing.payment_id
+      || (
+        ['pending', 'failed'].includes(viewing.payment_status)
+        && !viewing.payment_url
+      )
+    )
+  )
+}
+
+async function loadClientViewings() {
+  if (!auth.isClient || !property.value?.id) {
+    clientViewings.value = []
+    return
+  }
+  try {
+    const { data } = await api.get('/property-viewings/', {
+      params: { property: property.value.id },
+    })
+    clientViewings.value = unpackPaginated(data).items
+  } catch (_err) {
+    clientViewings.value = []
+  }
+}
+
+async function startViewingPayment(viewing) {
+  payingViewingId.value = viewing.id
+  const { ok, data, error } = await viewingPaymentsApi.initiateViewingPayment(viewing.id)
+  payingViewingId.value = null
+  if (!ok) {
+    toasts.error(error || 'Не удалось создать оплату просмотра')
+    return
+  }
+  await loadClientViewings()
+  if (data?.payment_url) {
+    window.open(data.payment_url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  toasts.success('Платёж создан. Ссылка на оплату готова.')
+}
+
+async function refreshViewingPayment(viewing) {
+  if (!viewing.payment_id) return
+  syncingPaymentId.value = viewing.payment_id
+  const { ok, error } = await viewingPaymentsApi.syncViewingPayment(viewing.payment_id)
+  syncingPaymentId.value = null
+  if (!ok) {
+    toasts.error(error || 'Не удалось обновить статус оплаты')
+    return
+  }
+  await Promise.all([load(), loadClientViewings()])
+  toasts.success('Статус оплаты обновлён')
+}
+
 async function submitRequest () {
   if (!canLeaveRequest.value) {
     requestError.value = 'Нельзя оставить заявку на собственный объект.'
@@ -504,9 +637,11 @@ async function load() {
     ])
     property.value = propertyResponse.data
     history.value = Array.isArray(historyResponse.data) ? historyResponse.data : []
+    await loadClientViewings()
   } catch (err) {
     property.value = null
     history.value = []
+    clientViewings.value = []
     toasts.error(extractError(err, 'Не удалось загрузить объект'))
     return
   }
@@ -686,6 +821,43 @@ watch(() => route.params.id, () => {
   text-align: right;
   color: var(--c-ink-soft);
   font-size: 13px;
+}
+
+.viewing-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.viewing-card__main,
+.viewing-card__actions,
+.viewing-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.viewing-card__main {
+  justify-content: space-between;
+  flex: 1 1 auto;
+}
+
+.tag--paid {
+  background: rgba(99, 208, 197, 0.16);
+  color: #effffd;
+  border-color: rgba(99, 208, 197, 0.24);
+}
+
+.tag--warning {
+  background: rgba(255, 191, 87, 0.14);
+  color: #ffe6ae;
+  border-color: rgba(255, 191, 87, 0.22);
 }
 
 /* ---- Lightbox ---- */

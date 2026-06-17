@@ -266,8 +266,11 @@
                     :disabled="isTerminalTask"
                     placeholder="Например: клиент согласился на объект №12, договорились подписать договор 20 мая"></textarea>
         </div>
+        <div v-if="showingPaymentBlocked" class="warn">
+          Просмотр нельзя завершить, пока оплата клиента не подтверждена.
+        </div>
         <div v-if="!isTerminalTask" class="row" style="gap: 8px; justify-content: flex-end">
-          <button class="btn btn--accent" :disabled="busy" @click="submitComplete">
+          <button class="btn btn--accent" :disabled="busy || showingPaymentBlocked" @click="submitComplete">
             Завершить задачу
           </button>
         </div>
@@ -387,6 +390,9 @@ const completedStepCount = computed(() => (
   steps.value.filter((step) => step.done).length
 ))
 const isTerminalTask = computed(() => ['done', 'cancelled'].includes(task.value?.status_code))
+const showingPaymentBlocked = computed(() => (
+  task.value?.task_type === 'showing' && task.value?.showing_payment_status !== 'paid'
+))
 const isNewRequestRoomsDisabled = computed(() => !propertyTypeUsesRooms(newRequest.property_type))
 
 const activeRequestId = computed(() => (
@@ -643,6 +649,10 @@ async function submitMatchStep (outcome) {
 }
 
 async function submitComplete () {
+  if (showingPaymentBlocked.value) {
+    toasts.warn('Нельзя завершить показ, пока оплата просмотра не подтверждена.')
+    return
+  }
   busy.value = true
   workload.optimisticCompleteTask(task.value.id)
   const payload = completionSummary.value

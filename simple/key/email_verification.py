@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Pending registration email verification helpers."""
 from __future__ import annotations
 

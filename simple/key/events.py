@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Доменные события CRM."""
 from django.dispatch import Signal
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ASGI config for simple project."""
 import os
 from django.core.asgi import get_asgi_application

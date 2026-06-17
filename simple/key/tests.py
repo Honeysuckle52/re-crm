@@ -1,4 +1,5 @@
-﻿import io
+# -*- coding: utf-8 -*-
+import io
 import json
 import shutil
 import sys
@@ -10,15 +11,17 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from reportlab.pdfbase import pdfmetrics
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIClient
 
-from . import deals_service, documents, mailing, models
+from . import deals_service, documents, mailing, models, task_actions
 from .xlsx_utils import WorkbookSheet, build_xlsx_bytes, load_xlsx_rows
 
 
@@ -2986,6 +2989,23 @@ class RequestWorkflowLifecycleTests(TestCase):
             status='pending',
         ).exists())
 
+    def test_take_request_persists_employee_profile_field(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+
+        result = request_lifecycle.take_request(
+            request_obj,
+            actor=self.employee,
+        )
+
+        request_obj.refresh_from_db()
+        self.assertEqual(result.request.pk, request_obj.pk)
+        self.assertEqual(request_obj.employee_profile_id, self.employee.employee_profile.pk)
+        self.assertEqual(request_obj.agent_id, self.employee.pk)
+
     def test_repeated_take_does_not_duplicate_contact_task_and_email(self):
         request_obj = models.Request.objects.create(
             client=self.client_user,
@@ -4902,3 +4922,214 @@ class SeedDataCommandTests(TestCase):
         self.assertEqual(models.Request.objects.count(), 15)
         self.assertEqual(models.Task.objects.count(), 20)
         self.assertEqual(models.Deal.objects.count(), 5)
+
+
+@override_settings(
+    SBER_USERNAME='test-sber-username',
+    SBER_PASSWORD='test-sber-password',
+)
+class ViewingPaymentsTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.user_type_employee, _ = models.UserType.objects.get_or_create(code='employee', defaults={'name': 'Employee'})
+        self.user_type_client, _ = models.UserType.objects.get_or_create(code='client', defaults={'name': 'Client'})
+        self.client_kind_individual, _ = models.ClientKind.objects.get_or_create(
+            code='individual',
+            defaults={'name': 'Individual'},
+        )
+        self.operation_type, _ = models.OperationType.objects.get_or_create(code='sale', defaults={'name': 'Sale'})
+        self.property_status, _ = models.PropertyStatus.objects.get_or_create(code='active', defaults={'name': 'Active'})
+        self.viewing_status_scheduled, _ = models.ViewingStatus.objects.get_or_create(code='scheduled', defaults={'name': 'Scheduled'})
+        self.viewing_status_confirmed, _ = models.ViewingStatus.objects.get_or_create(code='confirmed', defaults={'name': 'Confirmed'})
+        self.task_status_new, _ = models.TaskStatus.objects.get_or_create(code='new', defaults={'name': 'New', 'order': 10})
+        self.task_status_done, _ = models.TaskStatus.objects.get_or_create(code='done', defaults={'name': 'Done', 'order': 20})
+        self.property_type, _ = models.PropertyType.objects.get_or_create(code='apartment', defaults={'name': 'Apartment'})
+        self.priority, _ = models.TaskPriority.objects.get_or_create(code='normal', defaults={'name': 'Normal'})
+        self.task_type_showing, _ = models.TaskType.objects.get_or_create(code='showing', defaults={'name': 'Showing'})
+
+        self.agent = models.User.objects.create_user(
+            username='viewing-agent',
+            email='viewing-agent@example.com',
+            password='Secret123!',
+            user_type_ref=self.user_type_employee,
+            is_staff=True,
+        )
+        self.client_user = models.User.objects.create_user(
+            username='viewing-client',
+            email='viewing-client@example.com',
+            password='Secret123!',
+            user_type_ref=self.user_type_client,
+        )
+        self.employee_profile = models.EmployeeProfile.objects.create(
+            user=self.agent,
+            first_name='Agent',
+            last_name='One',
+        )
+        self.client_profile = models.ClientProfile.objects.create(
+            user=self.client_user,
+            first_name='Client',
+            last_name='One',
+            client_kind_ref=self.client_kind_individual,
+        )
+
+        city = models.City.objects.create(name='Irkutsk', region='Region')
+        street = models.Street.objects.create(city=city, name='Lenina')
+        house = models.House.objects.create(street=street, house_number='10')
+        self.property = models.Property.objects.create(
+            title='Viewing payment property',
+            operation_type=self.operation_type,
+            status=self.property_status,
+            property_type_ref=self.property_type,
+            house=house,
+            price=5_000_000,
+            area_total=Decimal('45.00'),
+        )
+        self.viewing = models.PropertyViewing.objects.create(
+            property=self.property,
+            client_profile=self.client_profile,
+            employee_profile=self.employee_profile,
+            viewing_date=timezone.now() + timedelta(days=1),
+            status=self.viewing_status_scheduled,
+        )
+
+    def test_property_viewing_cannot_be_confirmed_without_paid_payment(self):
+        models.ViewingPayment.objects.create(
+            viewing=self.viewing,
+            client=self.client_user,
+            property=self.property,
+            amount=Decimal('500.00'),
+            status=models.ViewingPayment.STATUS_PENDING,
+        )
+        self.viewing.status = self.viewing_status_confirmed
+        with self.assertRaises(ValidationError):
+            self.viewing.full_clean()
+
+    def test_complete_showing_task_requires_paid_payment(self):
+        task = models.Task.objects.create(
+            title='Showing task',
+            status=self.task_status_new,
+            assignee=self.agent,
+            created_by=self.agent,
+            client_profile=self.client_profile,
+            property=self.property,
+            priority_ref=self.priority,
+            task_type_ref=self.task_type_showing,
+        )
+        with self.assertRaises(DRFValidationError):
+            task_actions.complete_task(task, actor=self.agent, result={'summary': 'Done'})
+
+    @patch('key.viewing_payments.SberAcquiringClient.register_order')
+    def test_initiate_viewing_payment_creates_payment(self, register_order_mock):
+        register_order_mock.return_value = {
+            'error_code': '0',
+            'orderId': 'sber-order-1',
+            'formUrl': 'https://sber.test/pay/1',
+        }
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.post(
+            '/api/viewing-payments/initiate/',
+            {'viewing_id': self.viewing.pk},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payment = models.ViewingPayment.objects.get(viewing=self.viewing)
+        self.assertEqual(payment.status, models.ViewingPayment.STATUS_PENDING)
+        self.assertEqual(payment.sber_order_id, 'sber-order-1')
+        self.assertEqual(payment.payment_url, 'https://sber.test/pay/1')
+        self.assertEqual(models.PaymentHistory.objects.filter(payment=payment).count(), 1)
+
+    @patch('key.viewing_payments.SberAcquiringClient.get_order_status_extended')
+    def test_success_endpoint_marks_payment_paid(self, status_mock):
+        status_mock.return_value = {
+            'error_code': '0',
+            'order_status': 2,
+            'transactionId': 'txn-1',
+        }
+        payment = models.ViewingPayment.objects.create(
+            viewing=self.viewing,
+            client=self.client_user,
+            property=self.property,
+            amount=Decimal('500.00'),
+            status=models.ViewingPayment.STATUS_PENDING,
+            sber_order_id='sber-order-2',
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get('/api/viewing-payments/success/', {'payment_id': payment.pk})
+
+        self.assertEqual(response.status_code, 200)
+        payment.refresh_from_db()
+        self.viewing.refresh_from_db()
+        self.assertEqual(payment.status, models.ViewingPayment.STATUS_PAID)
+        self.assertEqual(self.viewing.status.code, 'confirmed')
+
+    @patch('key.viewing_payments.SberAcquiringClient.get_order_status_extended')
+    def test_success_endpoint_marks_payment_failed_on_error_status(self, status_mock):
+        status_mock.return_value = {
+            'error_code': '0',
+            'order_status': 6,
+        }
+        payment = models.ViewingPayment.objects.create(
+            viewing=self.viewing,
+            client=self.client_user,
+            property=self.property,
+            amount=Decimal('500.00'),
+            status=models.ViewingPayment.STATUS_PENDING,
+            sber_order_id='sber-order-3',
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get('/api/viewing-payments/success/', {'payment_id': payment.pk})
+
+        self.assertEqual(response.status_code, 400)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, models.ViewingPayment.STATUS_FAILED)
+
+    def test_viewing_payments_report_returns_summary(self):
+        manager_role = models.UserRole.objects.create(
+            code='manager',
+            name='Manager',
+        )
+        manager_user = models.User.objects.create_user(
+            username='viewing-manager',
+            email='viewing-manager@example.com',
+            password='Secret123!',
+            user_type_ref=self.user_type_employee,
+            role=manager_role,
+            is_staff=True,
+        )
+        second_viewing = models.PropertyViewing.objects.create(
+            property=self.property,
+            client_profile=self.client_profile,
+            employee_profile=self.employee_profile,
+            viewing_date=timezone.now() + timedelta(days=2),
+            status=self.viewing_status_scheduled,
+        )
+        models.ViewingPayment.objects.create(
+            viewing=self.viewing,
+            client=self.client_user,
+            property=self.property,
+            amount=Decimal('500.00'),
+            status=models.ViewingPayment.STATUS_PAID,
+            paid_at=timezone.now(),
+            sber_order_id='sber-order-report-1',
+        )
+        models.ViewingPayment.objects.create(
+            viewing=second_viewing,
+            client=self.client_user,
+            property=self.property,
+            amount=Decimal('500.00'),
+            status=models.ViewingPayment.STATUS_FAILED,
+            sber_order_id='sber-order-report-2',
+        )
+        self.api.force_authenticate(user=manager_user)
+
+        response = self.api.get('/api/reports/viewing-payments/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['report_code'], 'viewing-payments')
+        self.assertEqual(response.data['summary']['Успешных оплат'], 1)
+        self.assertEqual(response.data['summary']['Неуспешных оплат'], 1)
+        self.assertEqual(len(response.data['rows']), 2)

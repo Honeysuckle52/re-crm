@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Оркестрация жизненного цикла заявки клиента."""
 from __future__ import annotations
 
@@ -283,7 +284,7 @@ def take_request(
     update_fields: list[str] = []
     if req.agent_id != actor.id:
         req.agent = actor
-        update_fields.append('agent')
+        update_fields.append('employee_profile')
     if _ensure_processing_status(req):
         update_fields.append('status')
     if update_fields:

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { listAuditLogs } from '@/api/audit'
+import { formatDate } from '@/utils/formatters'
 
 const props = defineProps({
   params: {

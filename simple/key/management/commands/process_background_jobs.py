@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Обработка фоновых очередей приложения key."""
 from __future__ import annotations
 

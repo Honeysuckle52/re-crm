@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Dev-runserver с автоматическим запуском background worker."""
 from __future__ import annotations
 

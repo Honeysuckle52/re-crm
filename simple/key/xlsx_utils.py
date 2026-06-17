@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Минимальный XLSX reader/writer без внешних зависимостей."""
 from __future__ import annotations
 

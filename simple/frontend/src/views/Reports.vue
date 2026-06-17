@@ -6,8 +6,8 @@
           <div class="hero__eyebrow">Отчёты</div>
           <h1 class="h2" style="color: #fff; margin-top: 8px">Отчёты и выгрузки</h1>
           <div style="color: rgba(255,255,255,.78); font-size: 14px; margin-top: 6px">
-            Два рабочих отчёта для дипломного контура: сделки и задачи сотрудников,
-            с фильтрами, сортировкой и экспортом.
+            Три рабочих отчёта для CRM-контура: сделки, задачи сотрудников
+            и оплаты просмотров, с фильтрами, сортировкой и экспортом.
           </div>
         </div>
         <div class="reports-switch" role="tablist" aria-label="Тип отчёта">
@@ -30,6 +30,16 @@
             @click="switchReport('tasks')"
           >
             Задачи
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="reports-switch__btn"
+            :class="{ 'is-active': reportType === 'viewing-payments' }"
+            :aria-selected="reportType === 'viewing-payments'"
+            @click="switchReport('viewing-payments')"
+          >
+            Оплаты просмотров
           </button>
         </div>
       </div>
@@ -84,7 +94,7 @@
         </div>
       </div>
 
-      <div v-else class="grid grid--4 reports-filter-grid">
+      <div v-else-if="reportType === 'tasks'" class="grid grid--4 reports-filter-grid">
         <div class="field">
           <label>Дата от</label>
           <input v-model="taskFilters.date_from" class="input" type="date" />
@@ -125,6 +135,34 @@
           <label>Сортировка</label>
           <select v-model="taskFilters.ordering" class="select">
             <option v-for="option in taskOrderingOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div v-else class="grid grid--4 reports-filter-grid">
+        <div class="field">
+          <label>Дата от</label>
+          <input v-model="paymentFilters.date_from" class="input" type="date" />
+        </div>
+        <div class="field">
+          <label>Дата до</label>
+          <input v-model="paymentFilters.date_to" class="input" type="date" />
+        </div>
+        <div class="field">
+          <label>Статус оплаты</label>
+          <select v-model="paymentFilters.status" class="select">
+            <option value="">Все статусы</option>
+            <option v-for="status in paymentStatuses" :key="status.value" :value="status.value">
+              {{ status.label }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Сортировка</label>
+          <select v-model="paymentFilters.ordering" class="select">
+            <option v-for="option in paymentOrderingOptions" :key="option.value" :value="option.value">
               {{ option.label }}
             </option>
           </select>
@@ -245,6 +283,7 @@ const taskStatuses = ref([])
 
 const dealReport = ref(emptyReport())
 const taskReport = ref(emptyReport())
+const paymentReport = ref(emptyReport())
 
 const dealOrderingOptions = [
   { value: '-deal_date', label: 'Дата: сначала новые' },
@@ -268,6 +307,20 @@ const taskOrderingOptions = [
   { value: '-priority', label: 'Приоритет: по убыванию' },
 ]
 
+const paymentOrderingOptions = [
+  { value: '-created_at', label: 'Создание: сначала новые' },
+  { value: 'created_at', label: 'Создание: сначала старые' },
+  { value: '-amount', label: 'Сумма: по убыванию' },
+  { value: 'amount', label: 'Сумма: по возрастанию' },
+]
+
+const paymentStatuses = [
+  { value: 'pending', label: 'Ожидает оплаты' },
+  { value: 'paid', label: 'Оплачен' },
+  { value: 'failed', label: 'Ошибка оплаты' },
+  { value: 'refunded', label: 'Возвращён' },
+]
+
 const dealFilters = reactive({
   date_from: '',
   date_to: '',
@@ -285,6 +338,13 @@ const taskFilters = reactive({
   ordering: '-created_at',
 })
 
+const paymentFilters = reactive({
+  date_from: '',
+  date_to: '',
+  status: '',
+  ordering: '-created_at',
+})
+
 const taskTypes = [
   { code: 'contact_client', name: 'Связаться с клиентом' },
   { code: 'property_search', name: 'Подбор объектов' },
@@ -295,10 +355,16 @@ const taskTypes = [
 ]
 
 const canChooseEmployee = computed(() => auth.isManager)
-const currentReport = computed(() => (reportType.value === 'deals' ? dealReport.value : taskReport.value))
-const currentTitle = computed(() => (
-  reportType.value === 'deals' ? 'Отчёт по сделкам' : 'Отчёт по задачам сотрудников'
-))
+const currentReport = computed(() => {
+  if (reportType.value === 'deals') return dealReport.value
+  if (reportType.value === 'tasks') return taskReport.value
+  return paymentReport.value
+})
+const currentTitle = computed(() => {
+  if (reportType.value === 'deals') return 'Отчёт по сделкам'
+  if (reportType.value === 'tasks') return 'Отчёт по задачам сотрудников'
+  return 'Отчёт по оплатам просмотров'
+})
 const summaryEntries = computed(() => (
   Object.entries(currentReport.value.summary || {}).map(([label, value]) => ({ label, value }))
 ))
@@ -315,20 +381,28 @@ function emptyReport() {
 }
 
 function currentEndpoint() {
-  return reportType.value === 'deals' ? '/reports/deals/' : '/reports/tasks/'
+  if (reportType.value === 'deals') return '/reports/deals/'
+  if (reportType.value === 'tasks') return '/reports/tasks/'
+  return '/reports/viewing-payments/'
 }
 
 function currentParams() {
-  return reportType.value === 'deals'
-    ? { ...dealFilters }
-    : { ...taskFilters }
+  if (reportType.value === 'deals') return { ...dealFilters }
+  if (reportType.value === 'tasks') return { ...taskFilters }
+  return { ...paymentFilters }
 }
 
 function switchReport(type) {
   if (reportType.value === type) return
   reportType.value = type
   reportLoadError.value = ''
-  const report = type === 'deals' ? dealReport.value : taskReport.value
+  const report = (
+    type === 'deals'
+      ? dealReport.value
+      : type === 'tasks'
+        ? taskReport.value
+        : paymentReport.value
+  )
   // Перезагружаем отчёт, если для выбранного типа ещё нет данных
   // или предыдущая попытка завершилась ошибкой (rows пустой).
   if (!report.columns.length || !report.rows.length) {
@@ -343,13 +417,18 @@ function resetFilters() {
     dealFilters.status = ''
     dealFilters.agent = ''
     dealFilters.ordering = '-deal_date'
-  } else {
+  } else if (reportType.value === 'tasks') {
     taskFilters.date_from = ''
     taskFilters.date_to = ''
     taskFilters.status = ''
     taskFilters.assignee = ''
     taskFilters.task_type = ''
     taskFilters.ordering = '-created_at'
+  } else {
+    paymentFilters.date_from = ''
+    paymentFilters.date_to = ''
+    paymentFilters.status = ''
+    paymentFilters.ordering = '-created_at'
   }
   loadCurrentReport()
 }
@@ -377,9 +456,12 @@ async function loadCurrentReport() {
     if (reportType.value === 'deals') {
       dealReport.value = data
       if (data.ordering) dealFilters.ordering = data.ordering
-    } else {
+    } else if (reportType.value === 'tasks') {
       taskReport.value = data
       if (data.ordering) taskFilters.ordering = data.ordering
+    } else {
+      paymentReport.value = data
+      if (data.ordering) paymentFilters.ordering = data.ordering
     }
   } catch (err) {
     reportLoadError.value = extractError(err, 'Не удалось загрузить отчёт')

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Утилиты полного резервного копирования базы данных."""
 
 from __future__ import annotations

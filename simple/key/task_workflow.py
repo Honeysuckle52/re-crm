@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Серверное описание и валидация workflow задач."""
 from __future__ import annotations
 

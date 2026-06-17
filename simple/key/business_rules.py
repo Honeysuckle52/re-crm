@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Лимиты нагрузки сотрудников."""
 from __future__ import annotations
 

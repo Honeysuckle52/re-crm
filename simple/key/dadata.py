@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Клиент подсказок DaData."""
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """URL-маршруты приложения ``key``."""
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
@@ -82,6 +83,33 @@ urlpatterns = [
          name='deals_report'),
     path('reports/tasks/', views.TasksReportView.as_view(),
          name='tasks_report'),
+    path('reports/viewing-payments/', views.ViewingPaymentsReportView.as_view(),
+         name='viewing_payments_report'),
+    path(
+        'viewing-payments/initiate/',
+        views.ViewingPaymentInitiateView.as_view(),
+        name='viewing_payment_initiate',
+    ),
+    path(
+        'viewing-payments/success/',
+        views.ViewingPaymentSuccessView.as_view(),
+        name='viewing_payment_success',
+    ),
+    path(
+        'viewing-payments/fail/',
+        views.ViewingPaymentFailView.as_view(),
+        name='viewing_payment_fail',
+    ),
+    path(
+        'viewing-payments/webhook/',
+        views.ViewingPaymentWebhookView.as_view(),
+        name='viewing_payment_webhook',
+    ),
+    path(
+        'viewing-payments/<int:payment_id>/refund/',
+        views.ViewingPaymentRefundView.as_view(),
+        name='viewing_payment_refund',
+    ),
 
     path('', include(router.urls)),
 ]

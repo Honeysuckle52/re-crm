@@ -1,10 +1,13 @@
+# -*- coding: utf-8 -*-
 """Действия над задачами."""
 from __future__ import annotations
 
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from . import audit as audit_service
 from . import models
@@ -50,6 +53,17 @@ def complete_task(
     if task.is_terminal:
         return task, False
 
+    if task.task_type == models.Task.TASK_TYPE_SHOWING and task.property_id and task.client_id:
+        viewing = models.PropertyViewing.objects.select_related('status').filter(
+            property_id=task.property_id,
+            client_profile__user_id=task.client_id,
+        ).order_by('-viewing_date', '-id').first()
+        payment = getattr(viewing, 'payment', None) if viewing else None
+        if payment is None or payment.status != models.ViewingPayment.STATUS_PAID:
+            raise ValidationError({
+                'detail': 'Нельзя завершить задачу показа, пока оплата просмотра не подтверждена.',
+            })
+
     summary_text, meta = _normalize_result(result)
 
     done = _get_status_by_code('done')
@@ -81,6 +95,12 @@ def complete_task(
     if auto_closed:
         task.is_auto_closed = True
 
+    try:
+        task.full_clean()
+    except DjangoValidationError as exc:
+        raise ValidationError(
+            exc.message_dict if hasattr(exc, 'message_dict') else {'detail': exc.messages},
+        ) from exc
     task.save(update_fields=[
         'status', 'completed_at', 'result', 'steps_log',
         'is_auto_closed', 'updated_at',

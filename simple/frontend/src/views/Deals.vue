@@ -63,11 +63,6 @@
           <h2 class="h3">Сделки в работе</h2>
           <div class="muted">Показано {{ filtered.length }} из {{ filteredTotalCount }} записей по текущему фильтру.</div>
         </div>
-        <div v-if="auth.canCreateDealReport" class="row" style="gap: 8px; flex-wrap: wrap">
-          <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('csv')">CSV</button>
-          <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('xlsx')">XLSX</button>
-          <button class="btn btn--sm" :disabled="exportingDeals" @click="exportDeals('json')">JSON</button>
-        </div>
       </div>
 
       <DataFetchPanel
@@ -152,7 +147,7 @@
                 </span>
               </td>
               <td class="muted" data-label="Дата">
-                {{ new Date(deal.deal_date).toLocaleDateString('ru-RU') }}
+                {{ formatDate(deal.deal_date) }}
               </td>
               <td class="deals-table__contract" data-label="Договор">
                 <button v-if="deal.contract_url"
@@ -217,7 +212,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
-import { exportEntityData } from '../api/exports'
 import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
 import { useVisibilityRefresh } from '../composables/useVisibilityRefresh'
@@ -230,7 +224,7 @@ import {
   dealStatusClass,
 } from '@/utils/deals'
 import { downloadBlobResponse } from '@/utils/downloads'
-import { formatMoney as fmtMoney } from '@/utils/formatters'
+import { formatMoney as fmtMoney, formatDate } from '@/utils/formatters'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 
 const auth = useAuthStore()
@@ -246,7 +240,6 @@ const dealPage = ref(1)
 const dealPageSize = ref(DEFAULT_PAGE_SIZE)
 const dealCount = ref(0)
 const statusCounts = ref({})
-const exportingDeals = ref(false)
 const loadingDeals = ref(false)
 const dealsLoadError = ref('')
 const toasts = useToastsStore()
@@ -406,13 +399,6 @@ function listParams () {
   return params
 }
 
-function dealExportParams () {
-  const params = listParams()
-  delete params.page
-  delete params.page_size
-  return params
-}
-
 function resetFilters () {
   statusFilter.value = ''
   operationFilter.value = ''
@@ -433,22 +419,6 @@ function setDealPage (page) {
 function setDealPageSize (size) {
   if (!size || size === dealPageSize.value) return
   dealPageSize.value = size
-}
-
-async function exportDeals (format) {
-  exportingDeals.value = true
-  try {
-    await exportEntityData(
-      '/deals/export/',
-      format,
-      dealExportParams(),
-      `deals.${format}`,
-    )
-  } catch (err) {
-    toasts.error(extractError(err, 'Не удалось выгрузить сделки'))
-  } finally {
-    exportingDeals.value = false
-  }
 }
 
 async function reloadDealsScreen () {

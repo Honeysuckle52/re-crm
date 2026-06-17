@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Общие helper'ы для dev-запуска background worker."""
 from __future__ import annotations
 

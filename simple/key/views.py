@@ -1,10 +1,13 @@
+# -*- coding: utf-8 -*-
 """API приложения ``key``."""
 import logging
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Sum, Q, F
 from django.db.models.deletion import ProtectedError
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets, filters, serializers as drf_serializers
@@ -30,6 +33,15 @@ from .twogis import TwoGisClient, apply_property_enrichment
 from .mailing import (
     resend as resend_email,
     enqueue_task_assigned,
+)
+from .viewing_payments import (
+    SberAcquiringError,
+    ViewingPaymentAccessDenied,
+    ViewingPaymentValidationError,
+    create_viewing_payment,
+    mark_payment_failed,
+    refund_payment,
+    sync_payment_with_sber,
 )
 from .permissions import (
     IsAdminOrManager,
@@ -2021,7 +2033,7 @@ class DealViewSet(viewsets.ModelViewSet):
 
 class PropertyViewingViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyViewing.objects.select_related(
-        'property', 'client_profile__user', 'employee_profile__user'
+        'property', 'client_profile__user', 'employee_profile__user', 'payment'
     ).all()
     serializer_class = serializers.PropertyViewingSerializer
     permission_classes = [IsAuthenticated]
@@ -2038,6 +2050,120 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
             # Агент видит только свои просмотры, менеджер/админ — все.
             qs = qs.filter(employee_profile__user=user)
         return qs
+
+
+class ViewingPaymentInitiateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        viewing_id = request.data.get('viewing_id')
+        if not viewing_id:
+            return Response(
+                {'viewing_id': ['Поле viewing_id обязательно.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        viewing = get_object_or_404(
+            models.PropertyViewing.objects.select_related('property', 'client_profile__user'),
+            pk=viewing_id,
+        )
+        try:
+            payment = create_viewing_payment(viewing, request.user, request)
+        except ViewingPaymentAccessDenied as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except (ViewingPaymentValidationError, SberAcquiringError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            serializers.ViewingPaymentSerializer(payment, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ViewingPaymentSuccessView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        payment_id = request.query_params.get('payment_id')
+        payment = get_object_or_404(
+            models.ViewingPayment.objects.select_related('viewing__client_profile__user'),
+            pk=payment_id,
+        )
+        if (
+            request.user.id != payment.client_id
+            and not request.user.is_employee
+            and not request.user.is_admin_or_manager
+        ):
+            return Response({'detail': 'Недостаточно прав.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            payment, response_payload = sync_payment_with_sber(payment, actor=request.user)
+        except (ViewingPaymentValidationError, SberAcquiringError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        http_status = (
+            status.HTTP_200_OK
+            if payment.status == models.ViewingPayment.STATUS_PAID
+            else status.HTTP_400_BAD_REQUEST
+        )
+        return Response(
+            {
+                'payment': serializers.ViewingPaymentSerializer(payment, context={'request': request}).data,
+                'sber_response': response_payload,
+            },
+            status=http_status,
+        )
+
+
+class ViewingPaymentFailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        payment_id = request.query_params.get('payment_id')
+        payment = get_object_or_404(models.ViewingPayment, pk=payment_id)
+        if (
+            request.user.id != payment.client_id
+            and not request.user.is_employee
+            and not request.user.is_admin_or_manager
+        ):
+            return Response({'detail': 'Недостаточно прав.'}, status=status.HTTP_403_FORBIDDEN)
+        payment = mark_payment_failed(
+            payment,
+            actor=request.user,
+            comment='Клиент вернулся на fail-URL после неуспешной оплаты.',
+        )
+        return Response(
+            serializers.ViewingPaymentSerializer(payment, context={'request': request}).data,
+        )
+
+
+class ViewingPaymentWebhookView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        order_id = request.data.get('orderId') or request.data.get('order_id')
+        if not order_id:
+            return Response({'detail': 'orderId is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        payment = get_object_or_404(models.ViewingPayment, sber_order_id=order_id)
+        try:
+            payment, _ = sync_payment_with_sber(payment)
+        except (ViewingPaymentValidationError, SberAcquiringError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': payment.status})
+
+
+class ViewingPaymentRefundView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def post(self, request, payment_id: int):
+        payment = get_object_or_404(models.ViewingPayment, pk=payment_id)
+        amount = request.data.get('amount')
+        try:
+            refund_amount = None if amount in (None, '') else Decimal(str(amount))
+            payment = refund_payment(
+                payment,
+                actor=request.user,
+                amount=refund_amount,
+            )
+        except (ViewingPaymentValidationError, SberAcquiringError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializers.ViewingPaymentSerializer(payment, context={'request': request}).data)
 
 
 class TaskViewSet(viewsets.ModelViewSet):
@@ -2766,6 +2892,42 @@ class TasksReportView(APIView):
 
     def get(self, request):
         payload = reports.build_tasks_report(
+            request.query_params,
+            user=request.user,
+        )
+        export_format = request.query_params.get('export')
+        if export_format:
+            return reports.export_report(
+                payload['definition'],
+                payload['summary'],
+                payload['rows'],
+                export_format,
+                ordering=payload.get('ordering'),
+                title=payload.get('title'),
+                user=request.user,
+            )
+        return Response({
+            'report_code': payload['definition'].code,
+            'title': payload['title'],
+            'columns': [
+                {'key': key, 'label': label}
+                for key, label in payload['definition'].columns
+            ],
+            'ordering': payload.get('ordering'),
+            'ordering_options': [
+                {'value': value, 'label': label}
+                for value, label in payload['definition'].ordering_options
+            ],
+            'summary': payload['summary'],
+            'rows': payload['rows'],
+        })
+
+
+class ViewingPaymentsReportView(APIView):
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        payload = reports.build_viewing_payments_report(
             request.query_params,
             user=request.user,
         )

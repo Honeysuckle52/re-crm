@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Сборка PDF-договоров."""
 from __future__ import annotations
 

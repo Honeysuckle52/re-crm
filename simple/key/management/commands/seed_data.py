@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Unified-команда заполнения справочников и demo-данных."""
 from __future__ import annotations
 
@@ -27,29 +28,8 @@ class Command(BaseCommand):
             action='store_true',
             help='Очистить данные выбранного этапа перед заполнением.',
         )
-        parser.add_argument(
-            '--force-images',
-            action='store_true',
-            help='Перезаписать изображения demo-объектов.',
-        )
-        parser.add_argument(
-            '--properties-count',
-            type=int,
-            default=30,
-            help='Количество дополнительных объектов недвижимости для создания.',
-        )
-        parser.add_argument(
-            '--requests-count',
-            type=int,
-            default=10,
-            help='Количество дополнительных заявок для создания.',
-        )
     def handle(self, *args, **options):
-        service = SeedDataService(
-            self,
-            properties_count=options['properties_count'],
-            requests_count=options['requests_count'],
-        )
+        service = SeedDataService(self)
         call_command('migrate', interactive=False, verbosity=0)
         execution = self._build_execution_plan(service, options)
         execution()
@@ -61,7 +41,6 @@ class Command(BaseCommand):
     ) -> Callable[[], None]:
         only = options['only']
         flush = bool(options['flush'])
-        force_images = bool(options['force_images'])
 
         def seed_all() -> None:
             service.seed_dictionaries(flush=False)
@@ -69,7 +48,6 @@ class Command(BaseCommand):
                 service.flush_demo()
             service.seed_demo(
                 flush=False,
-                force_images=force_images,
                 ensure_dictionaries=False,
             )
 
@@ -78,7 +56,6 @@ class Command(BaseCommand):
             'dictionaries': lambda: service.seed_dictionaries(flush=flush),
             'demo': lambda: service.seed_demo(
                 flush=flush,
-                force_images=force_images,
             ),
         }
         return actions[only]

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Unified CSV/XLSX/JSON export formatting helpers."""
 from __future__ import annotations
 

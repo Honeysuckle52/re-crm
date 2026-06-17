@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Сериализаторы DRF."""
 import re
 
@@ -1790,6 +1791,15 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
     agent_email = serializers.CharField(source='employee_profile.user.email', read_only=True)
     agent_phone = serializers.CharField(source='employee_profile.user.phone', read_only=True)
     scheduled_date = serializers.DateTimeField(source='viewing_date')
+    payment_id = serializers.IntegerField(source='payment.id', read_only=True)
+    payment_status = serializers.CharField(source='payment.status', read_only=True)
+    payment_amount = serializers.DecimalField(
+        source='payment.amount',
+        read_only=True,
+        max_digits=10,
+        decimal_places=2,
+    )
+    payment_url = serializers.SerializerMethodField()
     notes = serializers.CharField(
         source='comment',
         required=False,
@@ -1808,9 +1818,21 @@ class PropertyViewingSerializer(serializers.ModelSerializer):
             'client_middle_name', 'client_email', 'client_phone',
             'agent_username', 'agent_first_name', 'agent_last_name',
             'agent_middle_name', 'agent_email', 'agent_phone',
-            'scheduled_date', 'notes', 'created_at',
+            'scheduled_date', 'notes',
+            'payment_id', 'payment_status', 'payment_amount', 'payment_url',
+            'created_at',
         ]
         read_only_fields = ['created_at']
+
+    def get_payment_url(self, obj):
+        payment = getattr(obj, 'payment', None)
+        if payment is None:
+            return None
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user and (user.is_admin_or_manager or user.is_employee or user.id == obj.client_profile.user_id):
+            return payment.payment_url
+        return None
 
     def create(self, validated_data):
         client = validated_data.pop('client', None)
@@ -1876,6 +1898,8 @@ class TaskSerializer(serializers.ModelSerializer):
     is_overdue = serializers.SerializerMethodField()
     workflow_steps = serializers.SerializerMethodField()
     workflow_current_step = serializers.SerializerMethodField()
+    showing_payment_status = serializers.SerializerMethodField()
+    showing_payment_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Task
@@ -1890,6 +1914,7 @@ class TaskSerializer(serializers.ModelSerializer):
                   'due_date', 'completed_at', 'result',
                   'steps_log', 'is_auto_closed',
                   'workflow_steps', 'workflow_current_step',
+                  'showing_payment_status', 'showing_payment_amount',
                   'is_overdue', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at', 'created_by', 'is_auto_closed', 'steps_log']
         # status назначается бэкендом автоматически при создании (статус «new»),
@@ -1923,6 +1948,69 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def get_workflow_current_step(self, obj) -> str:
         return task_workflow.current_step_id(obj)
+
+    def _showing_payment(self, obj):
+        if obj.task_type != models.Task.TASK_TYPE_SHOWING or not obj.property_id or not obj.client_id:
+            return None
+        viewing = models.PropertyViewing.objects.filter(
+            property_id=obj.property_id,
+            client_profile__user_id=obj.client_id,
+        ).order_by('-viewing_date', '-id').first()
+        return getattr(viewing, 'payment', None) if viewing else None
+
+    def get_showing_payment_status(self, obj):
+        payment = self._showing_payment(obj)
+        return payment.status if payment else None
+
+    def get_showing_payment_amount(self, obj):
+        payment = self._showing_payment(obj)
+        return payment.amount if payment else None
+
+
+class ViewingPaymentSerializer(serializers.ModelSerializer):
+    client_username = serializers.CharField(source='client.username', read_only=True)
+    property_title = serializers.CharField(source='property.title', read_only=True)
+    viewing_status_code = serializers.CharField(source='viewing.status.code', read_only=True)
+
+    class Meta:
+        model = models.ViewingPayment
+        fields = [
+            'id',
+            'viewing',
+            'client',
+            'client_username',
+            'property',
+            'property_title',
+            'amount',
+            'status',
+            'sber_order_id',
+            'sber_transaction_id',
+            'payment_url',
+            'paid_at',
+            'viewing_status_code',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class PaymentHistorySerializer(serializers.ModelSerializer):
+    changed_by_username = serializers.CharField(source='changed_by.username', read_only=True)
+
+    class Meta:
+        model = models.PaymentHistory
+        fields = [
+            'id',
+            'payment',
+            'old_status',
+            'new_status',
+            'comment',
+            'sber_response',
+            'created_at',
+            'changed_by',
+            'changed_by_username',
+        ]
+        read_only_fields = fields
 
 
 class OutgoingEmailSerializer(serializers.ModelSerializer):

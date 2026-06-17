@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Private file storages used by the CRM backend."""
 
 from django.conf import settings

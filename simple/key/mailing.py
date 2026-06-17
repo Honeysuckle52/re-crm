@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Очередь и отправка писем."""
 from __future__ import annotations
 

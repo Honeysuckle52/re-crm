@@ -254,7 +254,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 
-cp .env.example .env                 # заполните креды PostgreSQL и DADATA_API_KEY
+cp .env.example .env                 # заполните креды PostgreSQL, SECRET_KEY, DADATA_API_KEY и TWOGIS_API_KEY
 createdb re_crm                      # или через pgAdmin / psql
 
 python manage.py migrate

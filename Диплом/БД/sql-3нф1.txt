@@ -1,404 +1,374 @@
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- =====================================================
--- 1. СПРАВОЧНИКИ (LOOKUPS)
+-- 1. СПРАВОЧНИКИ (Таблицы 5 - 26, 52)
 -- =====================================================
 
 CREATE TABLE `renovation_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE `bathroom_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `building_materials` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE `commercial_property_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `amenities` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `operation_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(10) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE `property_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(10) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE `request_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(15) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE `deal_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(20) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL,
-    `order` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    CONSTRAINT `deal_statuses_order_check` CHECK (`order` >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `order` SMALLINT NOT NULL
+);
 
 CREATE TABLE `task_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `code` VARCHAR(20) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL,
-    `order` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    CONSTRAINT `task_statuses_order_check` CHECK (`order` >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `order` SMALLINT NOT NULL
+);
 
 CREATE TABLE `property_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `task_priorities` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `task_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `client_kinds` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `contract_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `user_roles` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(20) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL,
-    `description` TEXT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `description` TEXT
+);
 
 CREATE TABLE `audit_entity_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(32) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `audit_actions` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(64) NOT NULL UNIQUE,
-    `name` VARCHAR(255) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `request_match_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(20) NOT NULL UNIQUE,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
     `name` VARCHAR(50) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
 CREATE TABLE `document_types` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(255) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `deal_participant_roles` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `code` VARCHAR(50) NOT NULL UNIQUE,
-    `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 CREATE TABLE `viewing_statuses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `code` VARCHAR(20) NOT NULL UNIQUE,
     `name` VARCHAR(100) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
 
+CREATE TABLE `viewing_payment_statuses` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `code` VARCHAR(25) NOT NULL UNIQUE,
+    `name` VARCHAR(50) NOT NULL
+);
 
 -- =====================================================
--- 2. АДРЕСА
+-- 2. АДРЕСА (Таблицы 27 - 29)
 -- =====================================================
 
 CREATE TABLE `cities` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL,
-    `region` VARCHAR(100) NULL,
-    `external_id` CHAR(36) NULL,
-    UNIQUE KEY `uk_city_region` (`name`, `region`),
-    INDEX `idx_cities_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `region` VARCHAR(100),
+    `external_id` CHAR(36)
+);
 
 CREATE TABLE `streets` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `city_id` INT NOT NULL,
+    `cities_id` INT NOT NULL,
     `name` VARCHAR(150) NOT NULL,
-    `street_type` VARCHAR(20) NULL,
-    `external_id` CHAR(36) NULL,
-    CONSTRAINT `fk_streets_city` FOREIGN KEY (`city_id`) REFERENCES `cities` (`id`) ON DELETE CASCADE,
-    UNIQUE KEY `uk_streets_city_name` (`city_id`, `name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `street_type` VARCHAR(20),
+    `external_id` CHAR(36),
+    FOREIGN KEY (`cities_id`) REFERENCES `cities` (`id`)
+);
 
 CREATE TABLE `houses` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `street_id` INT NOT NULL,
     `house_number` VARCHAR(20) NOT NULL,
-    `postal_code` VARCHAR(10) NULL,
-    `external_id` CHAR(36) NULL,
-    CONSTRAINT `fk_houses_street` FOREIGN KEY (`street_id`) REFERENCES `streets` (`id`) ON DELETE CASCADE,
-    UNIQUE KEY `uk_houses_street_number` (`street_id`, `house_number`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+    `postal_code` VARCHAR(10),
+    `coordinates_lat` DECIMAL(10,8),
+    `coordinates_lon` DECIMAL(11,8),
+    `cadastral_number` VARCHAR(50),
+    `floor_number` INT,
+    `external_id` CHAR(36),
+    FOREIGN KEY (`street_id`) REFERENCES `streets` (`id`)
+);
 
 -- =====================================================
--- 3. ПОЛЬЗОВАТЕЛИ И ПРОФИЛИ
+-- 3. ПОЛЬЗОВАТЕЛИ И ПРОФИЛИ (Таблицы 30 - 34)
 -- =====================================================
 
 CREATE TABLE `users` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `email` VARCHAR(255) NOT NULL UNIQUE,
+    `email` VARCHAR(100) NOT NULL UNIQUE,
     `password` VARCHAR(128) NOT NULL,
-    `phone` VARCHAR(20) NULL UNIQUE,
-    `role_id` INT NULL,
+    `phone` VARCHAR(20) UNIQUE,
+    `role_id` INT,
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
     `is_email_verified` TINYINT(1) NOT NULL DEFAULT 0,
-    `last_login` DATETIME NULL,
+    `last_login` DATETIME,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_users_role` FOREIGN KEY (`role_id`) REFERENCES `user_roles` (`id`) ON DELETE SET NULL,
-    INDEX `idx_users_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`role_id`) REFERENCES `user_roles` (`id`)
+);
 
 CREATE TABLE `employee_profiles` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NOT NULL UNIQUE,
     `first_name` VARCHAR(50) NOT NULL,
     `last_name` VARCHAR(50) NOT NULL,
-    `hire_date` DATE NULL,
-    `internal_phone` VARCHAR(20) NULL,
+    `hire_date` DATE,
+    `internal_phone` VARCHAR(20),
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_employee_profiles_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+);
 
 CREATE TABLE `client_profiles` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NOT NULL UNIQUE,
     `first_name` VARCHAR(50) NOT NULL,
     `last_name` VARCHAR(50) NOT NULL,
-    `middle_name` VARCHAR(50) NULL,
-    `client_kind_ref_id` INT NOT NULL DEFAULT 1,
+    `middle_name` VARCHAR(50),
+    `client_kind_ref_id` INT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_client_profiles_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_client_profiles_kind` FOREIGN KEY (`client_kind_ref_id`) REFERENCES `client_kinds` (`id`) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`),
+    FOREIGN KEY (`client_kind_ref_id`) REFERENCES `client_kinds` (`id`)
+);
 
 CREATE TABLE `client_individual_details` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `profile_id` INT NOT NULL UNIQUE,
-    `passport_series` VARCHAR(4) NULL,
-    `passport_number` VARCHAR(6) NULL,
-    `passport_issued_by` VARCHAR(255) NULL,
-    `passport_issued_date` DATE NULL,
-    `passport_code` VARCHAR(7) NULL,
+    `passport_series` VARCHAR(4),
+    `passport_number` VARCHAR(6),
+    `passport_issued_by` VARCHAR(255),
+    `passport_issued_date` DATE,
+    `passport_code` VARCHAR(7),
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_client_ind_details_profile` FOREIGN KEY (`profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`profile_id`) REFERENCES `client_profiles` (`id`)
+);
 
 CREATE TABLE `client_company_details` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `profile_id` INT NOT NULL UNIQUE,
-    `company_name` VARCHAR(255) NULL,
-    `company_inn` VARCHAR(10) NULL,
-    `company_ogrn` VARCHAR(13) NULL,
-    `company_kpp` VARCHAR(9) NULL,
-    `legal_address` TEXT NULL,
+    `company_name` VARCHAR(255),
+    `company_inn` VARCHAR(10),
+    `company_ogrn` VARCHAR(13),
+    `company_kpp` VARCHAR(9),
+    `legal_address` TEXT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX `idx_company_inn` (`company_inn`),
-    INDEX `idx_company_ogrn` (`company_ogrn`),
-    CONSTRAINT `fk_client_comp_details_profile` FOREIGN KEY (`profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+    FOREIGN KEY (`profile_id`) REFERENCES `client_profiles` (`id`)
+);
 
 -- =====================================================
--- 4. НЕДВИЖИМОСТЬ И ДЕТАЛИ
+-- 4. НЕДВИЖИМОСТЬ И ДЕТАЛИ (Таблицы 35 - 44)
 -- =====================================================
 
 CREATE TABLE `properties` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `title` VARCHAR(255) NULL,
+    `title` VARCHAR(255),
     `operation_type_id` INT NOT NULL,
-    `status_id` INT NOT NULL DEFAULT 1,
+    `status_id` INT NOT NULL,
     `house_id` INT NOT NULL,
-    `property_type_ref_id` INT NOT NULL DEFAULT 1,
-    `coordinates_lat` DECIMAL(10, 8) NULL,
-    `coordinates_lon` DECIMAL(11, 8) NULL,
-    `cadastral_number` VARCHAR(50) NULL UNIQUE,
-    `price` DECIMAL(15, 2) NOT NULL,
-    `area_total` DECIMAL(8, 2) NULL,
-    `rooms_count` INT NULL,
-    `floor_number` INT NULL,
-    `description` TEXT NULL,
+    `property_type_ref_id` INT NOT NULL,
+    `price` DECIMAL(15,2) NOT NULL,
+    `area_total` DECIMAL(8,2),
+    `rooms_count` INT,
+    `description` TEXT,
     `is_published` TINYINT(1) NOT NULL DEFAULT 1,
-    `published_at` DATETIME NULL,
-    `unpublished_at` DATETIME NULL,
+    `published_at` DATETIME,
+    `unpublished_at` DATETIME,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_properties_operation` FOREIGN KEY (`operation_type_id`) REFERENCES `operation_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_properties_status` FOREIGN KEY (`status_id`) REFERENCES `property_statuses` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_properties_house` FOREIGN KEY (`house_id`) REFERENCES `houses` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_properties_type` FOREIGN KEY (`property_type_ref_id`) REFERENCES `property_types` (`id`) ON DELETE RESTRICT,
-    
-    CONSTRAINT `property_price_non_negative` CHECK (`price` >= 0),
-    CONSTRAINT `property_area_total_positive` CHECK (`area_total` IS NULL OR `area_total` > 0),
-    CONSTRAINT `property_rooms_non_negative` CHECK (`rooms_count` IS NULL OR `rooms_count` >= 0),
-    CONSTRAINT `property_latitude_range` CHECK (`coordinates_lat` IS NULL OR (`coordinates_lat` >= -90 AND `coordinates_lat` <= 90)),
-    CONSTRAINT `property_longitude_range` CHECK (`coordinates_lon` IS NULL OR (`coordinates_lon` >= -180 AND `coordinates_lon` <= 180))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`operation_type_id`) REFERENCES `operation_types` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `property_statuses` (`id`),
+    FOREIGN KEY (`house_id`) REFERENCES `houses` (`id`),
+    FOREIGN KEY (`property_type_ref_id`) REFERENCES `property_types` (`id`)
+);
 
 CREATE TABLE `property_price_history` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `property_id` INT NOT NULL,
-    `old_price` DECIMAL(15, 2) NULL,
-    `new_price` DECIMAL(15, 2) NOT NULL,
+    `old_price` DECIMAL(15,2),
+    `new_price` DECIMAL(15,2) NOT NULL,
     `changed_by_id` INT NOT NULL,
     `changed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_price_hist_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_price_hist_user` FOREIGN KEY (`changed_by_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
-    INDEX `idx_price_hist_property` (`property_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`changed_by_id`) REFERENCES `users` (`id`)
+);
 
 CREATE TABLE `property_owners` (
     `property_id` INT NOT NULL,
     `client_profile_id` INT NOT NULL,
-    `ownership_share` DECIMAL(5,2) NULL,
+    `ownership_share` DECIMAL(5,2),
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    PRIMARY KEY(`property_id`, `client_profile_id`),
-    
-    CONSTRAINT `fk_owners_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_owners_client` FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `ownership_share_valid` CHECK (`ownership_share` IS NULL OR (`ownership_share` > 0 AND `ownership_share` <= 100))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    PRIMARY KEY (`property_id`, `client_profile_id`),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`)
+);
 
 CREATE TABLE `building_details` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `house_id` INT NOT NULL UNIQUE,
-    `year_built` SMALLINT NULL,
-    `total_floors` SMALLINT NULL,
-    `building_material_id` INT NULL,
-    `elevators_count` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    CONSTRAINT `fk_building_details_house` FOREIGN KEY (`house_id`) REFERENCES `houses` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_building_details_material` FOREIGN KEY (`building_material_id`) REFERENCES `building_materials` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `building_total_floors_positive` CHECK (`total_floors` IS NULL OR `total_floors` > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `year_built` SMALLINT,
+    `total_floors` SMALLINT,
+    `building_material_id` INT,
+    `elevators_count` SMALLINT DEFAULT 0,
+    FOREIGN KEY (`house_id`) REFERENCES `houses` (`id`),
+    FOREIGN KEY (`building_material_id`) REFERENCES `building_materials` (`id`)
+);
 
 CREATE TABLE `property_details` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `property_id` INT NOT NULL UNIQUE,
-    `living_area` DECIMAL(8,2) NULL,
-    `kitchen_area` DECIMAL(8,2) NULL,
-    `ceiling_height` DECIMAL(4,2) NULL,
-    `balcony_count` TINYINT UNSIGNED NOT NULL DEFAULT 0,
-    `bathroom_count` TINYINT UNSIGNED NOT NULL DEFAULT 1,
-    `bathroom_type_id` INT NULL,
-    `renovation_type_id` INT NULL,
-    `bedrooms_count` SMALLINT NULL,
-    `floors_count` SMALLINT NULL,
-    `land_area` DECIMAL(10,2) NULL,
-    CONSTRAINT `fk_property_details_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_property_details_bathroom` FOREIGN KEY (`bathroom_type_id`) REFERENCES `bathroom_types` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_property_details_renovation` FOREIGN KEY (`renovation_type_id`) REFERENCES `renovation_types` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `chk_living_area` CHECK (`living_area` IS NULL OR `living_area` > 0),
-    CONSTRAINT `chk_kitchen_area` CHECK (`kitchen_area` IS NULL OR `kitchen_area` > 0),
-    CONSTRAINT `chk_ceiling_height` CHECK (`ceiling_height` IS NULL OR `ceiling_height` > 0),
-    CONSTRAINT `chk_bedrooms_count` CHECK (`bedrooms_count` IS NULL OR `bedrooms_count` >= 0),
-    CONSTRAINT `chk_floors_count` CHECK (`floors_count` IS NULL OR `floors_count` > 0),
-    CONSTRAINT `chk_land_area` CHECK (`land_area` IS NULL OR `land_area` > 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `living_area` DECIMAL(8,2),
+    `kitchen_area` DECIMAL(8,2),
+    `ceiling_height` DECIMAL(4,2),
+    `balcony_count` TINYINT DEFAULT 0,
+    `bathroom_count` TINYINT DEFAULT 1,
+    `bathroom_type_id` INT,
+    `renovation_type_id` INT,
+    `bedrooms_count` SMALLINT,
+    `floors_count` SMALLINT,
+    `land_area` DECIMAL(10,2),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`bathroom_type_id`) REFERENCES `bathroom_types` (`id`),
+    FOREIGN KEY (`renovation_type_id`) REFERENCES `renovation_types` (`id`)
+);
 
 CREATE TABLE `commercial_property_details` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `property_id` INT NOT NULL UNIQUE,
     `commercial_type_id` INT NOT NULL,
-    `usable_area` DECIMAL(10,2) NULL,
-    `ceiling_height` DECIMAL(4,2) NULL,
-    `floor_load` DECIMAL(10,2) NULL,
-    `electric_power_kw` DECIMAL(10,2) NULL,
-    `has_separate_entrance` TINYINT(1) NOT NULL DEFAULT 0,
-    `has_display_windows` TINYINT(1) NOT NULL DEFAULT 0,
-    `is_first_line` TINYINT(1) NOT NULL DEFAULT 0,
-    `parking_spaces` SMALLINT UNSIGNED NULL,
-    CONSTRAINT `fk_commercial_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_commercial_type` FOREIGN KEY (`commercial_type_id`) REFERENCES `commercial_property_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `chk_usable_area` CHECK (`usable_area` IS NULL OR `usable_area` > 0),
-    CONSTRAINT `chk_electric_power` CHECK (`electric_power_kw` IS NULL OR `electric_power_kw` >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `usable_area` DECIMAL(10,2),
+    `ceiling_height` DECIMAL(4,2),
+    `floor_load` DECIMAL(10,2),
+    `electric_power_kw` DECIMAL(10,2),
+    `has_separate_entrance` TINYINT(1) DEFAULT 0,
+    `has_display_windows` TINYINT(1) DEFAULT 0,
+    `is_first_line` TINYINT(1) DEFAULT 0,
+    `parking_spaces` SMALLINT,
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`commercial_type_id`) REFERENCES `commercial_property_types` (`id`)
+);
 
 CREATE TABLE `property_amenities` (
     `property_id` INT NOT NULL,
     `amenity_id` INT NOT NULL,
-    PRIMARY KEY(`property_id`, `amenity_id`),
-    CONSTRAINT `fk_property_amenities_property` FOREIGN KEY(`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_property_amenities_amenity` FOREIGN KEY(`amenity_id`) REFERENCES `amenities` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    PRIMARY KEY (`property_id`, `amenity_id`),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`amenity_id`) REFERENCES `amenities` (`id`)
+);
 
 CREATE TABLE `property_photos` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `property_id` INT NOT NULL,
-    `url` TEXT NULL,
-    `caption` VARCHAR(255) NULL,
-    `is_hidden` TINYINT(1) NOT NULL DEFAULT 0,
-    `order` INT UNSIGNED NOT NULL DEFAULT 0,
+    `url` TEXT,
+    `caption` VARCHAR(255),
+    `is_hidden` TINYINT(1) DEFAULT 0,
+    `order` INT DEFAULT 0,
     `uploaded_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_photos_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    INDEX `idx_property_photos_property` (`property_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`)
+);
 
 CREATE TABLE `property_documents` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `property_id` INT NOT NULL,
-    `document_name` VARCHAR(255) NOT NULL,
+    `document_name` VARCHAR(100) NOT NULL,
     `file_url` TEXT NOT NULL,
-    `is_verified` TINYINT(1) NOT NULL DEFAULT 0,
-    `verified_by_id` INT NULL,
-    `verified_at` DATETIME NULL,
+    `is_verified` TINYINT(1) DEFAULT 0,
+    `verified_by_id` INT,
+    `verified_at` DATETIME,
     `uploaded_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT `fk_docs_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_docs_verified_by` FOREIGN KEY (`verified_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-    INDEX `idx_property_documents_property` (`property_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`verified_by_id`) REFERENCES `users` (`id`)
+);
 
 CREATE TABLE `property_viewings` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -406,78 +376,64 @@ CREATE TABLE `property_viewings` (
     `client_profile_id` INT NOT NULL,
     `employee_profile_id` INT NOT NULL,
     `viewing_date` DATETIME NOT NULL,
-    `status_id` INT NOT NULL DEFAULT 1,
-    `comment` TEXT NULL,
+    `status_id` INT NOT NULL,
+    `comment` TEXT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_viewings_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_viewings_client` FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_viewings_employee` FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_viewings_status` FOREIGN KEY (`status_id`) REFERENCES `viewing_statuses` (`id`) ON DELETE RESTRICT,
-    INDEX `idx_viewings_date` (`viewing_date`),
-    INDEX `idx_viewings_status` (`status_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`),
+    FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `viewing_statuses` (`id`)
+);
 
 -- =====================================================
--- 5. ЗАЯВКИ, СДЕЛКИ, УЧАСТНИКИ И ДОКУМЕНТЫ
+-- 5. ЗАЯВКИ, СДЕЛКИ, УЧАСТНИКИ (Таблицы 45 - 49)
 -- =====================================================
 
 CREATE TABLE `requests` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `client_profile_id` INT NOT NULL,
-    `employee_profile_id` INT NULL,
-    `property_id` INT NULL,
+    `employee_profile_id` INT,
+    `property_id` INT,
     `operation_type_id` INT NOT NULL,
-    `status_id` INT NOT NULL DEFAULT 1,
-    `property_type_id` INT NULL,
-    `preferred_city_id` INT NULL,
-    `preferred_district` VARCHAR(100) NULL,
-    `min_price` DECIMAL(15, 2) NULL,
-    `max_price` DECIMAL(15, 2) NULL,
-    `min_area` DECIMAL(8, 2) NULL,
-    `max_area` DECIMAL(8, 2) NULL,
-    `rooms_count` INT NULL,
-    `address_preferences` TEXT NULL,
-    `description` TEXT NULL,
+    `status_id` INT NOT NULL,
+    `property_type_id` INT,
+    `preferred_city_id` INT,
+    `preferred_district` VARCHAR(100),
+    `min_price` DECIMAL(15,2),
+    `max_price` DECIMAL(15,2),
+    `min_area` DECIMAL(8,2),
+    `max_area` DECIMAL(8,2),
+    `rooms_count` INT,
+    `address_preferences` TEXT,
+    `description` TEXT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `closed_at` DATETIME NULL,
-    
-    CONSTRAINT `fk_requests_client` FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_requests_employee` FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_requests_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_requests_operation` FOREIGN KEY (`operation_type_id`) REFERENCES `operation_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_requests_status` FOREIGN KEY (`status_id`) REFERENCES `request_statuses` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_requests_property_type` FOREIGN KEY (`property_type_id`) REFERENCES `property_types` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_requests_preferred_city` FOREIGN KEY (`preferred_city_id`) REFERENCES `cities` (`id`) ON DELETE SET NULL,
-    
-    CONSTRAINT `request_min_price_non_negative` CHECK (`min_price` IS NULL OR `min_price` >= 0),
-    CONSTRAINT `request_max_price_non_negative` CHECK (`max_price` IS NULL OR `max_price` >= 0),
-    CONSTRAINT `request_price_range_valid` CHECK (`min_price` IS NULL OR `max_price` IS NULL OR `min_price` <= `max_price`),
-    CONSTRAINT `request_area_range_valid` CHECK (`min_area` IS NULL OR `max_area` IS NULL OR `min_area` <= `max_area`),
-    CONSTRAINT `request_rooms_non_negative` CHECK (`rooms_count` IS NULL OR `rooms_count` >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `closed_at` DATETIME,
+    FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`),
+    FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`operation_type_id`) REFERENCES `operation_types` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `request_statuses` (`id`),
+    FOREIGN KEY (`property_type_id`) REFERENCES `property_types` (`id`),
+    FOREIGN KEY (`preferred_city_id`) REFERENCES `cities` (`id`)
+);
 
 CREATE TABLE `request_property_matches` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `request_id` INT NOT NULL,
     `property_id` INT NOT NULL,
     `employee_profile_id` INT NOT NULL,
-    `status_id` INT NOT NULL DEFAULT 1,
-    `agent_note` TEXT NULL,
-    `confirmed_at` DATETIME NULL,
-    `confirmed_by_id` INT NULL,
+    `status_id` INT NOT NULL,
+    `agent_note` TEXT,
+    `confirmed_at` DATETIME,
+    `confirmed_by_id` INT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_matches_request` FOREIGN KEY (`request_id`) REFERENCES `requests` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_matches_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_matches_employee` FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_matches_status` FOREIGN KEY (`status_id`) REFERENCES `request_match_statuses` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_matches_confirmed_by` FOREIGN KEY (`confirmed_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-    
-    CONSTRAINT `unique_request_property_match` UNIQUE (`request_id`, `property_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`request_id`) REFERENCES `requests` (`id`),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `request_match_statuses` (`id`),
+    FOREIGN KEY (`confirmed_by_id`) REFERENCES `users` (`id`)
+);
 
 CREATE TABLE `deals` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -485,26 +441,22 @@ CREATE TABLE `deals` (
     `property_id` INT NOT NULL,
     `employee_profile_id` INT NOT NULL,
     `operation_type_id` INT NOT NULL,
-    `status_id` INT NULL,
-    `request_id` INT NULL UNIQUE,
-    `price_final` DECIMAL(15, 2) NOT NULL,
-    `commission_percent` DECIMAL(5, 2) NULL,
+    `status_id` INT,
+    `request_id` INT,
+    `price_final` DECIMAL(15,2) NOT NULL,
+    `commission_percent` DECIMAL(10,2),
     `deal_date` DATE NOT NULL,
-    `notes` TEXT NULL,
-    `contract_status_ref_id` INT NOT NULL DEFAULT 1,
+    `notes` TEXT,
+    `contract_status_ref_id` INT NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_deals_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_deals_employee` FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_deals_operation` FOREIGN KEY (`operation_type_id`) REFERENCES `operation_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_deals_status` FOREIGN KEY (`status_id`) REFERENCES `deal_statuses` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_deals_request` FOREIGN KEY (`request_id`) REFERENCES `requests` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_deals_contract_status` FOREIGN KEY (`contract_status_ref_id`) REFERENCES `contract_statuses` (`id`) ON DELETE RESTRICT,
-    
-    CONSTRAINT `deal_price_final_non_negative` CHECK (`price_final` >= 0),
-    CONSTRAINT `deal_commission_percent_range` CHECK (`commission_percent` IS NULL OR (`commission_percent` >= 0 AND `commission_percent` <= 100))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`employee_profile_id`) REFERENCES `employee_profiles` (`id`),
+    FOREIGN KEY (`operation_type_id`) REFERENCES `operation_types` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `deal_statuses` (`id`),
+    FOREIGN KEY (`request_id`) REFERENCES `requests` (`id`),
+    FOREIGN KEY (`contract_status_ref_id`) REFERENCES `contract_statuses` (`id`)
+);
 
 CREATE TABLE `deal_participants` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -512,262 +464,147 @@ CREATE TABLE `deal_participants` (
     `client_profile_id` INT NOT NULL,
     `role_id` INT NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_participants_deal` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_participants_client` FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_participants_role` FOREIGN KEY (`role_id`) REFERENCES `deal_participant_roles` (`id`) ON DELETE RESTRICT,
-    UNIQUE KEY `uk_deal_client_role` (`deal_id`, `client_profile_id`, `role_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`),
+    FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`),
+    FOREIGN KEY (`role_id`) REFERENCES `deal_participant_roles` (`id`)
+);
 
 CREATE TABLE `deal_documents` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `deal_id` INT NOT NULL,
     `document_type_id` INT NOT NULL,
-    `file_url` TEXT NULL,
-    `document_number` VARCHAR(50) NULL,
-    `template_path` VARCHAR(255) NULL,
-    `generated_at` DATETIME NULL,
-    `generated_by_id` INT NULL,
+    `file_url` TEXT,
+    `document_number` VARCHAR(50),
+    `template_path` VARCHAR(255),
+    `generated_at` DATETIME,
+    `generated_by_id` INT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_deal_docs_deal` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_deal_docs_type` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_deal_docs_generated_by` FOREIGN KEY (`generated_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-    INDEX `idx_deal_docs_deal` (`deal_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`),
+    FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`),
+    FOREIGN KEY (`generated_by_id`) REFERENCES `users` (`id`)
+);
+
+-- =====================================================
+-- 6. ЗАДАЧИ (Таблица 50)
+-- =====================================================
 
 CREATE TABLE `tasks` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `title` VARCHAR(255) NOT NULL,
-    `description` TEXT NULL,
-    `priority_ref_id` INT NOT NULL DEFAULT 2,
-    `task_type_ref_id` INT NOT NULL DEFAULT 6,
+    `description` TEXT,
+    `priority_ref_id` INT NOT NULL,
+    `task_type_ref_id` INT NOT NULL,
     `status_id` INT NOT NULL,
     `assignee_id` INT NOT NULL,
     `created_by_id` INT NOT NULL,
-    `client_profile_id` INT NULL,
-    `property_id` INT NULL,
-    `request_id` INT NULL,
-    `deal_id` INT NULL,
-    `due_date` DATETIME NULL,
-    `completed_at` DATETIME NULL,
-    `result` TEXT NULL,
-    `is_auto_closed` TINYINT(1) NOT NULL DEFAULT 0,
+    `client_profile_id` INT,
+    `property_id` INT,
+    `request_id` INT,
+    `deal_id` INT,
+    `due_date` DATETIME,
+    `completed_at` DATETIME,
+    `result` TEXT,
+    `is_auto_closed` TINYINT(1) DEFAULT 0,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_tasks_priority` FOREIGN KEY (`priority_ref_id`) REFERENCES `task_priorities` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_tasks_type` FOREIGN KEY (`task_type_ref_id`) REFERENCES `task_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_tasks_status` FOREIGN KEY (`status_id`) REFERENCES `task_statuses` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_tasks_assignee` FOREIGN KEY (`assignee_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_tasks_created_by` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_tasks_client` FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_tasks_property` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_tasks_request` FOREIGN KEY (`request_id`) REFERENCES `requests` (`id`) ON DELETE SET NULL,
-    CONSTRAINT `fk_tasks_deal` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE SET NULL,
-    
-    INDEX `idx_tasks_assignee` (`assignee_id`),
-    INDEX `idx_tasks_status` (`status_id`),
-    INDEX `idx_tasks_due_date` (`due_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
+    FOREIGN KEY (`priority_ref_id`) REFERENCES `task_priorities` (`id`),
+    FOREIGN KEY (`task_type_ref_id`) REFERENCES `task_types` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `task_statuses` (`id`),
+    FOREIGN KEY (`assignee_id`) REFERENCES `users` (`id`),
+    FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`),
+    FOREIGN KEY (`client_profile_id`) REFERENCES `client_profiles` (`id`),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`request_id`) REFERENCES `requests` (`id`),
+    FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`)
+);
 
 -- =====================================================
--- 6. АУДИТ И РЕЗЕРВНОЕ КОПИРОВАНИЕ
+-- 7. ПЛАТЕЖИ (Таблицы 51 - 53)
+-- =====================================================
+
+CREATE TABLE `viewing_payments` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `viewing_id` INT NOT NULL UNIQUE,
+    `client_id` INT NOT NULL,
+    `property_id` INT NOT NULL,
+    `amount` DECIMAL(10,2) NOT NULL,
+    `status_id` INT NOT NULL,
+    `sber_order_id` VARCHAR(128),
+    `paid_at` DATETIME,
+    FOREIGN KEY (`viewing_id`) REFERENCES `property_viewings` (`id`),
+    FOREIGN KEY (`client_id`) REFERENCES `users` (`id`),
+    FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`),
+    FOREIGN KEY (`status_id`) REFERENCES `viewing_payment_statuses` (`id`)
+);
+
+CREATE TABLE `payment_history` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `payment_id` INT NOT NULL,
+    `old_status` VARCHAR(16),
+    `new_status` VARCHAR(16) NOT NULL,
+    `sber_response` JSON,
+    `changed_by_id` INT,
+    FOREIGN KEY (`payment_id`) REFERENCES `viewing_payments` (`id`),
+    FOREIGN KEY (`changed_by_id`) REFERENCES `users` (`id`)
+);
+
+-- =====================================================
+-- 8. СИСТЕМНЫЕ ТАБЛИЦЫ (Таблицы 54 - 55)
 -- =====================================================
 
 CREATE TABLE `audit_logs` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `entity_type_id` INT NOT NULL,
-    `entity_id` INT UNSIGNED NOT NULL,
+    `entity_id` INT NOT NULL,
     `action_id` INT NOT NULL,
     `message` TEXT NOT NULL,
-    `metadata` JSON NULL,
-    `actor_id` INT NULL,
+    `metadata` JSON,
+    `actor_id` INT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_audit_entity_type` FOREIGN KEY (`entity_type_id`) REFERENCES `audit_entity_types` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_audit_action` FOREIGN KEY (`action_id`) REFERENCES `audit_actions` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_audit_actor` FOREIGN KEY (`actor_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-    
-    INDEX `idx_audit_entity` (`entity_type_id`, `entity_id`),
-    INDEX `idx_audit_action` (`action_id`),
-    INDEX `idx_audit_created` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    FOREIGN KEY (`entity_type_id`) REFERENCES `audit_entity_types` (`id`),
+    FOREIGN KEY (`action_id`) REFERENCES `audit_actions` (`id`),
+    FOREIGN KEY (`actor_id`) REFERENCES `users` (`id`)
+);
 
 CREATE TABLE `database_backups` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `filename` VARCHAR(255) NOT NULL,
     `file` VARCHAR(100) NOT NULL,
-    `size_bytes` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `size_bytes` BIGINT DEFAULT 0,
     `database_name` VARCHAR(255) NOT NULL,
     `engine_label` VARCHAR(120) NOT NULL,
-    `tool_label` VARCHAR(120) NOT NULL DEFAULT '',
-    `created_by_id` INT NULL,
+    `tool_label` VARCHAR(120),
+    `created_by_id` INT,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT `fk_backups_created_by` FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-    INDEX `idx_backups_created` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- =====================================================
--- 7. НАПОЛНЕНИЕ СПРАВОЧНИКОВ
--- =====================================================
-
-INSERT INTO `renovation_types` (`code`, `name`) VALUES
-('none', 'Без ремонта'),
-('cosmetic', 'Косметический'),
-('euro', 'Евроремонт'),
-('designer', 'Дизайнерский');
-
-INSERT INTO `bathroom_types` (`code`, `name`) VALUES
-('combined', 'Совмещенный'),
-('separate', 'Раздельный');
-
-INSERT INTO `building_materials` (`code`, `name`) VALUES
-('brick', 'Кирпич'),
-('panel', 'Панель'),
-('monolith', 'Монолит'),
-('block', 'Блок'),
-('wood', 'Дерево');
-
-INSERT INTO `commercial_property_types` (`code`, `name`) VALUES
-('office', 'Офис'),
-('retail', 'Торговое помещение'),
-('warehouse', 'Склад'),
-('industrial', 'Производственное помещение'),
-('free_purpose', 'Свободное назначение'),
-('business', 'Бизнес'),
-('commercial_land', 'Коммерческий участок');
-
-INSERT INTO `amenities` (`code`, `name`) VALUES
-('internet', 'Интернет'),
-('air_conditioner', 'Кондиционер'),
-('tv', 'Телевизор'),
-('refrigerator', 'Холодильник'),
-('washing_machine', 'Стиральная машина'),
-('dishwasher', 'Посудомоечная машина'),
-('security', 'Охрана'),
-('intercom', 'Домофон'),
-('furniture', 'Мебель'),
-('parking', 'Парковка');
-
-INSERT INTO `operation_types` (`code`, `name`) VALUES 
-('sale', 'Продажа'), 
-('rent', 'Аренда');
-
-INSERT INTO `property_statuses` (`code`, `name`) VALUES 
-('active', 'Активно'), 
-('sold', 'Продано'), 
-('archived', 'В архиве');
-
-INSERT INTO `request_statuses` (`code`, `name`) VALUES 
-('new', 'Новая'), 
-('in_progress', 'В работе'), 
-('closed', 'Закрыта');
-
-INSERT INTO `deal_statuses` (`code`, `name`, `order`) VALUES 
-('draft', 'Черновик', 0),
-('negotiation', 'Переговоры', 1),
-('in_progress', 'В оформлении', 2),
-('completed', 'Завершена', 3),
-('cancelled', 'Отменена', 4);
-
-INSERT INTO `task_statuses` (`code`, `name`, `order`) VALUES 
-('new', 'Новая', 0),
-('in_progress', 'В работе', 1),
-('completed', 'Выполнена', 2),
-('cancelled', 'Отменена', 3);
-
-INSERT INTO `property_types` (`code`, `name`) VALUES 
-('apartment', 'Квартира'), 
-('house', 'Дом/Коттедж'), 
-('commercial', 'Коммерческая'),
-('land', 'Земельный участок'),
-('garage', 'Гараж'),
-('room', 'Комната');
-
-INSERT INTO `task_priorities` (`code`, `name`) VALUES 
-('low', 'Низкий'), 
-('medium', 'Средний'), 
-('high', 'Высокий'), 
-('urgent', 'Срочный');
-
-INSERT INTO `task_types` (`code`, `name`) VALUES 
-('call_client', 'Позвонить клиенту'), 
-('show_property', 'Показать объект'), 
-('prepare_docs', 'Подготовить документы'), 
-('negotiate', 'Провести переговоры'), 
-('sign_contract', 'Подписать договор'), 
-('other', 'Другое');
-
-INSERT INTO `client_kinds` (`code`, `name`) VALUES 
-('individual', 'Физическое лицо'), 
-('company', 'Юридическое лицо');
-
-INSERT INTO `contract_statuses` (`code`, `name`) VALUES 
-('draft', 'Черновик'), 
-('pending', 'На согласовании'), 
-('signed', 'Подписан'), 
-('rejected', 'Отклонен');
-
-INSERT INTO `user_roles` (`code`, `name`, `description`) VALUES 
-('client', 'Клиент', 'Обычный клиент системы'),
-('admin', 'Администратор', 'Полный доступ к системе'),
-('agent', 'Агент', 'Агент по недвижимости'),
-('manager', 'Менеджер', 'Управление заявками и сделками');
-
-INSERT INTO `audit_entity_types` (`code`, `name`) VALUES 
-('property', 'Объект недвижимости'),
-('request', 'Заявка'),
-('task', 'Задача'),
-('deal', 'Сделка'),
-('user', 'Пользователь');
-
-INSERT INTO `audit_actions` (`code`, `name`) VALUES 
-('created', 'Создан'),
-('updated', 'Обновлен'),
-('deleted', 'Удален'),
-('status_changed', 'Статус изменен'),
-('assigned', 'Назначен'),
-('completed', 'Завершен');
-
-INSERT INTO `request_match_statuses` (`code`, `name`) VALUES 
-('proposed', 'Предложен'),
-('viewed', 'Просмотрен'),
-('approved', 'Одобрен клиентом'),
-('rejected', 'Отклонен клиентом'),
-('withdrawn', 'Снят с рассмотрения');
-
-INSERT INTO `document_types` (`code`, `name`) VALUES
-('service_contract', 'Договор оказания услуг'),
-('sale_contract', 'Договор купли-продажи'),
-('rent_contract', 'Договор аренды'),
-('acceptance_act', 'Акт приема-передачи'),
-('agency_contract', 'Агентский договор'),
-('power_of_attorney', 'Доверенность'),
-('receipt', 'Расписка'),
-('additional_agreement', 'Дополнительное соглашение');
-
-INSERT INTO `deal_participant_roles` (`code`, `name`) VALUES
-('buyer', 'Покупатель'),
-('seller', 'Продавец'),
-('tenant', 'Арендатор'),
-('landlord', 'Арендодатель'),
-('guarantor', 'Поручитель'),
-('co_borrower', 'Созаемщик'),
-('representative', 'Представитель'),
-('heir', 'Наследник'),
-('trustee', 'Доверенное лицо'),
-('other', 'Другое');
-
-INSERT INTO `viewing_statuses` (`code`, `name`) VALUES
-('scheduled', 'Запланирован'),
-('confirmed', 'Подтвержден'),
-('in_progress', 'Идет просмотр'),
-('completed', 'Завершен'),
-('cancelled', 'Отменен'),
-('no_show', 'Клиент не пришел');
+    FOREIGN KEY (`created_by_id`) REFERENCES `users` (`id`)
+);
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- =====================================================
+-- 9. НАПОЛНЕНИЕ СПРАВОЧНИКОВ
+-- =====================================================
+
+INSERT INTO `renovation_types` (`code`, `name`) VALUES ('none', 'Без ремонта'), ('cosmetic', 'Косметический'), ('euro', 'Евроремонт'), ('designer', 'Дизайнерский');
+INSERT INTO `bathroom_types` (`code`, `name`) VALUES ('combined', 'Совмещенный'), ('separate', 'Раздельный');
+INSERT INTO `building_materials` (`code`, `name`) VALUES ('brick', 'Кирпич'), ('panel', 'Панель'), ('monolith', 'Монолит'), ('block', 'Блок'), ('wood', 'Дерево');
+INSERT INTO `commercial_property_types` (`code`, `name`) VALUES ('office', 'Офис'), ('retail', 'Торговое'), ('warehouse', 'Склад'), ('free_purpose', 'Свободное назначение');
+INSERT INTO `amenities` (`code`, `name`) VALUES ('internet', 'Интернет'), ('ac', 'Кондиционер'), ('tv', 'Телевизор'), ('fridge', 'Холодильник'), ('washer', 'Стиральная машина'), ('parking', 'Парковка');
+INSERT INTO `operation_types` (`code`, `name`) VALUES ('sale', 'Продажа'), ('rent', 'Аренда');
+INSERT INTO `property_statuses` (`code`, `name`) VALUES ('active', 'Активно'), ('sold', 'Продано'), ('archived', 'В архиве');
+INSERT INTO `request_statuses` (`code`, `name`) VALUES ('new', 'Новая'), ('in_progress', 'В работе'), ('closed', 'Закрыта');
+INSERT INTO `deal_statuses` (`code`, `name`, `order`) VALUES ('draft', 'Черновик', 1), ('negotiation', 'Переговоры', 2), ('completed', 'Завершена', 3), ('cancelled', 'Отменена', 4);
+INSERT INTO `task_statuses` (`code`, `name`, `order`) VALUES ('new', 'Новая', 1), ('in_progress', 'В работе', 2), ('completed', 'Выполнена', 3), ('cancelled', 'Отменена', 4);
+INSERT INTO `property_types` (`code`, `name`) VALUES ('apartment', 'Квартира'), ('house', 'Дом'), ('commercial', 'Коммерческая'), ('land', 'Участок'), ('garage', 'Гараж'), ('room', 'Комната');
+INSERT INTO `task_priorities` (`code`, `name`) VALUES ('low', 'Низкий'), ('medium', 'Средний'), ('high', 'Высокий'), ('urgent', 'Срочный');
+INSERT INTO `task_types` (`code`, `name`) VALUES ('call', 'Звонок'), ('showing', 'Показ'), ('docs', 'Документы'), ('other', 'Другое');
+INSERT INTO `client_kinds` (`code`, `name`) VALUES ('individual', 'Физическое лицо'), ('company', 'Юридическое лицо');
+INSERT INTO `contract_statuses` (`code`, `name`) VALUES ('draft', 'Черновик'), ('pending', 'На согласовании'), ('signed', 'Подписан'), ('rejected', 'Отклонен');
+INSERT INTO `user_roles` (`code`, `name`, `description`) VALUES ('admin', 'Администратор', 'Полный доступ'), ('manager', 'Менеджер', 'Управление сделками'), ('agent', 'Агент', 'Работа с клиентами'), ('client', 'Клиент', 'Просмотр объектов');
+INSERT INTO `audit_entity_types` (`code`, `name`) VALUES ('property', 'Объект'), ('request', 'Заявка'), ('task', 'Задача'), ('deal', 'Сделка'), ('user', 'Пользователь');
+INSERT INTO `audit_actions` (`code`, `name`) VALUES ('created', 'Создан'), ('updated', 'Обновлен'), ('deleted', 'Удален'), ('status_changed', 'Статус изменен');
+INSERT INTO `request_match_statuses` (`code`, `name`) VALUES ('proposed', 'Предложен'), ('viewed', 'Просмотрен'), ('approved', 'Одобрен'), ('rejected', 'Отклонен');
+INSERT INTO `document_types` (`code`, `name`) VALUES ('service_contract', 'Договор услуг'), ('sale_contract', 'Договор купли-продажи'), ('act', 'Акт приема-передачи');
+INSERT INTO `deal_participant_roles` (`code`, `name`) VALUES ('buyer', 'Покупатель'), ('seller', 'Продавец'), ('tenant', 'Арендатор'), ('landlord', 'Арендодатель');
+INSERT INTO `viewing_statuses` (`code`, `name`) VALUES ('scheduled', 'Запланирован'), ('confirmed', 'Подтвержден'), ('completed', 'Завершен'), ('cancelled', 'Отменен'), ('no_show', 'Не явился');
+INSERT INTO `viewing_payment_statuses` (`code`, `name`) VALUES ('pending', 'Ожидает оплаты'), ('paid', 'Оплачен'), ('failed', 'Ошибка'), ('refunded', 'Возвращен');

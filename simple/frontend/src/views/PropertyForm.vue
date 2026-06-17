@@ -1,230 +1,222 @@
 <template>
   <section class="stack property-form-page">
-    <div class="hero" style="padding: 24px 28px">
-      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
-        <div>
-          <div class="hero__eyebrow">{{ isEdit ? 'РЕДАКТИРОВАНИЕ' : 'НОВЫЙ ОБЪЕКТ' }}</div>
-          <h1 class="h2" style="color: #fff; margin-top: 8px">
+    <div class="hero property-form__hero">
+      <div class="row row--between property-form__hero-top">
+        <div class="stack property-form__hero-copy">
+          <div class="hero__eyebrow">{{ isEdit ? 'Редактирование' : 'Новый объект' }}</div>
+          <h1 class="h2 property-form__hero-title">
             {{ isEdit ? 'Изменить объект' : 'Создать объект' }}
           </h1>
-          <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
-            Заполните карточку объекта, подготовьте адрес, медиа и описание для дальнейшей работы по заявкам.
+          <div class="property-form__hero-text">
+            Заполните карточку по шагам: тип, адрес, параметры, медиа и описание.
           </div>
         </div>
         <button class="btn btn--ghost" type="button" @click="$router.back()">Назад</button>
       </div>
+
+      <div class="property-form__stepper">
+        <button
+          v-for="step in steps"
+          :key="step.id"
+          type="button"
+          class="property-form__step"
+          :class="{
+            'is-active': currentStep === step.id,
+            'is-complete': isStepComplete(step.id),
+            'is-locked': !isStepAccessible(step.id),
+          }"
+          :disabled="!isStepAccessible(step.id)"
+          @click="openStep(step.id)"
+        >
+          <span class="property-form__step-index">{{ step.id }}</span>
+          <span class="property-form__step-copy">
+            <span class="property-form__step-title">{{ step.title }}</span>
+            <span class="property-form__step-caption">{{ step.caption }}</span>
+          </span>
+        </button>
+      </div>
     </div>
 
-    <div v-if="false" class="kpi-strip">
-      <article class="kpi-card">
-        <span class="kpi-card__label">Режим</span>
-        <strong class="kpi-card__value">{{ formModeLabel }}</strong>
-        <span class="kpi-card__meta">{{ isEdit ? 'Обновление существующей карточки' : 'Создание нового объекта в каталоге' }}</span>
-      </article>
-      <article class="kpi-card">
-        <span class="kpi-card__label">Адрес</span>
-        <strong class="kpi-card__value">{{ addressStateLabel }}</strong>
-        <span class="kpi-card__meta">{{ addressPicked?.value || existingAddress || 'Выберите адрес из подсказок' }}</span>
-      </article>
-      <article class="kpi-card">
-        <span class="kpi-card__label">Фотографии</span>
-        <strong class="kpi-card__value">{{ photoCount }}</strong>
-        <span class="kpi-card__meta">Обложка: {{ coverCount ? 'назначена' : 'не выбрана' }}</span>
-      </article>
-      <article class="kpi-card kpi-card--accent">
-        <span class="kpi-card__label">Характеристики</span>
-        <strong class="kpi-card__value">{{ selectedFeaturesCount }}</strong>
-        <span class="kpi-card__meta">Отмечено параметров объекта</span>
-      </article>
-    </div>
-
-    <form class="panel panel--light stack property-form" @submit.prevent="submit">
-      <div class="surface-head property-form__section-head">
-        <div>
-          <div class="surface-head__meta">Карточка объекта</div>
-          <h2 class="h3">Основные параметры</h2>
+    <form class="panel panel--light property-form" @submit.prevent="handleSubmit">
+      <div class="surface-head property-form__surface-head">
+        <div class="surface-head__meta">
+          <div class="surface-head__meta">Шаг {{ currentStep }} из {{ steps.length }}</div>
+          <h2 class="h3">{{ currentStepMeta.title }}</h2>
         </div>
-        <div class="surface-head__caption">Базовые данные для каталога и дальнейшей работы по заявкам.</div>
+        <div class="surface-head__caption">{{ currentStepMeta.caption }}</div>
       </div>
-      <div class="grid grid--2 property-form__main-grid">
-        <div class="field">
-          <label>Заголовок</label>
-          <input class="input" v-model="form.title" required
-                 placeholder="Например: 2-комнатная на Ленина" />
-        </div>
-        <div class="field">
-          <label>Тип операции</label>
-          <select class="select" v-model.number="form.operation_type" required>
-            <option v-for="o in dict.operations" :key="o.id" :value="o.id">
-              {{ o.name }}
-            </option>
-          </select>
-        </div>
 
-        <div class="field">
-          <label>Цена, ₽</label>
-          <input class="input" type="number" step="0.01"
-                 v-model.number="form.price" required />
-        </div>
-        <div class="field">
-          <label>Тип объекта</label>
-          <select class="select" v-model="form.premises_type" required>
-            <option v-for="item in dict.propertyTypes" :key="item.id" :value="item.code">
-              {{ item.name }}
-            </option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Количество комнат</label>
-          <input class="input" type="number" v-model.number="form.rooms_count"
-                 :disabled="isRoomsDisabled" :placeholder="isRoomsDisabled ? 'Не применяется' : ''" />
-        </div>
-        <div class="field">
-          <label>Этаж</label>
-          <input class="input" type="number" v-model.number="form.floor_number"
-                 :disabled="isFloorDisabled" :placeholder="isFloorDisabled ? 'Не применяется' : 'Этаж'" />
-        </div>
-
-        <div class="field">
-          <label>Общая площадь, м²</label>
-          <input class="input" type="number" step="0.01"
-                 v-model.number="form.area_total" />
-        </div>
-        <div class="field">
-          <label>Кадастровый номер</label>
-          <input class="input" v-model="form.cadastral_number" />
-        </div>
-        <div class="field" v-if="auth.isStaff">
-          <label>Статус</label>
-          <select class="select" v-model.number="form.status" required>
-            <option v-for="s in dict.statuses" :key="s.id" :value="s.id">
-              {{ s.name }}
-            </option>
-          </select>
-        </div>
-        <div class="field" v-if="auth.isStaff">
-          <label>Публикация</label>
-          <label class="chip-check" style="width: fit-content">
-            <input type="checkbox" v-model="form.is_published" />
-            Опубликован
-          </label>
+      <div v-if="currentStepErrors.length" class="property-form__step-errors">
+        <div v-for="message in currentStepErrors" :key="message" class="property-form__step-error">
+          {{ message }}
         </div>
       </div>
 
-      <div class="surface-head property-form__section-head">
-        <div>
-          <div class="surface-head__meta">Локация</div>
-          <h2 class="h3">Адрес</h2>
-        </div>
-        <div class="surface-head__caption">Подсказки адресов подставляются через DaData.</div>
-      </div>
-      <p class="muted">
-        Начните вводить адрес — подсказки подгружаются из сервиса DaData.
-        Выберите нужную строку, и поля будут заполнены автоматически.
-      </p>
-      <AddressAutocomplete
-        v-model="addressQuery"
-        label="Поиск по адресу"
-        placeholder="Город, улица, дом, квартира…"
-        @pick="onAddressPick"
-      />
-      <div v-if="addressPicked" class="row" style="gap: 12px; flex-wrap: wrap">
-        <span class="tag tag--accent">{{ addressPicked.value }}</span>
-        <span v-if="addressPicked.postal_code" class="tag">
-          Индекс: {{ addressPicked.postal_code }}
-        </span>
-        <span v-if="addressPicked.geo_lat && addressPicked.geo_lon" class="tag">
-          {{ addressPicked.geo_lat.toFixed(4) }}, {{ addressPicked.geo_lon.toFixed(4) }}
-        </span>
-      </div>
-      <div v-else-if="existingAddress" class="muted">
-        Текущий адрес: {{ existingAddress }}
-      </div>
+      <section v-show="currentStep === 1" class="stack property-form__step-panel">
+        <div class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Тип и операция</h3>
+            </div>
+            <div class="surface-head__caption">
+              Выберите сценарий сделки и тип объекта. От этого зависит весь набор полей дальше.
+            </div>
+          </div>
 
-      <div class="surface-head property-form__section-head">
-        <div>
-          <div class="surface-head__meta">Медиа</div>
-          <h2 class="h3">Фотографии</h2>
-        </div>
-        <div class="surface-head__caption">Можно загружать файлы и добавлять внешние ссылки на изображения.</div>
-      </div>
-      <p class="muted">
-        После создания объекта карты со спутниковыми снимками подгружаются
-        автоматически из 2GIS по указанному адресу. Вы также можете загрузить
-        собственные фотографии или добавить ссылки на изображения — они
-        сохранятся вместе с картами из 2GIS.
-      </p>
-      <div class="grid grid--3" v-if="photos.length">
-        <div v-for="(p, i) in photos" :key="p.id || ('new-' + i)"
-             class="photo-tile">
-          <img :src="p.image_url || p.preview || p.url" alt="Фото объекта" />
-          <div class="photo-tile__overlay">
-            <label class="tag tag--panel" style="cursor: pointer">
-              <input type="checkbox" v-model="p.is_cover"
-                     @change="setCover(p)" style="display: none" />
-              {{ p.is_cover ? 'Обложка' : 'Сделать обложкой' }}
-            </label>
-            <button class="btn btn--danger btn--sm" type="button"
-                    @click="removePhoto(p, i)">
-              Удалить
-            </button>
+          <div class="grid grid--2 property-form__grid">
+            <div class="field">
+              <label>Тип операции <span class="property-form__required">*</span></label>
+              <select ref="operationTypeFieldRef" class="select" v-model.number="form.operation_type" required>
+                <option v-for="item in dict.operations" :key="item.id" :value="item.id">
+                  {{ item.name }}
+                </option>
+              </select>
+              <div v-if="fieldErrors.operation_type" class="property-form__field-error">{{ fieldErrors.operation_type }}</div>
+            </div>
+
+            <div class="field">
+              <label>Тип объекта <span class="property-form__required">*</span></label>
+              <select ref="premisesTypeFieldRef" class="select" v-model="form.premises_type" required>
+                <option v-for="item in dict.propertyTypes" :key="item.id" :value="item.code">
+                  {{ item.name }}
+                </option>
+              </select>
+              <div v-if="fieldErrors.premises_type" class="property-form__field-error">{{ fieldErrors.premises_type }}</div>
+            </div>
+
+            <div v-if="auth.isStaff" class="field">
+              <label>Статус</label>
+              <select class="select" v-model.number="form.status" required>
+                <option v-for="item in dict.statuses" :key="item.id" :value="item.id">
+                  {{ item.name }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="auth.isStaff" class="field">
+              <label>Публикация</label>
+              <label class="chip-check property-form__chip-inline">
+                <input type="checkbox" v-model="form.is_published" />
+                Опубликован
+              </label>
+            </div>
           </div>
         </div>
-      </div>
-      <div v-else class="empty property-form__photos-empty">
-        Фотографии пока не добавлены.
-      </div>
-      <div class="row property-form__photos-actions" style="gap: 12px; flex-wrap: wrap">
-        <label class="btn btn--sm" style="cursor: pointer">
-          Загрузить файл
-          <input type="file" accept="image/*" multiple
-                 style="display: none" @change="onFilesSelected" />
-        </label>
-        <div class="row property-form__photo-url" style="gap: 8px; flex: 1; min-width: 240px">
-          <input class="input" v-model="newPhotoUrl"
-                 placeholder="или вставьте ссылку на изображение" />
-          <button class="btn btn--sm" type="button" @click="addPhotoByUrl">
-            Добавить ссылку
-          </button>
-        </div>
-      </div>
+      </section>
 
-      <div class="surface-head property-form__section-head">
-        <div>
-          <div class="surface-head__meta">Контент карточки</div>
-          <h2 class="h3">Описание</h2>
-        </div>
-        <div class="surface-head__caption">Текст используется в карточке объекта и в работе агента с клиентом.</div>
-      </div>
-      <div class="field">
-        <label>Описание объекта</label>
-        <textarea class="textarea" v-model="form.description" rows="5"
-                  placeholder="Расскажите об объекте: состояние, инфраструктура, транспорт…">
-        </textarea>
-      </div>
+      <section v-show="currentStep === 2" class="stack property-form__step-panel">
+        <div v-if="showBuildingDetailsSection" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Адрес объекта</h3>
+            </div>
+            <div class="surface-head__caption">
+              Подсказки адресов загружаются через DaData, карты и окружение подтягиваются из 2GIS.
+            </div>
+          </div>
 
-      <div class="surface-head property-form__section-head">
-        <div>
-          <div class="surface-head__meta">Данные БД</div>
-          <h2 class="h3">Характеристики из связанных таблиц</h2>
-        </div>
-        <div class="surface-head__caption">
-          Поля сохраняются в `building_details`, `property_details` и `commercial_property_details`.
-        </div>
-      </div>
+          <p class="muted property-form__text">
+            Начните вводить адрес, затем выберите точный вариант из подсказок.
+          </p>
 
-      <div class="grid grid--2 property-form__details-grid">
-        <div class="panel panel--light property-form__details-block">
-          <h3 class="h4">Дом</h3>
-          <div class="grid grid--2 property-form__details-fields">
+          <AddressAutocomplete
+            ref="addressFieldRef"
+            v-model="addressQuery"
+            label="Поиск по адресу"
+            placeholder="Город, улица, дом, квартира…"
+            @pick="onAddressPick"
+          />
+          <div v-if="fieldErrors.address" class="property-form__field-error">{{ fieldErrors.address }}</div>
+
+          <div v-if="addressPicked" class="row property-form__tags">
+            <span class="tag tag--accent">{{ addressPicked.value }}</span>
+            <span v-if="addressPicked.postal_code" class="tag">
+              Индекс: {{ addressPicked.postal_code }}
+            </span>
+            <span v-if="addressPicked.geo_lat && addressPicked.geo_lon" class="tag">
+              {{ formatCoordinate(addressPicked.geo_lat) }}, {{ formatCoordinate(addressPicked.geo_lon) }}
+            </span>
+          </div>
+
+          <div v-else-if="existingAddress" class="empty property-form__address-empty">
+            <div>
+              <strong>Текущий адрес</strong>
+              <div class="muted">{{ existingAddress }}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-show="currentStep === 3" class="stack property-form__step-panel">
+        <div class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Параметры объекта</h3>
+            </div>
+            <div class="surface-head__caption">
+              Заполните базовые данные объекта и характеристики из связанных таблиц.
+            </div>
+          </div>
+
+          <div class="grid grid--2 property-form__grid">
+            <div class="field">
+              <label>Заголовок <span class="property-form__required">*</span></label>
+              <input
+                ref="titleFieldRef"
+                class="input"
+                v-model="form.title"
+                required
+                placeholder="Например: 2-комнатная на Ленина" />
+              <div v-if="fieldErrors.title" class="property-form__field-error">{{ fieldErrors.title }}</div>
+            </div>
+
+            <div class="field">
+              <label>Цена, ₽ <span class="property-form__required">*</span></label>
+              <input ref="priceFieldRef" class="input" type="number" step="0.01" v-model.number="form.price" required />
+              <div v-if="fieldErrors.price" class="property-form__field-error">{{ fieldErrors.price }}</div>
+            </div>
+
+            <div class="field">
+              <label>Общая площадь, м²</label>
+              <input class="input" type="number" step="0.01" v-model.number="form.area_total" />
+            </div>
+
+            <div v-if="showRoomsField" class="field">
+              <label>Количество комнат</label>
+              <input class="input" type="number" v-model.number="form.rooms_count" />
+            </div>
+
+            <div v-if="showFloorField" class="field">
+              <label>Этаж</label>
+              <input class="input" type="number" v-model.number="form.floor_number" />
+            </div>
+
+            <div class="field">
+              <label>Кадастровый номер</label>
+              <input class="input" v-model="form.cadastral_number" />
+            </div>
+          </div>
+        </div>
+
+        <div class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">О доме</h3>
+            </div>
+            <div class="surface-head__caption">Характеристики здания и общие параметры дома.</div>
+          </div>
+
+          <div class="grid grid--2 property-form__grid">
             <div class="field">
               <label>Год постройки</label>
               <input class="input" type="number" v-model.number="form.building_details.year_built" />
             </div>
+
             <div class="field">
-              <label>Этажей в доме</label>
+              <label>Количество этажей в доме</label>
               <input class="input" type="number" v-model.number="form.building_details.total_floors" />
             </div>
+
             <div class="field">
               <label>Материал стен</label>
               <select class="select" v-model="form.building_details.building_material">
@@ -234,37 +226,49 @@
                 </option>
               </select>
             </div>
+
             <div class="field">
-              <label>Лифты</label>
+              <label>Количество лифтов</label>
               <input class="input" type="number" min="0" v-model.number="form.building_details.elevators_count" />
             </div>
           </div>
         </div>
 
-        <div class="panel panel--light property-form__details-block">
-          <h3 class="h4">Жилая часть</h3>
-          <div class="grid grid--2 property-form__details-fields">
-            <div class="field">
+        <div v-if="!isCommercialType" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">О помещении</h3>
+            </div>
+            <div class="surface-head__caption">Планировка, санузлы, ремонт и жилые характеристики.</div>
+          </div>
+
+          <div class="grid grid--2 property-form__grid">
+            <div v-if="showResidentialAreaFields" class="field">
               <label>Жилая площадь, м²</label>
               <input class="input" type="number" step="0.01" v-model.number="form.property_details.living_area" />
             </div>
-            <div class="field">
+
+            <div v-if="showResidentialAreaFields" class="field">
               <label>Площадь кухни, м²</label>
               <input class="input" type="number" step="0.01" v-model.number="form.property_details.kitchen_area" />
             </div>
-            <div class="field">
+
+            <div v-if="showResidentialAreaFields" class="field">
               <label>Высота потолков, м</label>
               <input class="input" type="number" step="0.01" v-model.number="form.property_details.ceiling_height" />
             </div>
-            <div class="field">
-              <label>Балконы</label>
+
+            <div v-if="showBalconyField" class="field">
+              <label>Количество балконов</label>
               <input class="input" type="number" min="0" v-model.number="form.property_details.balcony_count" />
             </div>
-            <div class="field">
-              <label>Санузлы</label>
+
+            <div v-if="showBathroomFields" class="field">
+              <label>Количество санузлов</label>
               <input class="input" type="number" min="0" v-model.number="form.property_details.bathroom_count" />
             </div>
-            <div class="field">
+
+            <div v-if="showBathroomFields" class="field">
               <label>Тип санузла</label>
               <select class="select" v-model="form.property_details.bathroom_type">
                 <option :value="null">Не указан</option>
@@ -273,7 +277,8 @@
                 </option>
               </select>
             </div>
-            <div class="field">
+
+            <div v-if="showRenovationField" class="field">
               <label>Тип ремонта</label>
               <select class="select" v-model="form.property_details.renovation_type">
                 <option :value="null">Не указан</option>
@@ -282,26 +287,35 @@
                 </option>
               </select>
             </div>
-            <div class="field">
-              <label>Спальни</label>
+
+            <div v-if="showBedroomField" class="field">
+              <label>Количество спален</label>
               <input class="input" type="number" min="0" v-model.number="form.property_details.bedrooms_count" />
             </div>
-            <div class="field" v-if="propertyTypeHasFloor(normalizedPremisesType)">
-              <label>Этажей в квартире / доме</label>
+
+            <div v-if="isHouseType" class="field">
+              <label>Количество этажей в частном доме</label>
               <input class="input" type="number" min="1" v-model.number="form.property_details.floors_count" />
             </div>
-            <div class="field" v-if="propertyTypeHasLand(normalizedPremisesType)">
+
+            <div v-if="showLandAreaField" class="field">
               <label>Площадь участка, м²</label>
               <input class="input" type="number" step="0.01" v-model.number="form.property_details.land_area" />
             </div>
           </div>
         </div>
 
-        <div class="panel panel--light property-form__details-block" v-if="isCommercialType">
-          <h3 class="h4">Коммерческая недвижимость</h3>
-          <div class="grid grid--2 property-form__details-fields">
+        <div v-if="isCommercialType" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Коммерческая недвижимость</h3>
+            </div>
+            <div class="surface-head__caption">Профиль помещения, полезная площадь и коммерческие атрибуты.</div>
+          </div>
+
+          <div class="grid grid--2 property-form__grid">
             <div class="field">
-              <label>Тип коммерческого объекта</label>
+              <label>Тип коммерческой недвижимости</label>
               <select class="select" v-model="form.commercial_property_details.commercial_type">
                 <option :value="null">Не указан</option>
                 <option v-for="item in dict.commercialTypes" :key="item.id" :value="item.id">
@@ -309,26 +323,34 @@
                 </option>
               </select>
             </div>
+
             <div class="field">
               <label>Полезная площадь, м²</label>
               <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.usable_area" />
             </div>
+
             <div class="field">
               <label>Высота потолков, м</label>
               <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.ceiling_height" />
             </div>
+
             <div class="field">
               <label>Нагрузка на пол, кг/м²</label>
               <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.floor_load" />
             </div>
+
             <div class="field">
-              <label>Электрическая мощность, кВт</label>
+              <label>Мощность электроснабжения, кВт</label>
               <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.electric_power_kw" />
             </div>
+
             <div class="field">
-              <label>Парковочные места</label>
+              <label>Количество парковочных мест</label>
               <input class="input" type="number" min="0" v-model.number="form.commercial_property_details.parking_spaces" />
             </div>
+          </div>
+
+          <div class="property-form__chip-grid">
             <label class="chip-check">
               <input type="checkbox" v-model="form.commercial_property_details.has_separate_entrance" />
               Отдельный вход
@@ -344,23 +366,99 @@
           </div>
         </div>
 
-        <div class="panel panel--light property-form__details-block">
-          <h3 class="h4">Удобства</h3>
-          <div class="property-form__amenities">
+        <div class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Удобства</h3>
+            </div>
+            <div class="surface-head__caption">Отметьте удобства, которые относятся к объекту.</div>
+          </div>
+
+          <div class="property-form__chip-grid">
             <label v-for="item in dict.amenities" :key="item.id" class="chip-check">
-              <input
-                type="checkbox"
-                :value="item.id"
-                v-model="form.amenity_ids" />
+              <input type="checkbox" :value="item.id" v-model="form.amenity_ids" />
               {{ item.name }}
             </label>
           </div>
         </div>
+      </section>
 
-        <div class="panel panel--light property-form__details-block" v-if="auth.isStaff">
-          <h3 class="h4">Документы объекта</h3>
-          <div class="stack" style="gap: 10px">
-            <div class="grid grid--2 property-form__doc-form">
+      <section v-show="currentStep === 4" class="stack property-form__step-panel">
+        <div class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Медиа</h3>
+            </div>
+            <div class="surface-head__caption">
+              Добавьте свои фото файлами или по ссылке. Обложка выбирается вручную.
+            </div>
+          </div>
+
+          <p class="muted property-form__text">
+            После создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
+          </p>
+
+          <div v-if="photos.length" class="grid grid--3 property-form__photo-grid">
+            <div v-for="(photo, index) in photos" :key="photo.id || `new-${index}`" class="photo-tile">
+              <img :src="photo.image_url || photo.preview || photo.url" alt="Фото объекта" />
+              <div class="photo-tile__overlay">
+                <label class="tag tag--panel property-form__photo-cover">
+                  <input type="checkbox" v-model="photo.is_cover" @change="setCover(photo)" />
+                  {{ photo.is_cover ? 'Обложка' : 'Сделать обложкой' }}
+                </label>
+                <button class="btn btn--danger btn--sm" type="button" @click="removePhoto(photo, index)">
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty property-form__photos-empty">
+            Фотографии пока не добавлены.
+          </div>
+          <div v-if="fieldWarnings.photos" class="property-form__field-error">{{ fieldWarnings.photos }}</div>
+
+          <div class="row property-form__photo-actions">
+            <label class="btn btn--sm property-form__upload-btn">
+              Загрузить файл
+              <input type="file" accept="image/*" multiple @change="onFilesSelected" />
+            </label>
+            <div class="row property-form__photo-url">
+              <input class="input" v-model="newPhotoUrl" placeholder="Или вставьте ссылку на изображение" />
+              <button class="btn btn--sm" type="button" @click="addPhotoByUrl">Добавить ссылку</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-show="currentStep === 5" class="stack property-form__step-panel">
+        <div class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Описание</h3>
+            </div>
+            <div class="surface-head__caption">Свободное описание объекта для карточки и работы менеджера.</div>
+          </div>
+
+          <div class="field">
+            <label>Описание объекта</label>
+            <textarea
+              class="textarea"
+              v-model="form.description"
+              rows="6"
+              placeholder="Расскажите об объекте: состояние, инфраструктура, транспорт…"></textarea>
+          </div>
+        </div>
+
+        <div v-if="auth.isStaff" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Документы объекта</h3>
+            </div>
+            <div class="surface-head__caption">Ссылки на документы и статус их проверки.</div>
+          </div>
+
+          <div class="stack property-form__stack-sm">
+            <div class="grid grid--2 property-form__grid">
               <div class="field">
                 <label>Название документа</label>
                 <input class="input" v-model="newDocument.document_name" />
@@ -369,6 +467,9 @@
                 <label>Ссылка на файл</label>
                 <input class="input" v-model="newDocument.file_url" />
               </div>
+            </div>
+
+            <div class="row property-form__doc-actions">
               <label class="chip-check">
                 <input type="checkbox" v-model="newDocument.is_verified" />
                 Проверен
@@ -377,101 +478,162 @@
                 Добавить документ
               </button>
             </div>
-            <div v-for="doc in documents" :key="doc.id" class="property-form__list-row">
-              <div>
-                <b>{{ doc.document_name }}</b>
-                <div class="muted" style="font-size: 12px">
-                  {{ doc.is_verified ? 'Проверен' : 'Не проверен' }}
-                  <span v-if="doc.verified_by_username">· {{ doc.verified_by_username }}</span>
+
+            <div v-if="documents.length" class="stack property-form__stack-sm">
+              <div v-for="doc in documents" :key="doc.id" class="property-form__list-row">
+                <div>
+                  <strong>{{ doc.document_name }}</strong>
+                  <div class="muted">
+                    {{ doc.is_verified ? 'Проверен' : 'Не проверен' }}
+                    <span v-if="doc.verified_by_username"> В· {{ doc.verified_by_username }}</span>
+                  </div>
                 </div>
+                <a :href="doc.file_url" target="_blank" rel="noreferrer">Открыть</a>
               </div>
-              <a :href="doc.file_url" target="_blank" rel="noreferrer">Открыть</a>
             </div>
-            <div v-if="!documents.length" class="muted">Документы не загружены.</div>
+            <div v-else class="muted">Документы не загружены.</div>
           </div>
         </div>
 
-        <div class="panel panel--light property-form__details-block" v-if="auth.isStaff && isEdit">
-          <h3 class="h4">Просмотры</h3>
-          <div class="stack" style="gap: 10px">
-            <div v-for="viewing in viewings" :key="viewing.id" class="property-form__list-row">
-              <div>
-                <b>{{ formatViewingClient(viewing) }}</b>
-                <div class="muted" style="font-size: 12px">
-                  {{ formatDate(viewing.scheduled_date || viewing.viewing_date) }}
-                  · {{ formatViewingAgent(viewing) }}
-                  · {{ viewing.status_name || viewing.status?.name || '—' }}
-                </div>
-              </div>
+        <div v-if="auth.isStaff && isEdit" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Просмотры</h3>
             </div>
-            <div v-if="!viewings.length" class="muted">Просмотры не запланированы.</div>
+            <div class="surface-head__caption">
+              Запланированные просмотры по объекту.
+            </div>
           </div>
-        </div>
 
-        <div class="panel panel--light property-form__details-block" v-if="auth.isStaff && isEdit">
-          <h3 class="h4">История цен</h3>
-          <div class="table-wrap property-form__table-wrap">
-            <table class="table">
+          <div class="row property-form__section-actions">
+            <button class="btn btn--sm btn--accent" type="button" @click="openViewingDialog">
+              Запланировать просмотр
+            </button>
+          </div>
+
+          <div v-if="viewings.length" class="table-wrap">
+            <table class="table table--responsive-cards">
               <thead>
                 <tr>
                   <th>Дата</th>
-                  <th>Старая</th>
-                  <th>Новая</th>
+                  <th>Клиент</th>
+                  <th>Сотрудник</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="viewing in viewings" :key="viewing.id">
+                  <td data-label="Дата">{{ formatDate(viewing.scheduled_date || viewing.viewing_date) }}</td>
+                  <td data-label="Клиент">{{ formatViewingClient(viewing) }}</td>
+                  <td data-label="Сотрудник">{{ formatViewingAgent(viewing) }}</td>
+                  <td data-label="Статус">{{ viewing.status_name || viewing.status?.name || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="muted">Просмотры не запланированы.</div>
+        </div>
+
+        <div v-if="auth.isStaff && isEdit" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">История цен</h3>
+            </div>
+            <div class="surface-head__caption">Изменения стоимости объекта по времени и сотрудникам.</div>
+          </div>
+
+          <div v-if="priceHistory.length" class="table-wrap">
+            <table class="table table--responsive-cards">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Старая цена</th>
+                  <th>Новая цена</th>
                   <th>Кто изменил</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="item in priceHistory" :key="item.id">
-                  <td>{{ formatDate(item.changed_at) }}</td>
-                  <td>{{ item.old_price ? `${item.old_price} ₽` : '—' }}</td>
-                  <td>{{ item.new_price ? `${item.new_price} ₽` : '—' }}</td>
-                  <td>{{ item.changed_by_username || '—' }}</td>
+                  <td data-label="Дата">{{ formatDate(item.changed_at) }}</td>
+                  <td data-label="Старая цена">{{ item.old_price ? `${item.old_price} ₽` : '—' }}</td>
+                  <td data-label="Новая цена">{{ item.new_price ? `${item.new_price} ₽` : '—' }}</td>
+                  <td data-label="Кто изменил">{{ item.changed_by_username || '—' }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <div v-if="!priceHistory.length" class="muted">История цен отсутствует.</div>
+          <div v-else class="muted">История цен отсутствует.</div>
         </div>
 
-        <div class="panel panel--light property-form__details-block" v-if="propertyOwners.length">
-          <h3 class="h4">Собственники</h3>
-          <div class="stack" style="gap: 10px">
-            <div v-for="(owner, index) in propertyOwners" :key="`${owner.property}-${owner.client_profile}`" class="property-form__list-row">
+        <div v-if="propertyOwners.length" class="panel panel--light property-form__subpanel">
+          <div class="surface-head">
+            <div class="surface-head__meta">
+              <h3 class="h4">Собственники</h3>
+            </div>
+            <div class="surface-head__caption">Список собственников, привязанных к объекту.</div>
+          </div>
+
+          <div class="stack property-form__stack-sm">
+            <div
+              v-for="(owner, index) in propertyOwners"
+              :key="`${owner.property}-${owner.client_profile}`"
+              class="property-form__list-row"
+            >
               <div>
-                <b>{{ `Заказчик ${index + 1}` }}</b>
-                <div class="muted" style="font-size: 12px">
+                <strong>{{ propertyOwners.length > 1 ? `Заказчик ${index + 1}` : 'Заказчик' }}</strong>
+                <div class="muted">
                   {{ formatOwnerName(owner) }}
                   <span v-if="owner.ownership_share !== null && owner.ownership_share !== undefined">
-                    · {{ owner.ownership_share }}%
+                    В· {{ owner.ownership_share }}%
                   </span>
                 </div>
-                <div class="muted" style="font-size: 12px">
-                  {{ formatOwnerContacts(owner) }}
-                </div>
+                <div class="muted">{{ formatOwnerContacts(owner) }}</div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       <div v-if="error" class="error">{{ error }}</div>
-      <div class="row" style="justify-content: flex-end; gap: 8px">
+
+      <div class="row row--between property-form__footer">
         <button class="btn" type="button" @click="$router.back()">Отмена</button>
-        <button class="btn btn--accent" :disabled="loading" type="submit">
-          {{ loading ? 'Сохранение…' : (isEdit ? 'Сохранить' : 'Создать') }}
-        </button>
+        <div class="row property-form__footer-actions">
+          <button class="btn" type="button" :disabled="currentStep === 1 || loading" @click="goPrev">
+            Назад
+          </button>
+          <button
+            v-if="currentStep < steps.length"
+            class="btn btn--primary"
+            type="button"
+            :disabled="loading || !isCurrentStepValid"
+            @click="goNext"
+          >
+            Далее
+          </button>
+          <button
+            v-else
+            class="btn btn--accent"
+            :disabled="loading"
+            type="submit"
+          >
+            {{ loading ? 'Сохранение…' : (isEdit ? 'Сохранить' : 'Создать') }}
+          </button>
+        </div>
       </div>
     </form>
 
     <Teleport to="body">
       <div v-if="viewingDialogOpen" class="modal-overlay" @click.self="closeViewingDialog">
-        <div class="modal" style="max-width: 760px; width: calc(100vw - 32px)">
+        <div class="modal property-form__modal">
           <div class="surface-head">
-            <div class="surface-head__meta">Просмотр объекта</div>
-            <h3 class="h3">Запланировать просмотр</h3>
+            <div class="surface-head__meta">
+              <h3 class="h3">Запланировать просмотр</h3>
+            </div>
+            <div class="surface-head__caption">Выберите клиента, сотрудника и время просмотра.</div>
           </div>
 
-          <div class="grid grid--2" style="gap: 14px; margin-top: 18px">
+          <div class="grid grid--2 property-form__modal-grid">
             <RemoteLookupField
               v-model="viewingForm.client_profile"
               label="Клиент"
@@ -495,18 +657,18 @@
             <div class="field">
               <label>Статус</label>
               <select class="select" v-model.number="viewingForm.status">
-                <option v-for="s in dict.viewingStatuses" :key="s.id" :value="s.id">
-                  {{ s.name }}
+                <option v-for="item in dict.viewingStatuses" :key="item.id" :value="item.id">
+                  {{ item.name }}
                 </option>
               </select>
             </div>
-            <div class="field" style="grid-column: 1 / -1">
+            <div class="field property-form__modal-field-full">
               <label>Комментарий</label>
               <textarea class="textarea" v-model="viewingForm.notes" rows="4"></textarea>
             </div>
           </div>
 
-          <div class="row" style="justify-content: flex-end; gap: 8px; margin-top: 18px">
+          <div class="row property-form__modal-actions">
             <button class="btn" type="button" @click="closeViewingDialog">Отмена</button>
             <button class="btn btn--accent" type="button" :disabled="viewingSaving" @click="submitViewing">
               {{ viewingSaving ? 'Сохранение…' : 'Запланировать' }}
@@ -519,7 +681,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import AddressAutocomplete from '../components/AddressAutocomplete.vue'
@@ -544,6 +706,14 @@ const router = useRouter()
 const auth = useAuthStore()
 const toasts = useToastsStore()
 const isEdit = computed(() => !!route.params.id)
+
+const steps = [
+  { id: 1, title: 'Тип и операция', caption: 'Сценарий сделки и публикация' },
+  { id: 2, title: 'Адрес', caption: 'DaData и локация объекта' },
+  { id: 3, title: 'Параметры объекта', caption: 'Основные поля и характеристики' },
+  { id: 4, title: 'Медиа', caption: 'Фото, обложка и ссылки' },
+  { id: 5, title: 'Описание и документы', caption: 'Контент, документы и история' },
+]
 
 function createBuildingDetailsForm() {
   return {
@@ -590,9 +760,9 @@ function createAmenityIdsForm() {
 function defaultForm() {
   return {
     title: '',
-    operation_type: 1,
-    status: 1,
-    premises_type: 'apartment',
+    operation_type: null,
+    status: null,
+    premises_type: '',
     address: null,
     price: null,
     area_total: null,
@@ -644,7 +814,6 @@ function mergeFormState(source = {}) {
 }
 
 const form = reactive(defaultForm())
-
 const dict = reactive({
   operations: [],
   statuses: [],
@@ -658,6 +827,7 @@ const dict = reactive({
 })
 const addressQuery = ref('')
 const addressPicked = ref(null)
+const addressConfirmedValue = ref('')
 const existingAddress = ref('')
 const photos = ref([])
 const pendingFiles = ref([])
@@ -667,26 +837,50 @@ const loading = ref(false)
 const error = ref('')
 const propertyBaseline = ref('')
 const propertyDraftRestored = ref(false)
-let initSeq = 0
-
-const formModeLabel = computed(() => (
-  isEdit.value ? 'Редактирование' : 'Создание'
-))
-const addressStateLabel = computed(() => {
-  if (addressPicked.value) return 'Выбран'
-  if (existingAddress.value) return 'Сохранён'
-  return 'Не указан'
-})
-const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
-const isCommercialType = computed(() => propertyTypeIsCommercial(normalizedPremisesType.value))
-const selectedFeaturesCount = computed(() => form.amenity_ids.length)
-const isRoomsDisabled = computed(() => !propertyTypeUsesRooms(normalizedPremisesType.value))
-const isFloorDisabled = computed(() => !propertyTypeUsesFloor(normalizedPremisesType.value))
 const propertyData = ref(null)
-const propertyOwners = computed(() => propertyData.value?.owners || [])
 const documents = ref([])
 const viewings = ref([])
 const priceHistory = ref([])
+const currentStep = ref(1)
+const operationTypeFieldRef = ref(null)
+const premisesTypeFieldRef = ref(null)
+const addressFieldRef = ref(null)
+const titleFieldRef = ref(null)
+const priceFieldRef = ref(null)
+const touchedSteps = reactive({
+  1: false,
+  2: false,
+  3: false,
+  4: false,
+  5: false,
+})
+let initSeq = 0
+
+const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
+const isCommercialType = computed(() => propertyTypeIsCommercial(normalizedPremisesType.value))
+const isHouseType = computed(() => normalizedPremisesType.value === 'house')
+const isApartmentType = computed(() => normalizedPremisesType.value === 'apartment')
+const isRoomType = computed(() => normalizedPremisesType.value === 'room')
+const isLandType = computed(() => normalizedPremisesType.value === 'land')
+const isGarageType = computed(() => normalizedPremisesType.value === 'garage')
+const showBuildingDetailsSection = computed(() => !isLandType.value && !isGarageType.value)
+const showRoomsField = computed(() => propertyTypeUsesRooms(normalizedPremisesType.value))
+const showFloorField = computed(() => propertyTypeUsesFloor(normalizedPremisesType.value))
+const showLandAreaField = computed(() => propertyTypeHasLand(normalizedPremisesType.value))
+const showBalconyField = computed(() => isApartmentType.value || isHouseType.value)
+const showResidentialAreaFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+const showBathroomFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+const showRenovationField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value || isGarageType.value)
+const showBedroomField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+const currentStepMeta = computed(() => steps.find((step) => step.id === currentStep.value) || steps[0])
+const propertyOwners = computed(() => propertyData.value?.owners || [])
+const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
+const isPropertyDirty = computed(() => propertyDirtySnapshot.value !== propertyBaseline.value)
+const currentStepErrors = computed(() => touchedSteps[currentStep.value] ? getStepErrors(currentStep.value) : [])
+const fieldErrors = computed(() => getFieldErrorsForStep(currentStep.value))
+const fieldWarnings = computed(() => getFieldWarningsForStep(currentStep.value))
+const isCurrentStepValid = computed(() => validateStep(currentStep.value, false))
+
 const newDocument = reactive({
   document_name: '',
   file_url: '',
@@ -701,13 +895,132 @@ const viewingForm = reactive({
   status: null,
   notes: '',
 })
-const photoCount = computed(() => photos.value.length)
-const coverCount = computed(() => photos.value.filter((photo) => photo.is_cover).length)
-const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
-const isPropertyDirty = computed(() => propertyDirtySnapshot.value !== propertyBaseline.value)
 
-function onAddressPick(r) {
-  addressPicked.value = r
+function hasAddressValue() {
+  return !!(addressPicked.value?.value || form.address || existingAddress.value)
+}
+
+function normalizeTextValue(value) {
+  return (value || '').toString().trim()
+}
+
+function hasConfirmedAddressSelection() {
+  const confirmedValue = normalizeTextValue(addressConfirmedValue.value)
+  if (!confirmedValue) return false
+  const currentValue = normalizeTextValue(addressQuery.value || form.address || existingAddress.value)
+  return currentValue === confirmedValue
+}
+
+function getFieldErrorsForStep(stepId) {
+  const errors = {}
+  if (stepId === 1) {
+    if (!form.operation_type) errors.operation_type = 'Выберите тип операции.'
+    if (!form.premises_type) errors.premises_type = 'Выберите тип объекта.'
+  }
+  if (stepId === 2 && !hasConfirmedAddressSelection()) {
+    errors.address = 'Выберите адрес из подсказок DaData.'
+  }
+  if (stepId === 3) {
+    if (!form.title?.trim()) errors.title = 'Заполните заголовок объекта.'
+    if (form.price === null || form.price === undefined || form.price === '') {
+      errors.price = 'Укажите цену объекта.'
+    }
+  }
+  return errors
+}
+
+function getFieldWarningsForStep(stepId) {
+  const warnings = {}
+  if (stepId === 4 && !photos.value.length) {
+    warnings.photos = 'Фото не обязательны, но без них карточка будет менее информативной.'
+  }
+  return warnings
+}
+
+function getStepErrors(stepId) {
+  const fieldMap = getFieldErrorsForStep(stepId)
+  return Object.values(fieldMap)
+}
+
+function validateStep(stepId, touch = false) {
+  if (touch) touchedSteps[stepId] = true
+  return getStepErrors(stepId).length === 0
+}
+
+function isStepComplete(stepId) {
+  return validateStep(stepId, false)
+}
+
+function isStepAccessible(stepId) {
+  if (stepId <= currentStep.value) return true
+  for (let index = 1; index < stepId; index += 1) {
+    if (!validateStep(index, false)) return false
+  }
+  return true
+}
+
+function openStep(stepId) {
+  if (!isStepAccessible(stepId)) return
+  currentStep.value = stepId
+}
+
+function goPrev() {
+  if (currentStep.value > 1) currentStep.value -= 1
+}
+
+async function focusFirstInvalidField(stepId) {
+  await nextTick()
+  const errorMap = getFieldErrorsForStep(stepId)
+  if (errorMap.operation_type) {
+    operationTypeFieldRef.value?.focus?.()
+    return
+  }
+  if (errorMap.premises_type) {
+    premisesTypeFieldRef.value?.focus?.()
+    return
+  }
+  if (errorMap.address) {
+    const addressInput = addressFieldRef.value?.$el?.querySelector?.('input') || addressFieldRef.value?.querySelector?.('input')
+    addressInput?.focus?.()
+    return
+  }
+  if (errorMap.title) {
+    titleFieldRef.value?.focus?.()
+    return
+  }
+  if (errorMap.price) {
+    priceFieldRef.value?.focus?.()
+  }
+}
+
+async function goNext() {
+  if (!validateStep(currentStep.value, true)) {
+    await focusFirstInvalidField(currentStep.value)
+    return
+  }
+  currentStep.value = Math.min(currentStep.value + 1, steps.length)
+}
+
+async function handleSubmit() {
+  for (const step of steps) {
+    if (!validateStep(step.id, true)) {
+      currentStep.value = step.id
+      await focusFirstInvalidField(step.id)
+      return
+    }
+  }
+  await submit()
+}
+
+function onAddressPick(result) {
+  addressPicked.value = result
+  form.address = result?.value || null
+  addressConfirmedValue.value = result?.value || ''
+}
+
+function formatCoordinate(value) {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue.toFixed(4) : value
 }
 
 function mapClientProfileOption(profile) {
@@ -798,38 +1111,40 @@ async function submitViewing() {
   }
 }
 
-function onFilesSelected(e) {
-  const files = Array.from(e.target.files || [])
+function onFilesSelected(event) {
+  const files = Array.from(event.target.files || [])
   for (const file of files) {
     const preview = URL.createObjectURL(file)
     const photo = { file, preview, is_cover: false, _new: true }
     photos.value.push(photo)
     pendingFiles.value.push(photo)
   }
-  e.target.value = ''
+  event.target.value = ''
 }
 
 function addPhotoByUrl() {
-  const u = newPhotoUrl.value.trim()
-  if (!u) return
-  photos.value.push({ url: u, image_url: u, is_cover: false, _new: true, _fromUrl: true })
+  const url = newPhotoUrl.value.trim()
+  if (!url) return
+  photos.value.push({ url, image_url: url, is_cover: false, _new: true, _fromUrl: true })
   newPhotoUrl.value = ''
 }
 
 function setCover(target) {
-  photos.value.forEach(p => { p.is_cover = (p === target) })
+  photos.value.forEach((photo) => {
+    photo.is_cover = photo === target
+  })
 }
 
-function revokePreview (photo) {
+function revokePreview(photo) {
   if (photo?.preview?.startsWith('blob:')) {
     URL.revokeObjectURL(photo.preview)
   }
 }
 
-function removePhoto(p, index) {
-  if (p.id) removedPhotoIds.value.push(p.id)
-  pendingFiles.value = pendingFiles.value.filter((item) => item !== p)
-  revokePreview(p)
+function removePhoto(photo, index) {
+  if (photo.id) removedPhotoIds.value.push(photo.id)
+  pendingFiles.value = pendingFiles.value.filter((item) => item !== photo)
+  revokePreview(photo)
   photos.value.splice(index, 1)
 }
 
@@ -913,6 +1228,7 @@ function applyPropertyDraft(draft) {
   Object.assign(form, mergeFormState(draft?.form || {}))
   addressQuery.value = draft?.addressQuery || ''
   addressPicked.value = draft?.addressPicked || null
+  addressConfirmedValue.value = draft?.addressPicked?.value || ''
   newPhotoUrl.value = draft?.newPhotoUrl || ''
   photos.value.forEach(revokePreview)
   photos.value = (draft?.photoUrls || []).map((photo) => ({
@@ -931,10 +1247,11 @@ function syncPropertyBaseline() {
   propertyBaseline.value = propertyDirtySnapshot.value
 }
 
-function resetPropertyFormState () {
+function resetPropertyFormState() {
   Object.assign(form, defaultForm())
   addressQuery.value = ''
   addressPicked.value = null
+  addressConfirmedValue.value = ''
   existingAddress.value = ''
   propertyData.value = null
   documents.value = []
@@ -957,9 +1274,13 @@ function resetPropertyFormState () {
   newPhotoUrl.value = ''
   error.value = ''
   propertyDraftRestored.value = false
+  currentStep.value = 1
+  for (const key of Object.keys(touchedSteps)) {
+    touchedSteps[key] = false
+  }
 }
 
-async function ensureOperationTypesLoaded () {
+async function ensureOperationTypesLoaded() {
   if (dict.operations.length) return
   const { data } = await api.get('/operation-types/', {
     params: { page_size: LOOKUP_PAGE_SIZE },
@@ -975,7 +1296,7 @@ async function ensureLookupLoaded(key, endpoint) {
   dict[key] = unpackPaginated(data).items
 }
 
-async function initializeForm () {
+async function initializeForm() {
   const seq = ++initSeq
   loading.value = true
   resetPropertyFormState()
@@ -993,6 +1314,8 @@ async function initializeForm () {
       ensureLookupLoaded('amenities', '/amenities/'),
     ])
     if (seq !== initSeq) return
+
+    viewingForm.status = dict.viewingStatuses[0]?.id || null
 
     if (isEdit.value) {
       const { data } = await api.get(`/properties/${route.params.id}/`)
@@ -1038,29 +1361,29 @@ async function initializeForm () {
         amenity_ids: (data.amenities || []).map((item) => item.amenity),
       })
       existingAddress.value = data.full_address || ''
+      addressQuery.value = data.full_address || data.address || ''
+      addressConfirmedValue.value = data.full_address || data.address || ''
       photos.value = (data.photos || []).map((photo) => ({ ...photo }))
       documents.value = unpackPaginated(data.documents).items
       priceHistory.value = unpackPaginated(data.price_history).items
-      if (isEdit.value) {
-        const [docsResp, priceResp, viewingsResp] = await Promise.all([
-          api.get('/property-documents/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
-          api.get('/property-price-history/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
-          auth.isStaff
-            ? api.get('/property-viewings/', { params: { property: route.params.id } }).catch(() => ({ data: [] }))
-            : Promise.resolve({ data: [] }),
-        ])
-        documents.value = unpackPaginated(docsResp.data).items
-        priceHistory.value = unpackPaginated(priceResp.data).items
-        viewings.value = unpackPaginated(viewingsResp.data).items
-        viewingForm.status = dict.viewingStatuses[0]?.id || null
-      }
+      const [docsResp, priceResp, viewingsResp] = await Promise.all([
+        api.get('/property-documents/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
+        api.get('/property-price-history/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
+        auth.isStaff
+          ? api.get('/property-viewings/', { params: { property: route.params.id } }).catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+      ])
+      documents.value = unpackPaginated(docsResp.data).items
+      priceHistory.value = unpackPaginated(priceResp.data).items
+      viewings.value = unpackPaginated(viewingsResp.data).items
       syncPropertyBaseline()
     } else {
+      form.status = dict.statuses[0]?.id || null
       syncPropertyBaseline()
     }
   } catch (e) {
     if (seq !== initSeq) return
-    error.value = extractError(e, 'Failed to initialize property form.')
+    error.value = extractError(e, 'Не удалось инициализировать форму объекта.')
   } finally {
     if (seq === initSeq) {
       loading.value = false
@@ -1087,21 +1410,22 @@ useUnsavedChangesGuard({
 })
 
 async function uploadPhotos(propertyId) {
-  for (const p of pendingFiles.value) {
-    const fd = new FormData()
-    fd.append('property', propertyId)
-    fd.append('image', p.file)
-    fd.append('is_cover', p.is_cover ? 'true' : 'false')
-    await api.post('/property-photos/', fd,
-      { headers: { 'Content-Type': 'multipart/form-data' } })
+  for (const photo of pendingFiles.value) {
+    const formData = new FormData()
+    formData.append('property', propertyId)
+    formData.append('image', photo.file)
+    formData.append('is_cover', photo.is_cover ? 'true' : 'false')
+    await api.post('/property-photos/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
   }
   pendingFiles.value = []
 
-  for (const p of photos.value.filter(x => x._new && x._fromUrl)) {
+  for (const photo of photos.value.filter((item) => item._new && item._fromUrl)) {
     await api.post('/property-photos/', {
       property: propertyId,
-      url: p.url,
-      is_cover: p.is_cover,
+      url: photo.url,
+      is_cover: photo.is_cover,
     })
   }
 
@@ -1117,7 +1441,8 @@ async function uploadPhotos(propertyId) {
 }
 
 async function submit() {
-  loading.value = true; error.value = ''
+  loading.value = true
+  error.value = ''
   try {
     const payload = {
       title: form.title,
@@ -1126,8 +1451,8 @@ async function submit() {
       premises_type: form.premises_type,
       price: form.price,
       area_total: form.area_total,
-      rooms_count: isRoomsDisabled.value ? null : form.rooms_count,
-      floor_number: isFloorDisabled.value ? null : form.floor_number,
+      rooms_count: showRoomsField.value ? form.rooms_count : null,
+      floor_number: showFloorField.value ? form.floor_number : null,
       cadastral_number: form.cadastral_number || null,
       is_published: !!form.is_published,
       description: form.description,
@@ -1139,6 +1464,7 @@ async function submit() {
         ...form.property_details,
         bathroom_type: form.property_details.bathroom_type || null,
         renovation_type: form.property_details.renovation_type || null,
+        floors_count: isHouseType.value ? form.property_details.floors_count : null,
       },
       commercial_property_details_data: {
         ...form.commercial_property_details,
@@ -1146,6 +1472,7 @@ async function submit() {
       },
       amenity_ids: [...form.amenity_ids],
     }
+
     if (addressPicked.value) {
       payload.address_data = addressPicked.value
     } else if (form.address) {
@@ -1154,8 +1481,7 @@ async function submit() {
       throw new Error('Выберите адрес из подсказок.')
     }
 
-    const url = isEdit.value
-      ? `/properties/${route.params.id}/` : '/properties/'
+    const url = isEdit.value ? `/properties/${route.params.id}/` : '/properties/'
     const method = isEdit.value ? 'put' : 'post'
     const { data } = await api[method](url, payload)
 
@@ -1168,8 +1494,7 @@ async function submit() {
     const data = e.response?.data
     if (typeof data === 'object' && data) {
       const formatted = formatPropertyValidationError(data)
-      if (formatted) error.value = formatted
-      else error.value = extractError(e, 'Не удалось сохранить объект.')
+      error.value = formatted || extractError(e, 'Не удалось сохранить объект.')
     } else {
       error.value = e.message || 'Не удалось сохранить объект.'
     }
@@ -1181,22 +1506,91 @@ async function submit() {
 watch(() => `${route.name || ''}:${route.params.id || 'new'}`, () => {
   void initializeForm()
 }, { immediate: true })
+
+watch(addressQuery, (value) => {
+  const normalizedValue = normalizeTextValue(value)
+  const pickedValue = normalizeTextValue(addressPicked.value?.value)
+  if (addressPicked.value && normalizedValue !== pickedValue) {
+    addressPicked.value = null
+  }
+  form.address = normalizedValue || null
+})
+
 watch(() => form.premises_type, (value) => {
-  if (!propertyTypeUsesRooms(value)) {
+  const type = normalizePropertyType(value)
+  if (!type) return
+  if (!propertyTypeUsesRooms(type)) {
     form.rooms_count = null
   }
-  if (!propertyTypeUsesFloor(value)) {
+  if (!propertyTypeUsesFloor(type)) {
     form.floor_number = null
   }
-  if (propertyTypeIsCommercial(value)) {
+  if (type !== 'house') {
+    form.property_details.floors_count = null
+  }
+  if (!propertyTypeHasLand(type)) {
+    form.property_details.land_area = null
+  }
+  if (['land', 'garage'].includes(type)) {
+    form.building_details.year_built = null
+    form.building_details.total_floors = null
+    form.building_details.building_material = null
+    form.building_details.elevators_count = null
+  }
+  if (!['apartment', 'house', 'room'].includes(type)) {
+    form.property_details.living_area = null
+    form.property_details.kitchen_area = null
+    form.property_details.ceiling_height = null
+    form.property_details.balcony_count = null
+    form.property_details.bathroom_count = null
+    form.property_details.bathroom_type = null
+    form.property_details.renovation_type = null
+    form.property_details.bedrooms_count = null
+  }
+  if (type === 'room') {
+    form.property_details.balcony_count = null
+    form.property_details.floors_count = null
+    form.property_details.land_area = null
+  }
+  if (type === 'garage') {
+    form.rooms_count = null
+    form.floor_number = null
+    form.property_details.living_area = null
+    form.property_details.kitchen_area = null
+    form.property_details.ceiling_height = null
+    form.property_details.balcony_count = null
+    form.property_details.bathroom_count = null
+    form.property_details.bathroom_type = null
+    form.property_details.bedrooms_count = null
+    form.property_details.floors_count = null
+    form.property_details.land_area = null
+  }
+  if (type === 'land') {
+    form.rooms_count = null
+    form.floor_number = null
+    form.property_details.living_area = null
+    form.property_details.kitchen_area = null
+    form.property_details.ceiling_height = null
+    form.property_details.balcony_count = null
+    form.property_details.bathroom_count = null
+    form.property_details.bathroom_type = null
+    form.property_details.renovation_type = null
+    form.property_details.bedrooms_count = null
+    form.property_details.floors_count = null
+  }
+  if (propertyTypeIsCommercial(type)) {
+    form.rooms_count = null
+    form.floor_number = null
     form.property_details.floors_count = null
     form.property_details.land_area = null
     form.property_details.living_area = null
     form.property_details.kitchen_area = null
-    form.property_details.bathroom_count = 0
+    form.property_details.ceiling_height = null
+    form.property_details.bathroom_count = null
     form.property_details.bathroom_type = null
     form.property_details.renovation_type = null
     form.property_details.bedrooms_count = null
+    form.property_details.balcony_count = null
   } else {
     form.commercial_property_details.commercial_type = null
     form.commercial_property_details.usable_area = null
@@ -1218,23 +1612,150 @@ onBeforeUnmount(() => {
 <style scoped>
 .property-form-page {
   min-height: 0;
+  position: relative;
+  z-index: 1;
 }
 
-.property-form__section-head {
-  margin-bottom: 2px;
+.property-form__hero {
+  padding: 24px 28px 44px;
+  gap: 20px;
 }
 
-.property-form__main-grid {
+.property-form__hero-top {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.property-form__hero-copy {
+  gap: 8px;
+}
+
+.property-form__hero-title {
+  margin: 0;
+  color: #fff;
+}
+
+.property-form__hero-text {
+  max-width: 720px;
+  color: var(--c-ink-soft);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.property-form__stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.property-form__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(120, 216, 206, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.property-form__step:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(120, 216, 206, 0.3);
+}
+
+.property-form__step:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.property-form__step.is-active {
+  border-color: rgba(120, 216, 206, 0.42);
+  background: rgba(120, 216, 206, 0.12);
+  box-shadow: var(--shadow-glow);
+}
+
+.property-form__step.is-complete .property-form__step-index {
+  background: var(--grad-accent);
+  color: #04221f;
+}
+
+.property-form__step-index {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 216, 206, 0.26);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.property-form__step-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.property-form__step-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.property-form__step-caption {
+  font-size: 12px;
+  color: var(--c-ink-soft);
+  line-height: 1.4;
+}
+
+.property-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+}
+
+.property-form__surface-head {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.property-form__step-panel {
   gap: 16px;
 }
-.property-form__main-grid > .field > .select {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95));
-  color: var(--c-page-text);
-  border-color: rgba(21, 56, 57, 0.16);
-  color-scheme: light;
+
+.property-form__subpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--c-border);
+  overflow: visible;
+}
+
+.property-form__grid {
+  gap: 16px;
+}
+
+.property-form__grid > .field > .input,
+.property-form__grid > .field > .select,
+.property-form__grid > .field > .textarea {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)) !important;
+  color: var(--c-page-text) !important;
+  border-color: rgba(21, 56, 57, 0.16) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
     0 10px 22px rgba(16, 55, 52, 0.08);
+}
+
+.property-form__grid > .field > .select {
   background-image:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
     linear-gradient(45deg, transparent 50%, rgba(21, 56, 57, 0.62) 50%),
@@ -1248,46 +1769,52 @@ onBeforeUnmount(() => {
     6px 6px,
     6px 6px;
   background-repeat: no-repeat;
-  padding-right: 42px;
 }
 
+.property-form__text {
+  margin: 0;
+}
 
-.property-form__floor-row {
+.property-form__required {
+  color: var(--c-danger);
+}
+
+.property-form__field-error {
+  margin-top: 6px;
+  color: #ffd4d4;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.property-form__tags {
+  gap: 12px;
+  flex-wrap: wrap;
+  max-width: 100%;
+  width: 100%;
+  align-items: flex-start;
+}
+
+.property-form__tags .tag {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.property-form__address-empty {
+  min-height: 120px;
+}
+
+.property-form__chip-inline {
+  width: fit-content;
+}
+
+.property-form__chip-grid {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.chip-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--c-border);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--c-ink-soft);
-  font-size: 13px;
-  cursor: pointer;
-  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease, color 0.3s ease;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.chip-check:hover {
-  transform: translateY(-2px);
-  border-color: var(--c-border-strong);
-  box-shadow: 0 10px 20px rgba(31, 163, 154, 0.08);
-}
-
-.chip-check input {
-  accent-color: var(--c-accent);
-}
-
-.chip-check:has(input:checked) {
-  background: linear-gradient(135deg, rgba(31, 163, 154, 0.18), rgba(99, 208, 197, 0.16));
-  color: #effffd;
-  border-color: rgba(99, 208, 197, 0.28);
-  box-shadow: 0 0 18px rgba(99, 208, 197, 0.12);
+.property-form__photo-grid {
+  gap: 16px;
 }
 
 .photo-tile {
@@ -1298,13 +1825,6 @@ onBeforeUnmount(() => {
   border: 1px solid var(--c-border);
   background: rgba(255, 255, 255, 0.06);
   box-shadow: var(--shadow-1);
-  transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
-}
-
-.photo-tile:hover {
-  transform: translateY(-5px);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: var(--shadow-glow);
 }
 
 .photo-tile img {
@@ -1319,28 +1839,126 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 10px;
   background: linear-gradient(to top, rgba(7, 19, 29, 0.86), transparent);
 }
 
-.property-form__photos-empty {
-  min-height: 140px;
+.property-form__photo-cover {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.property-form__photos-actions {
+.property-form__photo-cover input {
+  accent-color: var(--c-accent);
+}
+
+.property-form__photos-empty {
+  min-height: 160px;
+}
+
+.property-form__photo-actions {
+  gap: 12px;
+  flex-wrap: wrap;
   align-items: stretch;
 }
 
+.property-form__upload-btn {
+  position: relative;
+  cursor: pointer;
+}
+
+.property-form__upload-btn input {
+  display: none;
+}
+
 .property-form__photo-url {
-  width: 100%;
+  flex: 1 1 320px;
+  gap: 8px;
+}
+
+.property-form__stack-sm {
+  gap: 10px;
+}
+
+.property-form__list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.property-form__doc-actions,
+.property-form__section-actions,
+.property-form__footer-actions,
+.property-form__modal-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.property-form__footer {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-top: 1px solid var(--c-border);
+  position: relative;
+  z-index: 10;
+  margin-top: 20px;
+}
+
+.property-form__step-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.property-form__step-error {
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(220, 87, 87, 0.3);
+  background: rgba(220, 87, 87, 0.12);
+  color: #ffe9e9;
+  font-size: 14px;
+}
+
+.property-form__modal {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.property-form__modal-grid {
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.property-form__modal-field-full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1080px) {
+  .property-form__stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
-  .property-form__floor-row,
-  .property-form__photos-actions,
-  .property-form__photo-url {
+  .property-form {
+    padding: 18px;
+  }
+
+  .property-form__stepper {
+    grid-template-columns: 1fr;
+  }
+
+  .property-form__photo-actions,
+  .property-form__photo-url,
+  .property-form__list-row,
+  .property-form__footer,
+  .property-form__modal-actions {
     flex-direction: column;
     align-items: stretch;
   }

@@ -85,7 +85,7 @@
               </td>
               <td>{{ u.role_name || '—' }}</td>
               <td class="muted">
-                {{ new Date(u.created_at).toLocaleDateString('ru-RU') }}
+                {{ formatDate(u.created_at) }}
               </td>
               <td v-if="auth.isManager" class="table-actions-cell" data-label="Действия">
                 <button class="btn btn--sm" @click="openAssign(u)">Назначить</button>
@@ -154,6 +154,7 @@ import DataFetchPanel from '../components/DataFetchPanel.vue'
 import ListPagination from '../components/ListPagination.vue'
 import { useAuthStore } from '../store/auth'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
+import { formatDate } from '@/utils/formatters'
 import { extractError, useToastsStore } from '../store/toasts'
 
 const auth = useAuthStore()
