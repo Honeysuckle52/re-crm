@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0">
   <diagram name="Инфологическая модель БД" id="BjmKlG0QyiWWEoOn4EKk">
-    <mxGraphModel dx="5582" dy="3683" grid="0" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3300" pageHeight="2400" math="0" shadow="0">
+    <mxGraphModel dx="4290" dy="3547" grid="0" gridSize="10" guides="0" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3300" pageHeight="2400" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -74,10 +74,10 @@
           <mxGeometry height="30" width="100" x="-88" y="378" as="geometry" />
         </mxCell>
         <mxCell id="attr_commercial_property_types_code" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Код" vertex="1">
-          <mxGeometry height="30" width="100" x="-88" y="416" as="geometry" />
+          <mxGeometry height="30" width="100" x="-64" y="412" as="geometry" />
         </mxCell>
         <mxCell id="attr_commercial_property_types_name" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Название" vertex="1">
-          <mxGeometry height="30" width="100" x="-89" y="459" as="geometry" />
+          <mxGeometry height="30" width="100" x="55" y="372" as="geometry" />
         </mxCell>
         <mxCell id="edge_commercial_property_types_1" edge="1" parent="1" source="tbl_commercial_property_types" style="endArrow=none;html=1;" target="attr_commercial_property_types_id">
           <mxGeometry relative="1" as="geometry" />
@@ -89,16 +89,16 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="tbl_amenities" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Удобства" vertex="1">
-          <mxGeometry height="40" width="160" x="27" y="404" as="geometry" />
+          <mxGeometry height="40" width="160" x="45" y="412" as="geometry" />
         </mxCell>
         <mxCell id="attr_amenities_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор" vertex="1">
-          <mxGeometry height="30" width="100" x="-70" y="498" as="geometry" />
+          <mxGeometry height="30" width="100" x="-70" y="449" as="geometry" />
         </mxCell>
         <mxCell id="attr_amenities_code" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Код" vertex="1">
-          <mxGeometry height="30" width="100" x="-43" y="533" as="geometry" />
+          <mxGeometry height="30" width="100" x="-64" y="486" as="geometry" />
         </mxCell>
         <mxCell id="attr_amenities_name" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Название" vertex="1">
-          <mxGeometry height="30" width="100" x="-7" y="568" as="geometry" />
+          <mxGeometry height="30" width="100" x="-44" y="522" as="geometry" />
         </mxCell>
         <mxCell id="edge_amenities_1" edge="1" parent="1" source="tbl_amenities" style="endArrow=none;html=1;" target="attr_amenities_id">
           <mxGeometry relative="1" as="geometry" />
@@ -110,13 +110,13 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="tbl_operation_types" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Типы операций" vertex="1">
-          <mxGeometry height="40" width="160" x="94" y="481" as="geometry" />
+          <mxGeometry height="40" width="160" x="87" y="478" as="geometry" />
         </mxCell>
         <mxCell id="attr_operation_types_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор" vertex="1">
-          <mxGeometry height="30" width="100" x="10" y="606" as="geometry" />
+          <mxGeometry height="30" width="100" x="-4" y="552" as="geometry" />
         </mxCell>
         <mxCell id="attr_operation_types_name" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Название" vertex="1">
-          <mxGeometry height="30" width="100" x="132" y="610" as="geometry" />
+          <mxGeometry height="30" width="100" x="115" y="559" as="geometry" />
         </mxCell>
         <mxCell id="edge_operation_types_1" edge="1" parent="1" source="tbl_operation_types" style="endArrow=none;html=1;" target="attr_operation_types_id">
           <mxGeometry relative="1" as="geometry" />
@@ -128,16 +128,16 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="tbl_property_statuses" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Статусы объектов" vertex="1">
-          <mxGeometry height="40" width="160" x="225" y="31" as="geometry" />
+          <mxGeometry height="40" width="160" x="215" y="25" as="geometry" />
         </mxCell>
         <mxCell id="attr_property_statuses_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор" vertex="1">
-          <mxGeometry height="30" width="100" x="116" y="-6" as="geometry" />
+          <mxGeometry height="30" width="100" x="89" y="-6" as="geometry" />
         </mxCell>
         <mxCell id="attr_property_statuses_code" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Код" vertex="1">
-          <mxGeometry height="30" width="100" x="194" y="-33" as="geometry" />
+          <mxGeometry height="30" width="100" x="154" y="-33" as="geometry" />
         </mxCell>
         <mxCell id="attr_property_statuses_name" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Название" vertex="1">
-          <mxGeometry height="30" width="100" x="294" y="-28" as="geometry" />
+          <mxGeometry height="30" width="100" x="260" y="-39" as="geometry" />
         </mxCell>
         <mxCell id="edge_property_statuses_1" edge="1" parent="1" source="tbl_property_statuses" style="endArrow=none;html=1;" target="attr_property_statuses_id">
           <mxGeometry relative="1" as="geometry" />
@@ -148,20 +148,17 @@
         <mxCell id="edge_property_statuses_3" edge="1" parent="1" source="tbl_property_statuses" style="endArrow=none;html=1;" target="attr_property_statuses_name">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-61" edge="1" parent="1" source="tbl_request_statuses" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_payment_status_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="tbl_request_statuses" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Статусы заявок" vertex="1">
-          <mxGeometry height="40" width="160" x="282" y="698" as="geometry" />
+          <mxGeometry height="40" width="160" x="72" y="627" as="geometry" />
         </mxCell>
         <mxCell id="attr_request_statuses_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор" vertex="1">
-          <mxGeometry height="30" width="100" x="284" y="651" as="geometry" />
+          <mxGeometry height="30" width="100" x="167" y="590" as="geometry" />
         </mxCell>
         <mxCell id="attr_request_statuses_code" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Код" vertex="1">
-          <mxGeometry height="30" width="100" x="392" y="653" as="geometry" />
+          <mxGeometry height="30" width="100" x="-65" y="597" as="geometry" />
         </mxCell>
         <mxCell id="attr_request_statuses_name" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Название" vertex="1">
-          <mxGeometry height="30" width="100" x="458" y="686" as="geometry" />
+          <mxGeometry height="30" width="100" x="171" y="672" as="geometry" />
         </mxCell>
         <mxCell id="edge_request_statuses_1" edge="1" parent="1" source="tbl_request_statuses" style="endArrow=none;html=1;" target="attr_request_statuses_id">
           <mxGeometry relative="1" as="geometry" />
@@ -331,9 +328,6 @@
         <mxCell id="edge_contract_statuses_3" edge="1" parent="1" source="tbl_contract_statuses" style="endArrow=none;html=1;" target="attr_contract_statuses_name">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-63" edge="1" parent="1" source="tbl_user_roles" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_client_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="tbl_user_roles" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Роли пользователей" vertex="1">
           <mxGeometry height="40" width="160" x="9" y="894" as="geometry" />
         </mxCell>
@@ -359,9 +353,6 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge_user_roles_4" edge="1" parent="1" source="tbl_user_roles" style="endArrow=none;html=1;" target="attr_user_roles_description">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-64" edge="1" parent="1" source="tbl_audit_entity_types" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_audit_entity_romb">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="tbl_audit_entity_types" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Типы сущностей аудита" vertex="1">
@@ -404,9 +395,6 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="edge_audit_actions_3" edge="1" parent="1" source="tbl_audit_actions" style="endArrow=none;html=1;" target="attr_audit_actions_name">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-65" edge="1" parent="1" source="tbl_request_match_statuses" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_payment_history_romb">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="tbl_request_match_statuses" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Статусы подборок" vertex="1">
@@ -575,7 +563,7 @@
           <mxGeometry height="40" width="160" x="654" y="256" as="geometry" />
         </mxCell>
         <mxCell id="attr_houses_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор" vertex="1">
-          <mxGeometry height="30" width="100" x="667" y="-111" as="geometry" />
+          <mxGeometry height="30" width="100" x="694" y="96" as="geometry" />
         </mxCell>
         <mxCell id="attr_houses_street_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор улицы" vertex="1">
           <mxGeometry height="30" width="100" x="767" y="312" as="geometry" />
@@ -1254,7 +1242,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="tbl_property_amenities" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Удобства объектов" vertex="1">
-          <mxGeometry height="40" width="160" x="211" y="114" as="geometry" />
+          <mxGeometry height="40" width="160" x="235" y="114" as="geometry" />
         </mxCell>
         <mxCell id="attr_property_amenities_property_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор объекта" vertex="1">
           <mxGeometry height="30" width="100" x="209" y="165" as="geometry" />
@@ -1706,9 +1694,6 @@
         <mxCell id="edge_deal_participants_5" edge="1" parent="1" source="tbl_deal_participants" style="endArrow=none;html=1;" target="attr_deal_participants_created_at">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-62" edge="1" parent="1" source="tbl_deal_documents" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_status_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="tbl_deal_documents" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Документы сделок" vertex="1">
           <mxGeometry height="39" width="122" x="1707" y="1089" as="geometry" />
         </mxCell>
@@ -2049,452 +2034,124 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="rel_city_street_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="содержит" vertex="1">
-          <mxGeometry height="50" width="80" x="485" y="118" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_city_street_from" edge="1" parent="1" source="tbl_cities" style="endArrow=none;html=1;" target="rel_city_street_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_city_street_to" edge="1" parent="1" style="endArrow=none;html=1;" target="tbl_streets">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="525" y="171" as="sourcePoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="rel_street_house_from" edge="1" parent="1" source="tbl_streets" style="endArrow=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="XUmsC6qMK1YleqMifHvl-17">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="542" y="347" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="rel_house_building_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="766" y="-107" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_house_building_to" edge="1" parent="1" source="rel_house_building_romb" style="endArrow=none;html=1;" target="tbl_building_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_house_property_from" edge="1" parent="1" source="tbl_houses" style="endArrow=none;html=1;" target="rel_house_property_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_house_property_to" edge="1" parent="1" source="rel_house_property_romb" style="endArrow=none;html=1;" target="tbl_properties">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="816" y="561" as="geometry" />
         </mxCell>
         <mxCell id="rel_operation_property_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="является" vertex="1">
-          <mxGeometry height="50" width="80" x="1279" y="282" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_operation_property_from" edge="1" parent="1" source="tbl_operation_types" style="endArrow=none;html=1;" target="rel_operation_property_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_operation_property_to" edge="1" parent="1" source="rel_operation_property_romb" style="endArrow=none;html=1;" target="tbl_properties">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="583" y="446" as="geometry" />
         </mxCell>
         <mxCell id="rel_status_property_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="соответствует" vertex="1">
-          <mxGeometry height="50" width="80" x="1247" y="238" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_status_property_from" edge="1" parent="1" source="tbl_property_statuses" style="endArrow=none;html=1;" target="rel_status_property_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_status_property_to" edge="1" parent="1" source="rel_status_property_romb" style="endArrow=none;html=1;" target="tbl_properties">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="624" y="394" as="geometry" />
         </mxCell>
         <mxCell id="rel_type_property_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="классифицирует" vertex="1">
-          <mxGeometry height="50" width="80" x="1455" y="600" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_type_property_from" edge="1" parent="1" source="tbl_property_types" style="endArrow=none;html=1;entryX=0;entryY=1;entryDx=0;entryDy=0;" target="rel_type_property_romb">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="645" y="709" as="geometry" />
         </mxCell>
         <mxCell id="rel_type_property_to" edge="1" parent="1" source="attr_properties_published_at" style="endArrow=none;html=1;" target="tbl_properties">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="rel_property_price_to" edge="1" parent="1" source="rel_property_owners_romb" style="endArrow=none;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="tbl_property_price_history">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_owners_from" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_owners_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_owners_to" edge="1" parent="1" source="rel_property_owners_romb" style="endArrow=none;html=1;" target="tbl_property_owners">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_property_details_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="988" y="634" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_details_from" edge="1" parent="1" source="rel_property_photos_romb" style="endArrow=none;html=1;" target="rel_property_details_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_details_to" edge="1" parent="1" source="rel_property_details_romb" style="endArrow=none;html=1;" target="tbl_property_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_amenities_from" edge="1" parent="1" source="rel_bathroom_details_romb" style="endArrow=none;html=1;" target="rel_property_amenities_romb">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="rel_property_amenities_to" edge="1" parent="1" source="rel_property_amenities_romb" style="endArrow=none;html=1;" target="tbl_property_amenities">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_photos_from" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_photos_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_photos_to" edge="1" parent="1" source="rel_property_photos_romb" style="endArrow=none;html=1;" target="tbl_property_photos">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_documents_from" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_documents_romb">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="854" y="583" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_viewings_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="684" y="666" as="geometry" />
         </mxCell>
-        <mxCell id="rel_property_viewings_from" edge="1" parent="1" source="rel_house_property_romb" style="endArrow=none;html=1;" target="rel_property_viewings_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_viewings_to" edge="1" parent="1" source="rel_property_viewings_romb" style="endArrow=none;html=1;" target="tbl_property_viewings">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_user_employee_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="является" vertex="1">
-          <mxGeometry height="50" width="80" x="936" y="261" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_user_employee_from" edge="1" parent="1" source="tbl_users" style="endArrow=none;html=1;" target="rel_user_employee_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_user_employee_to" edge="1" parent="1" source="rel_user_employee_romb" style="endArrow=none;html=1;" target="tbl_employee_profiles">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="836" y="404" as="geometry" />
         </mxCell>
         <mxCell id="rel_user_client_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="является" vertex="1">
           <mxGeometry height="50" width="80" x="880" y="540" as="geometry" />
         </mxCell>
-        <mxCell id="rel_user_client_from" edge="1" parent="1" source="tbl_users" style="endArrow=none;html=1;" target="rel_user_client_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_user_client_to" edge="1" parent="1" source="rel_user_client_romb" style="endArrow=none;html=1;" target="tbl_client_profiles">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-55" edge="1" parent="1" source="rel_client_kind_romb" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_payment_status_romb" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_client_kind_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="652" y="304" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_kind_from" edge="1" parent="1" source="rel_renovation_details_romb" style="endArrow=none;html=1;" target="rel_client_kind_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_kind_to" edge="1" parent="1" source="rel_client_kind_romb" style="endArrow=none;html=1;" target="tbl_client_kinds">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="663" y="427" as="geometry" />
         </mxCell>
         <mxCell id="rel_client_individual_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="650" y="424" as="geometry" />
         </mxCell>
-        <mxCell id="rel_client_individual_from" edge="1" parent="1" source="rel_property_amenities_romb" style="endArrow=none;html=1;" target="rel_client_individual_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_individual_to" edge="1" parent="1" source="rel_client_individual_romb" style="endArrow=none;html=1;" target="tbl_client_individual_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_company_from" edge="1" parent="1" source="tbl_client_profiles" style="endArrow=none;html=1;" target="rel_client_company_romb">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="845" y="693" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="rel_client_company_to" edge="1" parent="1" source="rel_client_company_romb" style="endArrow=none;html=1;" target="tbl_client_company_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_client_request_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="создает" vertex="1">
-          <mxGeometry height="50" width="80" x="1530" y="271" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_request_from" edge="1" parent="1" source="tbl_client_profiles" style="endArrow=none;html=1;" target="rel_client_request_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_request_to" edge="1" parent="1" source="rel_client_request_romb" style="endArrow=none;html=1;" target="tbl_requests">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="870" y="412" as="geometry" />
         </mxCell>
         <mxCell id="rel_employee_request_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="обрабатывает" vertex="1">
-          <mxGeometry height="69" width="97" x="1471" y="205" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_employee_request_from" edge="1" parent="1" source="tbl_employee_profiles" style="endArrow=none;html=1;" target="rel_employee_request_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_employee_request_to" edge="1" parent="1" source="rel_employee_request_romb" style="endArrow=none;html=1;" target="tbl_requests">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="69" width="97" x="811" y="346" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_request_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="связан с" vertex="1">
-          <mxGeometry height="50" width="80" x="1450" y="163" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_request_from" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_request_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_request_to" edge="1" parent="1" source="rel_property_request_romb" style="endArrow=none;html=1;" target="tbl_requests">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_request_match_from" edge="1" parent="1" source="tbl_requests" style="endArrow=none;html=1;" target="rel_request_match_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_request_match_to" edge="1" parent="1" source="rel_request_match_romb" style="endArrow=none;html=1;" target="tbl_request_property_matches">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="81" x="644" y="338" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_deal_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="участвует в" vertex="1">
-          <mxGeometry height="50" width="80" x="1483" y="447" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_deal_from" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_deal_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_deal_to" edge="1" parent="1" source="rel_property_deal_romb" style="endArrow=none;html=1;" target="tbl_deals">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="673" y="556" as="geometry" />
         </mxCell>
         <mxCell id="rel_employee_deal_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="ведет" vertex="1">
-          <mxGeometry height="50" width="80" x="1529" y="405" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_employee_deal_from" edge="1" parent="1" source="tbl_employee_profiles" style="endArrow=none;html=1;" target="rel_employee_deal_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_employee_deal_to" edge="1" parent="1" source="rel_employee_deal_romb" style="endArrow=none;html=1;" target="tbl_deals">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="719" y="514" as="geometry" />
         </mxCell>
         <mxCell id="rel_request_deal_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="завершается" vertex="1">
-          <mxGeometry height="50" width="80" x="1562" y="352" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_request_deal_from" edge="1" parent="1" source="tbl_requests" style="endArrow=none;html=1;" target="rel_request_deal_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_request_deal_to" edge="1" parent="1" source="rel_request_deal_romb" style="endArrow=none;html=1;" target="tbl_deals">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="902" y="493" as="geometry" />
         </mxCell>
         <mxCell id="rel_deal_participants_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1596" y="657" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_deal_participants_from" edge="1" parent="1" source="tbl_deals" style="endArrow=none;html=1;" target="rel_deal_participants_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_deal_participants_to" edge="1" parent="1" source="rel_deal_participants_romb" style="endArrow=none;html=1;" target="tbl_deal_participants">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="647" y="692" as="geometry" />
         </mxCell>
         <mxCell id="rel_client_participant_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="является" vertex="1">
-          <mxGeometry height="50" width="80" x="1596" y="806" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_participant_from" edge="1" parent="1" source="tbl_client_profiles" style="endArrow=none;html=1;" target="rel_client_participant_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_participant_to" edge="1" parent="1" source="rel_client_participant_romb" style="endArrow=none;html=1;" target="tbl_deal_participants">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="720" y="785" as="geometry" />
         </mxCell>
         <mxCell id="rel_role_participant_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1462" y="970" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_role_participant_from" edge="1" parent="1" source="tbl_deal_participant_roles" style="endArrow=none;html=1;" target="rel_role_participant_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_role_participant_to" edge="1" parent="1" source="rel_role_participant_romb" style="endArrow=none;html=1;" target="tbl_deal_participants">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="672" y="487" as="geometry" />
         </mxCell>
         <mxCell id="rel_deal_status_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="соответствует" vertex="1">
-          <mxGeometry height="50" width="80" x="1512" y="525" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_deal_status_from" edge="1" parent="1" source="tbl_deal_statuses" style="endArrow=none;html=1;" target="rel_deal_status_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_deal_status_to" edge="1" parent="1" source="rel_deal_status_romb" style="endArrow=none;html=1;" target="tbl_deals">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="702" y="634" as="geometry" />
         </mxCell>
         <mxCell id="rel_contract_status_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1512" y="586" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_contract_status_from" edge="1" parent="1" source="tbl_contract_statuses" style="endArrow=none;html=1;" target="rel_contract_status_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_contract_status_to" edge="1" parent="1" source="rel_contract_status_romb" style="endArrow=none;html=1;" target="tbl_deals">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="79" x="595" y="642" as="geometry" />
         </mxCell>
         <mxCell id="rel_operation_deal_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="является" vertex="1">
-          <mxGeometry height="50" width="80" x="1506" y="646" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_operation_deal_from" edge="1" parent="1" source="tbl_operation_types" style="endArrow=none;html=1;" target="rel_operation_deal_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_operation_deal_to" edge="1" parent="1" source="rel_operation_deal_romb" style="endArrow=none;html=1;" target="tbl_deals">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="619" y="646" as="geometry" />
         </mxCell>
         <mxCell id="rel_task_assignee_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="исполняет" vertex="1">
-          <mxGeometry height="50" width="80" x="1528" y="1072" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_task_assignee_from" edge="1" parent="1" source="tbl_users" style="endArrow=none;html=1;" target="rel_task_assignee_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_task_assignee_to" edge="1" parent="1" source="rel_task_assignee_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="738" y="589" as="geometry" />
         </mxCell>
         <mxCell id="rel_priority_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1517" y="1204" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_priority_task_from" edge="1" parent="1" source="tbl_task_priorities" style="endArrow=none;html=1;" target="rel_priority_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_priority_task_to" edge="1" parent="1" source="rel_priority_task_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="741" y="453" as="geometry" />
         </mxCell>
         <mxCell id="rel_type_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1518" y="1142" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_type_task_from" edge="1" parent="1" source="tbl_task_types" style="endArrow=none;html=1;" target="rel_type_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_type_task_to" edge="1" parent="1" source="rel_type_task_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="728" y="659" as="geometry" />
         </mxCell>
         <mxCell id="rel_status_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="соответствует" vertex="1">
-          <mxGeometry height="62" width="90" x="1618" y="924" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_status_task_from" edge="1" parent="1" source="tbl_task_statuses" style="endArrow=none;html=1;" target="rel_status_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_status_task_to" edge="1" parent="1" source="rel_status_task_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="62" width="90" x="748" y="448" as="geometry" />
         </mxCell>
         <mxCell id="rel_request_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="связана с" vertex="1">
-          <mxGeometry height="50" width="80" x="1521" y="703" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_request_task_from" edge="1" parent="1" source="rel_request_match_romb" style="endArrow=none;html=1;" target="rel_request_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_request_task_to" edge="1" parent="1" source="rel_request_task_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="688" y="735" as="geometry" />
         </mxCell>
         <mxCell id="rel_deal_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="связана с" vertex="1">
-          <mxGeometry height="50" width="80" x="1482" y="765" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_deal_task_from" edge="1" parent="1" source="tbl_deals" style="endArrow=none;html=1;" target="rel_deal_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_deal_task_to" edge="1" parent="1" source="rel_deal_task_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="702" y="773" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="связан с" vertex="1">
-          <mxGeometry height="50" width="80" x="1531" y="999" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_task_from" edge="1" parent="1" source="rel_property_owners_romb" style="endArrow=none;html=1;" target="rel_property_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_property_task_to" edge="1" parent="1" source="rel_property_task_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_task_from" edge="1" parent="1" source="tbl_audit_logs" style="endArrow=none;html=1;" target="rel_client_task_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_client_task_to" edge="1" parent="1" source="rel_property_documents_romb" style="endArrow=none;html=1;" target="tbl_tasks">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-56" edge="1" parent="1" source="rel_viewing_payment_romb" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="rel_property_documents_romb" value="">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="50" width="80" x="741" y="516" as="geometry" />
         </mxCell>
         <mxCell id="rel_viewing_payment_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="оплачивается" vertex="1">
           <mxGeometry height="50" width="80" x="589" y="488" as="geometry" />
         </mxCell>
-        <mxCell id="rel_viewing_payment_from" edge="1" parent="1" source="tbl_property_viewings" style="endArrow=none;html=1;" target="rel_viewing_payment_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_viewing_payment_to" edge="1" parent="1" source="rel_audit_action_romb" style="endArrow=none;html=1;" target="tbl_viewing_payments">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_payment_status_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="588" y="749" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_payment_status_from" edge="1" parent="1" source="rel_payment_history_romb" style="endArrow=none;html=1;" target="rel_payment_status_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_payment_status_to" edge="1" parent="1" source="rel_payment_status_romb" style="endArrow=none;html=1;" target="tbl_viewing_payments">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_payment_history_from" edge="1" parent="1" source="tbl_viewing_payments" style="endArrow=none;html=1;" target="rel_payment_history_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_payment_history_to" edge="1" parent="1" source="rel_payment_history_romb" style="endArrow=none;html=1;" target="tbl_payment_history">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_audit_entity_from" edge="1" parent="1" source="tbl_audit_logs" style="endArrow=none;html=1;" target="rel_audit_entity_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_audit_action_from" edge="1" parent="1" source="tbl_audit_logs" style="endArrow=none;html=1;" target="rel_audit_action_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_audit_action_to" edge="1" parent="1" source="rel_audit_action_romb" style="endArrow=none;html=1;" target="tbl_audit_actions">
-          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="rel_audit_user_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="выполняет" vertex="1">
           <mxGeometry height="50" width="80" x="818" y="448" as="geometry" />
         </mxCell>
-        <mxCell id="rel_audit_user_from" edge="1" parent="1" source="tbl_audit_logs" style="endArrow=none;html=1;" target="rel_audit_user_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_audit_user_to" edge="1" parent="1" source="rel_audit_user_romb" style="endArrow=none;html=1;" target="tbl_users">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_backup_user_from" edge="1" parent="1" source="rel_payment_history_romb" style="endArrow=none;html=1;" target="rel_backup_user_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_backup_user_to" edge="1" parent="1" source="rel_backup_user_romb" style="endArrow=none;html=1;" target="tbl_users">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_bathroom_details_from" edge="1" parent="1" source="rel_backup_user_romb" style="endArrow=none;html=1;" target="rel_bathroom_details_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_bathroom_details_to" edge="1" parent="1" source="rel_bathroom_details_romb" style="endArrow=none;html=1;" target="tbl_property_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_renovation_details_from" edge="1" parent="1" source="tbl_renovation_types" style="endArrow=none;html=1;" target="rel_renovation_details_romb">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_renovation_details_to" edge="1" parent="1" source="attr_property_documents_verified_at" style="endArrow=none;html=1;" target="tbl_property_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="rel_material_building_to" edge="1" parent="1" source="rel_backup_user_romb" style="endArrow=none;html=1;" target="tbl_building_details">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="rel_commercial_type_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="используется в" vertex="1">
           <mxGeometry height="50" width="80" x="877" y="596" as="geometry" />
         </mxCell>
-        <mxCell id="rel_commercial_type_to" edge="1" parent="1" source="rel_commercial_type_romb" style="endArrow=none;html=1;" target="tbl_commercial_property_details">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-2" edge="1" parent="1" source="tbl_requests" style="endArrow=none;html=1;" target="rel_request_match_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1659" y="120" as="sourcePoint" />
-            <mxPoint x="1521" y="2801" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_request_match_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1621" y="281" as="geometry" />
+          <mxGeometry height="50" width="80" x="658" y="433" as="geometry" />
         </mxCell>
         <mxCell id="tbl_users" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Пользователи" vertex="1">
           <mxGeometry height="40" width="160" x="838" y="53" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-9" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_owners_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1362" y="120" as="sourcePoint" />
-            <mxPoint x="1404" y="527" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-10" edge="1" parent="1" source="rel_type_property_romb" style="endArrow=none;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="tbl_properties" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="461" y="593" as="sourcePoint" />
-            <mxPoint x="1324" y="120" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="attr_properties_published_at" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Дата публикации" vertex="1">
           <mxGeometry height="30" width="100" x="1124" y="183" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-11" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_house_property_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1359" y="120" as="sourcePoint" />
-            <mxPoint x="1241" y="2641" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_house_property_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="содержит" vertex="1">
-          <mxGeometry height="50" width="80" x="1408" y="196" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-12" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_owners_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1365" y="120" as="sourcePoint" />
-            <mxPoint x="1566" y="1002" as="targetPoint" />
-          </mxGeometry>
+          <mxGeometry height="50" width="80" x="748" y="337" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_owners_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="1350" y="252" as="geometry" />
+          <mxGeometry height="50" width="80" x="690" y="393" as="geometry" />
         </mxCell>
         <mxCell id="XUmsC6qMK1YleqMifHvl-15" edge="1" parent="1" source="tbl_operation_types" style="endArrow=none;html=1;" target="attr_operation_types_code" value="">
           <mxGeometry relative="1" as="geometry">
@@ -2503,13 +2160,10 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="attr_operation_types_code" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Код" vertex="1">
-          <mxGeometry height="30" width="100" x="58" y="643" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-18" edge="1" parent="1" source="XUmsC6qMK1YleqMifHvl-17" style="rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;endArrow=none;endFill=0;" target="tbl_houses">
-          <mxGeometry relative="1" as="geometry" />
+          <mxGeometry height="30" width="100" x="32" y="584" as="geometry" />
         </mxCell>
         <mxCell id="XUmsC6qMK1YleqMifHvl-17" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="содержит" vertex="1">
-          <mxGeometry height="50" width="80" x="523" y="336" as="geometry" />
+          <mxGeometry height="50" width="80" x="630" y="426" as="geometry" />
         </mxCell>
         <mxCell id="XUmsC6qMK1YleqMifHvl-20" edge="1" parent="1" source="tbl_houses" style="endArrow=none;html=1;" target="attr_houses_postal_code" value="">
           <mxGeometry relative="1" as="geometry">
@@ -2520,47 +2174,17 @@
         <mxCell id="attr_houses_postal_code" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Почтовый индекс" vertex="1">
           <mxGeometry height="30" width="100" x="710" y="173" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-21" edge="1" parent="1" source="tbl_commercial_property_types" style="endArrow=none;html=1;" target="attr_viewing_payments_viewing_id" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="139" y="352" as="sourcePoint" />
-            <mxPoint x="1497" y="2167" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="attr_viewing_payments_viewing_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор просмотра" vertex="1">
           <mxGeometry height="30" width="100" x="668" y="1093" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-54" edge="1" parent="1" source="rel_client_task_romb" style="edgeStyle=none;shape=connector;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=default;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=default;labelBackgroundColor=default;endArrow=none;" target="tbl_request_statuses">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
         <mxCell id="rel_client_task_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="связан с" vertex="1">
-          <mxGeometry height="50" width="80" x="504" y="933" as="geometry" />
+          <mxGeometry height="50" width="80" x="593" y="833" as="geometry" />
         </mxCell>
         <mxCell id="attr_viewing_payments_amount" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Сумма" vertex="1">
           <mxGeometry height="30" width="100" x="616" y="1207" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-28" edge="1" parent="1" source="rel_audit_entity_romb" style="endArrow=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="tbl_viewing_statuses" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="562" y="1846" as="sourcePoint" />
-            <mxPoint x="89" y="1132" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="attr_viewing_statuses_id" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Идентификатор" vertex="1">
           <mxGeometry height="30" width="100" x="188" y="1348" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-29" edge="1" parent="1" source="rel_client_company_romb" style="endArrow=none;html=1;" target="rel_payment_history_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="418" y="1480" as="sourcePoint" />
-            <mxPoint x="556" y="1239" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="rel_audit_action_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="выполняет" vertex="1">
-          <mxGeometry height="50" width="80" x="658" y="1450" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-32" edge="1" parent="1" source="rel_audit_entity_romb" style="endArrow=none;html=1;" target="rel_backup_user_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="113" y="208" as="sourcePoint" />
-            <mxPoint x="1497" y="1927" as="targetPoint" />
-          </mxGeometry>
         </mxCell>
         <mxCell id="tbl_audit_logs" parent="1" style="rounded=0;whiteSpace=wrap;html=1;strokeWidth=2;fillColor=#ffffff;strokeColor=#000000;" value="Журнал аудита" vertex="1">
           <mxGeometry height="40" width="160" x="504" y="1551" as="geometry" />
@@ -2568,62 +2192,20 @@
         <mxCell id="rel_backup_user_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="создает" vertex="1">
           <mxGeometry height="50" width="80" x="706" y="761" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-35" edge="1" parent="1" source="tbl_bathroom_types" style="endArrow=none;html=1;" target="rel_audit_entity_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="136" y="208" as="sourcePoint" />
-            <mxPoint x="696" y="494" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_audit_entity_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="относится к" vertex="1">
-          <mxGeometry height="50" width="80" x="618" y="896" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-36" edge="1" parent="1" source="tbl_viewing_payment_statuses" style="endArrow=none;html=1;" target="rel_client_company_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="413" y="1480" as="sourcePoint" />
-            <mxPoint x="702" y="531" as="targetPoint" />
-          </mxGeometry>
+          <mxGeometry height="50" width="80" x="648" y="550" as="geometry" />
         </mxCell>
         <mxCell id="rel_client_company_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="598" y="577" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-37" edge="1" parent="1" source="rel_property_photos_romb" style="endArrow=none;html=1;" target="rel_renovation_details_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1017" y="780" as="sourcePoint" />
-            <mxPoint x="671" y="483" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_renovation_details_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="используется в" vertex="1">
-          <mxGeometry height="50" width="80" x="391" y="317" as="geometry" />
+          <mxGeometry height="50" width="80" x="672" y="533" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_documents_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="795" y="352" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-39" edge="1" parent="1" source="rel_renovation_details_romb" style="endArrow=none;html=1;" target="rel_property_amenities_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="747" y="556" as="sourcePoint" />
-            <mxPoint x="1692" y="1590" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-40" edge="1" parent="1" source="tbl_client_profiles" style="endArrow=none;html=1;" target="rel_property_photos_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1016" y="780" as="sourcePoint" />
-            <mxPoint x="749" y="554" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-41" edge="1" parent="1" source="rel_property_amenities_romb" style="endArrow=none;html=1;" target="attr_property_documents_verified_at" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="781" y="596" as="sourcePoint" />
-            <mxPoint x="1692" y="1590" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="attr_property_documents_verified_at" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Дата проверки" vertex="1">
           <mxGeometry height="30" width="100" x="1597" y="1531" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-42" edge="1" parent="1" style="endArrow=none;html=1;" target="tbl_client_profiles" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="792.9131662846918" y="571.9992710720679" as="sourcePoint" />
-            <mxPoint x="1025.3015889385933" y="716.486077321405" as="targetPoint" />
-          </mxGeometry>
         </mxCell>
         <mxCell id="XUmsC6qMK1YleqMifHvl-43" edge="1" parent="1" source="attr_payment_history_new_status" style="endArrow=none;html=1;" target="attr_payment_history_id" value="">
           <mxGeometry relative="1" as="geometry">
@@ -2655,44 +2237,17 @@
         <mxCell id="attr_payment_history_new_status" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" value="Новый статус" vertex="1">
           <mxGeometry height="30" width="100" x="701" y="1335" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-57" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_bathroom_details_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="936" y="437" />
-            </Array>
-            <mxPoint x="1335" y="120" as="sourcePoint" />
-            <mxPoint x="783" y="566" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_bathroom_details_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="используется в" vertex="1">
-          <mxGeometry height="50" width="80" x="958" y="390" as="geometry" />
-        </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-58" edge="1" parent="1" source="tbl_properties" style="endArrow=none;html=1;" target="rel_property_photos_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1330" y="120" as="sourcePoint" />
-            <mxPoint x="729" y="524" as="targetPoint" />
-          </mxGeometry>
+          <mxGeometry height="50" width="80" x="914" y="391" as="geometry" />
         </mxCell>
         <mxCell id="rel_property_photos_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="862" y="378" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-59" edge="1" parent="1" source="tbl_client_profiles" style="endArrow=none;html=1;" target="rel_property_amenities_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1020" y="780" as="sourcePoint" />
-            <mxPoint x="705" y="464" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_property_amenities_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
           <mxGeometry height="50" width="80" x="712" y="491" as="geometry" />
         </mxCell>
-        <mxCell id="XUmsC6qMK1YleqMifHvl-60" edge="1" parent="1" source="tbl_database_backups" style="endArrow=none;html=1;" target="rel_payment_history_romb" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="815" y="1572" as="sourcePoint" />
-            <mxPoint x="748" y="810" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
         <mxCell id="rel_payment_history_romb" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;fontStyle=1;" value="имеет" vertex="1">
-          <mxGeometry height="50" width="80" x="712" y="861" as="geometry" />
+          <mxGeometry height="50" width="80" x="792" y="537" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
