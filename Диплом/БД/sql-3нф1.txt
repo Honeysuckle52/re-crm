@@ -173,7 +173,6 @@ CREATE TABLE `houses` (
     `coordinates_lat` DECIMAL(10,8),
     `coordinates_lon` DECIMAL(11,8),
     `cadastral_number` VARCHAR(50),
-    `floor_number` INT,
     `external_id` CHAR(36),
     FOREIGN KEY (`street_id`) REFERENCES `streets` (`id`)
 );
@@ -261,6 +260,7 @@ CREATE TABLE `properties` (
     `area_total` DECIMAL(8,2),
     `rooms_count` INT,
     `description` TEXT,
+    `floor_number` INT,
     `is_published` TINYINT(1) NOT NULL DEFAULT 1,
     `published_at` DATETIME,
     `unpublished_at` DATETIME,

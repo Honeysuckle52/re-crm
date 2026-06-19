@@ -552,3 +552,77 @@ python manage.py process_background_jobs --loop
 - **Requests.vue** — список заявок.
 - **TaskWorkflow.vue** — пошаговое выполнение задачи.
 - **Tasks.vue** — список задач агента.
+
+## Нагрузочное тестирование авторизации
+
+Если нужно буквально прогнать массовую авторизацию пользователей, используйте минимальный `k6`-сценарий:
+
+- скрипт: `simple/loadtests/k6-auth-login.js`
+- endpoint: `POST /api/auth/login/`
+- ramp-up: `60s`
+- длительность плато: `5m`
+- think time: `1-3s`
+- уровни: `10`, `25`, `50`, `100`, `200` VU
+
+### 1. Подготовить пул пользователей
+
+После `migrate` выполните:
+
+```bash
+python manage.py seed_loadtest_users --count 120
+```
+
+Будут созданы пользователи `loadtest.user.001@example.com` ... `loadtest.user.120@example.com`.
+Пароль по умолчанию для всех: `LoadTestAuth123!`.
+
+### 2. Установить k6
+
+Проверьте, что `k6` доступен:
+
+```bash
+k6 version
+```
+
+### 3. Запустить тест авторизации
+
+Пример для 10 виртуальных пользователей:
+
+```bash
+k6 run simple/loadtests/k6-auth-login.js --env BASE_URL=http://127.0.0.1:8000 --env VUS=10 --env USER_COUNT=120
+```
+
+Остальные уровни:
+
+```bash
+k6 run simple/loadtests/k6-auth-login.js --env BASE_URL=http://127.0.0.1:8000 --env VUS=25  --env USER_COUNT=120
+k6 run simple/loadtests/k6-auth-login.js --env BASE_URL=http://127.0.0.1:8000 --env VUS=50  --env USER_COUNT=120
+k6 run simple/loadtests/k6-auth-login.js --env BASE_URL=http://127.0.0.1:8000 --env VUS=100 --env USER_COUNT=120
+k6 run simple/loadtests/k6-auth-login.js --env BASE_URL=http://127.0.0.1:8000 --env VUS=200 --env USER_COUNT=120
+```
+
+Если сервер работает не на `127.0.0.1:8000`, замените `BASE_URL`.
+
+### 4. Что собирается
+
+`k6` покажет:
+
+- время отклика `min`, `p50`, `p95`, `p99`, `max`
+- `RPS`
+- процент успешных и неуспешных логинов
+- ошибки и таймауты
+
+JSON summary сохраняется в `simple/loadtests/results/auth-login-summary.json`.
+
+### 5. Ресурсы сервера
+
+`k6` сам не снимает `CPU / RAM / I/O` сервера приложения. Их нужно смотреть параллельно во время теста, например:
+
+```powershell
+Get-Process python | Select-Object ProcessName,Id,CPU,WS,PM
+```
+
+или через `Task Manager` / `Resource Monitor`, либо если приложение запущено в Docker:
+
+```bash
+docker stats
+```
