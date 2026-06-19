@@ -96,9 +96,26 @@ LOOKUP_NAME_DEFAULTS = {
     },
 }
 
+LOOKUP_DEFAULT_CODES = {
+    'UserType': 'client',
+    'ClientKind': 'individual',
+    'ContractStatus': 'not_requested',
+    'PropertyStatus': 'active',
+    'PropertyType': 'apartment',
+    'RequestStatus': 'open',
+    'RequestMatchStatus': 'proposed',
+    'ViewingStatus': 'scheduled',
+    'TaskPriority': 'normal',
+    'TaskType': 'other',
+}
+
 
 def _lookup_default_name(model_class, code: str) -> str:
     return LOOKUP_NAME_DEFAULTS.get(model_class.__name__, {}).get(code, code)
+
+
+def _lookup_default_code(model_class) -> str | None:
+    return LOOKUP_DEFAULT_CODES.get(model_class.__name__)
 
 
 def _lookup_choices(model_name: str, codes: tuple[str, ...]) -> list[tuple[str, str]]:
@@ -125,6 +142,15 @@ def _resolve_lookup_instance(model_class, value):
     )
 
 
+def _ensure_lookup_default(instance, field_name: str, model_class) -> None:
+    if getattr(instance, f'{field_name}_id', None):
+        return
+    default_code = _lookup_default_code(model_class)
+    if not default_code:
+        return
+    setattr(instance, field_name, _resolve_lookup_instance(model_class, default_code))
+
+
 def _resolve_user_profile(value, profile_attr: str):
     """Нормализует пользователя или id к связанному профилю."""
     if value in (None, ''):
@@ -132,14 +158,37 @@ def _resolve_user_profile(value, profile_attr: str):
 
     profile_model_name = 'ClientProfile' if profile_attr == 'client_profile' else 'EmployeeProfile'
     profile_model = globals().get(profile_model_name)
+
+    def _profile_defaults(user):
+        username = (getattr(user, 'username', '') or '').strip() or 'user'
+        first_name = username.split('.')[0].split('_')[0].split('-')[0] or username
+        return {
+            'first_name': first_name[:50],
+            'last_name': username[:50],
+        }
+
+    def _ensure_profile(user):
+        if user is None:
+            return None
+        try:
+            return getattr(user, profile_attr)
+        except Exception:
+            pass
+        if profile_model is None:
+            return None
+        if profile_attr == 'client_profile' and getattr(user, 'user_type', None) == 'client':
+            defaults = _profile_defaults(user)
+            defaults['client_kind'] = ClientProfile.CLIENT_KIND_INDIVIDUAL
+            return profile_model.objects.create(user=user, **defaults)
+        if profile_attr == 'employee_profile' and getattr(user, 'user_type', None) == 'employee':
+            return profile_model.objects.create(user=user, **_profile_defaults(user))
+        return None
+
     if profile_model is not None and isinstance(value, profile_model):
         return value
 
     if isinstance(value, User):
-        try:
-            return getattr(value, profile_attr)
-        except Exception:
-            return None
+        return _ensure_profile(value)
 
     if hasattr(value, profile_attr):
         try:
@@ -157,10 +206,7 @@ def _resolve_user_profile(value, profile_attr: str):
     user = User.objects.select_related(profile_attr).filter(pk=user_id).first()
     if user is None:
         return None
-    try:
-        return getattr(user, profile_attr)
-    except Exception:
-        return None
+    return _ensure_profile(user)
 
 
 def _rewrite_legacy_update_fields(instance, kwargs):
@@ -809,7 +855,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         on_delete=models.PROTECT,
         related_name='users',
         verbose_name='Тип пользователя',
-        default=1,
+        blank=True,
+        null=True,
     )
     role = models.ForeignKey(UserRole, on_delete=models.SET_NULL,
                              verbose_name='Роль',
@@ -851,6 +898,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'user_type_ref', UserType)
         if self.email:
             self.email = User.objects.normalize_email(self.email)
         if self.phone == '':
@@ -887,6 +935,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.user_type_ref.name
 
     def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'user_type_ref', UserType)
         _rewrite_legacy_update_fields(self, kwargs)
         return super().save(*args, **kwargs)
 
@@ -992,7 +1041,8 @@ class ClientProfile(models.Model):
         on_delete=models.PROTECT,
         related_name='profiles',
         verbose_name='Вид клиента',
-        default=1,
+        blank=True,
+        null=True,
     )
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
@@ -1024,6 +1074,7 @@ class ClientProfile(models.Model):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'client_kind_ref', ClientKind)
         if self.user_id and self.user.user_type != 'client':
             raise ValidationError({'user': 'Профиль клиента можно привязать только к пользователю типа "Клиент".'})
 
@@ -1068,6 +1119,7 @@ class ClientProfile(models.Model):
         self._legacy_notes = value
 
     def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'client_kind_ref', ClientKind)
         _rewrite_legacy_update_fields(self, kwargs)
         return super().save(*args, **kwargs)
 
@@ -1224,7 +1276,8 @@ class Property(models.Model):
         on_delete=models.PROTECT,
         verbose_name='Статус',
         related_name='properties',
-        default=1,
+        blank=True,
+        null=True,
     )
     house = models.ForeignKey(
         House,
@@ -1237,7 +1290,8 @@ class Property(models.Model):
         on_delete=models.PROTECT,
         verbose_name='Тип помещения',
         related_name='properties',
-        default=1,
+        blank=True,
+        null=True,
     )
     coordinates_lat = models.DecimalField(
         max_digits=10,
@@ -1541,6 +1595,8 @@ class Property(models.Model):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'status', PropertyStatus)
+        _ensure_lookup_default(self, 'property_type_ref', PropertyType)
         errors = {}
         if self.price is not None and self.price < 0:
             errors['price'] = 'Цена не может быть отрицательной.'
@@ -1567,6 +1623,8 @@ class Property(models.Model):
                     kwargs['update_fields'] = update_fields
                 else:
                     kwargs.pop('update_fields')
+        _ensure_lookup_default(self, 'status', PropertyStatus)
+        _ensure_lookup_default(self, 'property_type_ref', PropertyType)
         _rewrite_legacy_update_fields(self, kwargs)
         pending_total_floors = getattr(self, '_pending_total_floors', None)
         has_pending_total_floors = hasattr(self, '_pending_total_floors')
@@ -1946,7 +2004,7 @@ class PropertyViewing(models.Model):
                                          verbose_name='Сотрудник')
     viewing_date = models.DateTimeField(verbose_name='Дата просмотра')
     status = models.ForeignKey(ViewingStatus, on_delete=models.PROTECT,
-                               verbose_name='Статус', default=1)
+                               verbose_name='Статус', blank=True, null=True)
     comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
     created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
 
@@ -1958,6 +2016,7 @@ class PropertyViewing(models.Model):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'status', ViewingStatus)
         errors = {}
         if self.client_profile_id and self.client_profile.user.user_type != 'client':
             errors['client_profile'] = 'Клиентом просмотра может быть только пользователь типа "Клиент".'
@@ -2031,6 +2090,11 @@ class PropertyViewing(models.Model):
             return self.payment
         except Exception:
             return None
+
+    def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'status', ViewingStatus)
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
 
 
 class ViewingPayment(models.Model):
@@ -2222,7 +2286,8 @@ class Request(models.Model):
                                        related_name='requests')
     status = models.ForeignKey(RequestStatus, on_delete=models.PROTECT,
                                verbose_name='Статус',
-                               related_name='requests', default=1)
+                               related_name='requests',
+                               blank=True, null=True)
     property_type = models.ForeignKey(PropertyType, on_delete=models.SET_NULL,
                                       blank=True, null=True,
                                       verbose_name='Тип помещения')
@@ -2297,6 +2362,23 @@ class Request(models.Model):
         'agent_id': 'employee_profile__user_id',
     }
 
+    def __init__(self, *args, **kwargs):
+        legacy_client = kwargs.pop('client', None)
+        legacy_client_id = kwargs.pop('client_id', None)
+        legacy_agent = kwargs.pop('agent', None)
+        legacy_agent_id = kwargs.pop('agent_id', None)
+        has_client_profile = 'client_profile' in kwargs or 'client_profile_id' in kwargs
+        has_employee_profile = 'employee_profile' in kwargs or 'employee_profile_id' in kwargs
+        super().__init__(*args, **kwargs)
+        if legacy_client not in (None, '') and not has_client_profile:
+            self.client = legacy_client
+        elif legacy_client_id not in (None, '') and not has_client_profile:
+            self.client_id = legacy_client_id
+        if legacy_agent not in (None, '') and not has_employee_profile:
+            self.agent = legacy_agent
+        elif legacy_agent_id not in (None, '') and not has_employee_profile:
+            self.agent_id = legacy_agent_id
+
     def __str__(self):
         return f'Заявка в„–{self.pk} от {self.client_profile.user.username}'
 
@@ -2334,6 +2416,7 @@ class Request(models.Model):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'status', RequestStatus)
         errors = {}
         if self.client_profile_id and self.client_profile.user.user_type != 'client':
             errors['client_profile'] = 'В поле клиента можно выбрать только пользователя типа "Клиент".'
@@ -2401,6 +2484,11 @@ class Request(models.Model):
     def is_terminal(self) -> bool:
         return self.status_code in self.TERMINAL_STATUS_CODES
 
+    def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'status', RequestStatus)
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
+
 
 class RequestPropertyMatch(models.Model):
     """Вариант объекта по заявке клиента."""
@@ -2424,7 +2512,7 @@ class RequestPropertyMatch(models.Model):
                                          related_name='proposed_matches',
                                          verbose_name='Сотрудник')
     status = models.ForeignKey(RequestMatchStatus, on_delete=models.PROTECT,
-                               verbose_name='Статус', default=1)
+                               verbose_name='Статус', blank=True, null=True)
     agent_note = models.TextField(blank=True, null=True, verbose_name='Заметка сотрудника')
     confirmed_at = models.DateTimeField(blank=True, null=True, verbose_name='Дата подтверждения')
     confirmed_by = models.ForeignKey(
@@ -2470,6 +2558,22 @@ class RequestPropertyMatch(models.Model):
         if self.status_id:
             return self.status.code
         return 'draft'
+
+    def clean(self):
+        super().clean()
+        _ensure_lookup_default(self, 'status', RequestMatchStatus)
+        errors = {}
+        if self.employee_profile_id and self.employee_profile.user.user_type != 'employee':
+            errors['employee_profile'] = 'Сотрудником варианта может быть только сотрудник.'
+        if self.confirmed_by_id and self.confirmed_by.user_type != 'employee':
+            errors['confirmed_by'] = 'Подтвердить вариант может только сотрудник.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'status', RequestMatchStatus)
+        _rewrite_legacy_update_fields(self, kwargs)
+        return super().save(*args, **kwargs)
 
 
 class Deal(models.Model):
@@ -2539,7 +2643,8 @@ class Deal(models.Model):
         on_delete=models.PROTECT,
         related_name='deals',
         verbose_name='Статус договора',
-        default=1,
+        blank=True,
+        null=True,
     )
     contract_file = models.FileField(
         upload_to='deals/contracts/%Y/%m/',
@@ -2610,6 +2715,7 @@ class Deal(models.Model):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'contract_status_ref', ContractStatus)
         errors = {}
         if self.client_id and self.client.user_type != 'client':
             errors['client'] = 'Клиентом сделки может быть только пользователь типа "Клиент".'
@@ -2650,6 +2756,7 @@ class Deal(models.Model):
         return self.contract_status_ref.name
 
     def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'contract_status_ref', ContractStatus)
         _rewrite_legacy_update_fields(self, kwargs)
         if self.client_id is None and self.request_id:
             self.client = self.request.client_profile.user
@@ -2745,14 +2852,16 @@ class Task(models.Model):
         on_delete=models.PROTECT,
         related_name='tasks',
         verbose_name='Приоритет',
-        default=2,
+        blank=True,
+        null=True,
     )
     task_type_ref = models.ForeignKey(
         TaskType,
         on_delete=models.PROTECT,
         related_name='tasks',
         verbose_name='Тип задач',
-        default=6,
+        blank=True,
+        null=True,
     )
     status = models.ForeignKey(TaskStatus, on_delete=models.PROTECT,
                                verbose_name='Статус',
@@ -2844,6 +2953,8 @@ class Task(models.Model):
 
     def clean(self):
         super().clean()
+        _ensure_lookup_default(self, 'priority_ref', TaskPriority)
+        _ensure_lookup_default(self, 'task_type_ref', TaskType)
         errors = {}
         if self.assignee_id and self.assignee.user_type != 'employee':
             errors['assignee'] = 'Исполнителем задачи может быть только сотрудник.'
@@ -2898,6 +3009,8 @@ class Task(models.Model):
         return self.task_type_ref.name
 
     def save(self, *args, **kwargs):
+        _ensure_lookup_default(self, 'priority_ref', TaskPriority)
+        _ensure_lookup_default(self, 'task_type_ref', TaskType)
         _rewrite_legacy_update_fields(self, kwargs)
         return super().save(*args, **kwargs)
 
@@ -2979,6 +3092,14 @@ class OutgoingEmail(models.Model):
 class AuditLog(models.Model):
     """Единый журнал значимых действий системы."""
 
+    QUERY_ALIASES = {
+        'entity_type': 'entity_type__code',
+        'action_code': 'action__code',
+        'action_label': 'action__name',
+        'entity_type_code': 'entity_type__code',
+        'entity_type_name': 'entity_type__name',
+    }
+
     entity_type = models.ForeignKey(AuditEntityType, on_delete=models.PROTECT, verbose_name='Тип сущности')
     entity_id = models.PositiveIntegerField(db_index=True, verbose_name='Идентификатор сущности')
     action = models.ForeignKey(AuditAction, on_delete=models.PROTECT, verbose_name='Действие')
@@ -2994,6 +3115,7 @@ class AuditLog(models.Model):
         verbose_name='Инициатор',
     )
     created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Дата создания')
+    objects = AliasManager()
 
     class Meta:
         db_table = 'audit_logs'

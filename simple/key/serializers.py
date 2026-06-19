@@ -1164,6 +1164,9 @@ class PropertySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at', 'owner', 'owner_profile']
+        extra_kwargs = {
+            'house': {'required': False},
+        }
 
     def get_full_address(self, obj) -> str:
         if obj.house_id is None:

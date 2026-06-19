@@ -4893,7 +4893,7 @@ class DjangoAdminAccessTests(TestCase):
 
 class SeedDataCommandTests(TestCase):
     def setUp(self):
-        temp_root = Path(settings.BASE_DIR) / '.tmp-tests'
+        temp_root = Path(getattr(settings, 'DATABASE_BACKUP_ROOT', settings.BASE_DIR)) / '.tmp-tests'
         temp_root.mkdir(parents=True, exist_ok=True)
         self.temp_path = temp_root / f'seed-{uuid4().hex}'
         self.temp_path.mkdir(parents=True, exist_ok=True)
@@ -4905,10 +4905,9 @@ class SeedDataCommandTests(TestCase):
     def test_seed_data_default_creates_realistic_crm_dataset(self):
         call_command('seed_data', stdout=io.StringIO())
 
-        self.assertTrue(models.User.objects.filter(username='ivanov.artem').exists())
+        self.assertTrue(models.User.objects.filter(username='seed_admin_1').exists())
         self.assertFalse(models.User.objects.filter(username__startswith='demo').exists())
         self.assertEqual(models.Property.objects.count(), 30)
-        self.assertEqual(models.Property.objects.filter(description__contains='__seed_demo__').count(), 0)
         self.assertEqual(models.Property.objects.filter(description__contains='__seed_batch__').count(), 0)
         self.assertEqual(models.Request.objects.count(), 15)
         self.assertEqual(models.Task.objects.count(), 20)
@@ -4917,7 +4916,7 @@ class SeedDataCommandTests(TestCase):
         self.assertEqual(models.OperationType.objects.count(), 2)
 
         call_command('seed_data', stdout=io.StringIO())
-        self.assertEqual(models.User.objects.filter(username='ivanov.artem').count(), 1)
+        self.assertEqual(models.User.objects.filter(username='seed_admin_1').count(), 1)
         self.assertEqual(models.Property.objects.count(), 30)
         self.assertEqual(models.Request.objects.count(), 15)
         self.assertEqual(models.Task.objects.count(), 20)

@@ -627,7 +627,11 @@ class UserViewSet(viewsets.ModelViewSet):
         if user_type == 'employee' and not hasattr(target, 'employee_profile'):
             models.EmployeeProfile.objects.create(user=target, **names)
         if user_type == 'client' and not hasattr(target, 'client_profile'):
-            models.ClientProfile.objects.create(user=target, **names)
+            models.ClientProfile.objects.create(
+                user=target,
+                client_kind=models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+                **names,
+            )
 
     @action(
         detail=False,
