@@ -31,9 +31,9 @@
 
     <!-- ── KPI-полоса ─────────────────────────────────────────── -->
     <div class="pd-kpi-strip">
-      <article class="pd-kpi-card pd-kpi-card--accent">
+      <article class="pd-kpi-card">
         <span class="pd-kpi-card__label">Стоимость</span>
-        <strong class="pd-kpi-card__value">{{ priceLabel }}</strong>
+        <strong class="pd-kpi-card__value pd-kpi-card__value--price">{{ priceLabel }}</strong>
         <span class="pd-kpi-card__meta">
           {{ property.price_per_sqm ? formatMoney(property.price_per_sqm) + ' ₽/м²' : 'цена за м² не указана' }}
         </span>
@@ -254,8 +254,14 @@
           <InfoRow label="Этаж / всего"        :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
           <InfoRow label="Опубликован"         :value="property.is_published ? 'Да' : 'Нет'" />
           <template v-if="auth.isAdminOrManager">
-            <InfoRow label="Снят с публикации" :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
-            <InfoRow label="Владелец"          :value="property.owner_username || '—'" />
+            <InfoRow label="Дата создания"      :value="property.created_at ? formatDate(property.created_at) : '—'" />
+            <InfoRow label="Дата обновления"    :value="property.updated_at ? formatDate(property.updated_at) : '—'" />
+            <InfoRow label="Дата публикации"    :value="property.published_at ? formatDate(property.published_at) : '—'" />
+            <InfoRow label="Снят с публикации"  :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
+            <InfoRow label="Координаты"         :value="property.coordinates_lat && property.coordinates_lon
+                                                  ? property.coordinates_lat + ', ' + property.coordinates_lon
+                                                  : '—'" />
+            <InfoRow label="Владелец"           :value="property.owner_username || '—'" />
           </template>
         </div>
 
@@ -307,7 +313,13 @@
         </div>
         <h2 class="h3">Информация о здании</h2>
         <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Адрес"             :value="property.full_address || '—'" />
+          <InfoRow label="Адрес"             :value="property.full_address
+                                              || [
+                                                   property.house_data?.street?.city?.name ? 'г. ' + property.house_data.street.city.name : null,
+                                                   property.house_data?.street?.name ? (property.house_data.street.street_type || 'ул.') + ' ' + property.house_data.street.name : null,
+                                                   property.house_data?.house_number ? 'д. ' + property.house_data.house_number : null,
+                                                 ].filter(Boolean).join(', ')
+                                              || '—'" />
           <InfoRow label="Город"             :value="property.house_data?.street?.city?.name || '—'" />
           <InfoRow label="Регион"            :value="property.house_data?.street?.city?.region || '—'" />
           <InfoRow label="Улица"             :value="property.house_data?.street?.name || '—'" />
@@ -1181,10 +1193,8 @@ watch(() => route.params.id, () => {
   box-shadow: var(--shadow-1);
 }
 
-.pd-kpi-card--accent {
-  background: linear-gradient(135deg, rgba(46, 159, 152, 0.22) 0%, rgba(27, 77, 62, 0.55) 100%);
-  border-color: rgba(99, 208, 197, 0.28);
-  box-shadow: var(--shadow-glow);
+.pd-kpi-card__value--price {
+  color: var(--c-ink);
 }
 
 .pd-kpi-card__label {
@@ -1200,10 +1210,6 @@ watch(() => route.params.id, () => {
   font-weight: 800;
   color: var(--c-ink);
   line-height: 1.15;
-}
-
-.pd-kpi-card--accent .pd-kpi-card__value {
-  color: var(--c-accent-2);
 }
 
 .pd-kpi-card__meta {
