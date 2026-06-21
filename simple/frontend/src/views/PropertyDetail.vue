@@ -1,5 +1,7 @@
 <template>
   <section class="stack" v-if="property">
+
+    <!-- ── Hero ─────────────────────────────────────────────── -->
     <div class="hero" style="padding: 24px 28px">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <div>
@@ -27,31 +29,38 @@
       </div>
     </div>
 
-    <div v-if="false" class="kpi-strip">
-      <article class="kpi-card">
-        <span class="kpi-card__label">Статус</span>
-        <strong class="kpi-card__value">{{ property.status_name || '—' }}</strong>
-        <span class="kpi-card__meta">{{ property.operation_type_name || 'Тип операции не указан' }}</span>
-      </article>
-      <article class="kpi-card">
-        <span class="kpi-card__label">Стоимость</span>
-        <strong class="kpi-card__value">{{ priceLabel }}</strong>
-        <span class="kpi-card__meta">
-          {{ property.area_total ? property.area_total + ' м² общая площадь' : 'Площадь не указана' }}
+    <!-- ── KPI-полоса ─────────────────────────────────────────── -->
+    <div class="pd-kpi-strip">
+      <article class="pd-kpi-card pd-kpi-card--accent">
+        <span class="pd-kpi-card__label">Стоимость</span>
+        <strong class="pd-kpi-card__value">{{ priceLabel }}</strong>
+        <span class="pd-kpi-card__meta">
+          {{ property.price_per_sqm ? formatMoney(property.price_per_sqm) + ' ₽/м²' : 'цена за м² не указана' }}
         </span>
       </article>
-      <article class="kpi-card">
-        <span class="kpi-card__label">Фотографии</span>
-        <strong class="kpi-card__value">{{ photosCount }}</strong>
-        <span class="kpi-card__meta">Видимых: {{ visiblePhotosCount }}</span>
+      <article class="pd-kpi-card">
+        <span class="pd-kpi-card__label">Площадь</span>
+        <strong class="pd-kpi-card__value">{{ property.area_total ? property.area_total + ' м²' : '—' }}</strong>
+        <span class="pd-kpi-card__meta">общая площадь</span>
       </article>
-      <article class="kpi-card kpi-card--accent">
-        <span class="kpi-card__label">История</span>
-        <strong class="kpi-card__value">{{ historyCount }}</strong>
-        <span class="kpi-card__meta">Изменения по объекту</span>
+      <article class="pd-kpi-card">
+        <span class="pd-kpi-card__label">Комнат</span>
+        <strong class="pd-kpi-card__value">{{ formatRoomsValue(property.premises_type, property.rooms_count) }}</strong>
+        <span class="pd-kpi-card__meta">{{ premisesTypeLabel(property.premises_type) }}</span>
+      </article>
+      <article class="pd-kpi-card">
+        <span class="pd-kpi-card__label">Этаж</span>
+        <strong class="pd-kpi-card__value">{{ property.floor_number || '—' }}</strong>
+        <span class="pd-kpi-card__meta">из {{ property.total_floors || property.building_details?.total_floors || '—' }}</span>
+      </article>
+      <article class="pd-kpi-card">
+        <span class="pd-kpi-card__label">Статус</span>
+        <strong class="pd-kpi-card__value">{{ property.status_name || '—' }}</strong>
+        <span class="pd-kpi-card__meta">{{ property.is_published ? 'Опубликован' : 'Не опубликован' }}</span>
       </article>
     </div>
 
+    <!-- ── Модал заявки ──────────────────────────────────────── -->
     <div v-if="showRequestForm" class="modal" role="dialog"
          @click.self="showRequestForm = false">
       <form class="panel panel--light stack modal__card"
@@ -81,6 +90,63 @@
       </form>
     </div>
 
+    <!-- ── Модал истории цен ──────────────────────────────────── -->
+    <Teleport to="body">
+      <Transition name="ph">
+        <div v-if="showPriceHistory" class="ph-backdrop" role="dialog"
+             @click.self="showPriceHistory = false">
+          <div class="ph-modal">
+            <div class="ph-modal__header">
+              <div>
+                <div class="ph-modal__eyebrow">История изменений</div>
+                <h2 class="ph-modal__title">Динамика цены</h2>
+              </div>
+              <button class="lb-close" @click="showPriceHistory = false" title="Закрыть">✕</button>
+            </div>
+            <div class="ph-modal__body">
+              <div v-if="priceHistory.length" class="ph-timeline">
+                <div v-for="(item, idx) in priceHistory" :key="item.id" class="ph-item">
+                  <div class="ph-item__dot"
+                       :class="item.old_price && item.new_price > item.old_price ? 'ph-item__dot--up'
+                               : item.old_price && item.new_price < item.old_price ? 'ph-item__dot--down'
+                               : ''">
+                  </div>
+                  <div class="ph-item__line" v-if="idx < priceHistory.length - 1"></div>
+                  <div class="ph-item__content">
+                    <div class="ph-item__date">{{ formatDate(item.changed_at) }}</div>
+                    <div class="ph-item__prices">
+                      <span v-if="item.old_price" class="ph-item__old">
+                        {{ formatMoney(item.old_price) }} ₽
+                      </span>
+                      <svg v-if="item.old_price" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                           stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                           class="ph-item__arrow"
+                           :class="item.new_price > item.old_price ? 'ph-item__arrow--up' : 'ph-item__arrow--down'">
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                        <polyline points="12 5 19 12 12 19"/>
+                      </svg>
+                      <span class="ph-item__new">{{ formatMoney(item.new_price) }} ₽</span>
+                      <span v-if="item.old_price" class="ph-item__delta"
+                            :class="item.new_price > item.old_price ? 'ph-item__delta--up' : 'ph-item__delta--down'">
+                        {{ item.new_price > item.old_price ? '+' : '' }}{{ formatMoney(item.new_price - item.old_price) }} ₽
+                      </span>
+                    </div>
+                    <div v-if="item.changed_by_username" class="ph-item__by">
+                      {{ item.changed_by_username }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="muted" style="padding: 24px 0">
+                История изменений цены отсутствует.
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ── Фотографии ─────────────────────────────────────────── -->
     <div class="panel panel--light">
       <div class="surface-head property-surface-head">
         <div>
@@ -104,7 +170,6 @@
             <span v-if="ph.is_hidden" class="gallery__badge is-hidden">Скрыто</span>
           </div>
           <div v-if="auth.isAdminOrManager" class="gallery__toolbar">
-            <!-- Обложка -->
             <button class="gallery__btn"
                     :class="{ 'gallery__btn--active': ph.is_cover }"
                     :disabled="ph.is_cover"
@@ -114,7 +179,6 @@
                 <path d="M12 2l2.9 6.26 6.77.54-5.19 4.4 1.71 6.63L12 16.5l-6.19 3.33 1.71-6.63L2.33 8.8l6.77-.54z"/>
               </svg>
             </button>
-            <!-- Видимость -->
             <button class="gallery__btn"
                     :disabled="ph.is_cover"
                     :title="ph.is_hidden ? 'Показать клиенту' : 'Скрыть от клиента'"
@@ -126,7 +190,6 @@
                 <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
               </svg>
             </button>
-            <!-- Удалить -->
             <button class="gallery__btn gallery__btn--danger"
                     title="Удалить фото"
                     @click.stop="removePhoto(ph)">
@@ -170,104 +233,132 @@
       </Transition>
     </Teleport>
 
+    <!-- ── Основная сетка: параметры + описание ─────────────── -->
     <div class="grid grid--2">
+      <!-- Параметры -->
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
-          <div class="surface-head__meta">Карточка объекта</div>
-          <div class="surface-head__caption">{{ property.status_name }}</div>
+          <div>
+            <div class="surface-head__meta">Карточка объекта</div>
+            <h2 class="h3">Параметры</h2>
+          </div>
+          <span class="pd-status-badge">{{ property.status_name }}</span>
         </div>
-        <h2 class="h3">Параметры</h2>
         <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Тип объекта"       :value="property.property_type_name || property.premises_type || '—'" />
-          <InfoRow label="Кадастровый номер" :value="property.cadastral_number || '—'" />
-          <InfoRow label="Стоимость"        :value="formatMoney(property.price) + ' ₽'" />
-          <InfoRow label="Стоимость за м²"  :value="property.price_per_sqm
-                                                  ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
-          <InfoRow label="Общая площадь"    :value="property.area_total ? property.area_total + ' м²' : '—'" />
-          <InfoRow label="Количество комнат" :value="formatRoomsValue(property.premises_type, property.rooms_count)" />
-          <InfoRow label="Этаж / всего"     :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
-          <InfoRow label="Тип помещения"     :value="premisesTypeLabel(property.premises_type)" />
-          <InfoRow label="Опубликован"       :value="property.is_published ? 'Да' : 'Нет'" />
-          <InfoRow label="Опубликован в"     :value="property.published_at ? formatDate(property.published_at) : '—'" />
-          <InfoRow label="Снят с публикации" :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
-          <InfoRow label="Координаты"        :value="property.coordinates_lat && property.coordinates_lon
-                                                  ? `${property.coordinates_lat}, ${property.coordinates_lon}`
-                                                  : '—'" />
-          <InfoRow label="Тип помещения"     :value="property.property_type_name || property.property_type_code || property.premises_type || '—'" />
-          <InfoRow label="Удобства"          :value="amenities.length ? amenities.map((item) => item.amenity_data?.name || item.amenity).filter(Boolean).join(', ') : '—'" />
-          <InfoRow label="Владелец"          :value="property.owner_username || '—'" />
-          <InfoRow label="Статус"           :value="property.status_name" />
+          <InfoRow label="Тип объекта"        :value="property.property_type_name || premisesTypeLabel(property.premises_type) || '—'" />
+          <InfoRow label="Кадастровый номер"  :value="property.cadastral_number || '—'" />
+          <InfoRow label="Стоимость"           :value="formatMoney(property.price) + ' ₽'" />
+          <InfoRow label="Стоимость за м²"    :value="property.price_per_sqm ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
+          <InfoRow label="Общая площадь"       :value="property.area_total ? property.area_total + ' м²' : '—'" />
+          <InfoRow label="Количество комнат"   :value="formatRoomsValue(property.premises_type, property.rooms_count)" />
+          <InfoRow label="Этаж / всего"        :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
+          <InfoRow label="Опубликован"         :value="property.is_published ? 'Да' : 'Нет'" />
+          <template v-if="auth.isAdminOrManager">
+            <InfoRow label="Снят с публикации" :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
+            <InfoRow label="Владелец"          :value="property.owner_username || '—'" />
+          </template>
         </div>
+
+        <!-- История цен: кнопка -->
+        <button v-if="priceHistory.length"
+                class="pd-price-history-btn"
+                @click="showPriceHistory = true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          История изменения цены ({{ priceHistory.length }})
+        </button>
       </div>
 
+      <!-- Описание -->
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div class="surface-head__meta">Описание и теги</div>
           <div class="surface-head__caption">Описание объекта</div>
         </div>
         <h2 class="h3">Описание</h2>
-        <p style="white-space: pre-wrap">{{ property.description || 'Описание не заполнено.' }}</p>
+        <p style="white-space: pre-wrap; margin-top: 12px; line-height: 1.7">
+          {{ property.description || 'Описание не заполнено.' }}
+        </p>
+
+        <!-- Удобства в описании -->
+        <template v-if="amenities.length">
+          <div class="pd-amenities-label">Удобства и особенности</div>
+          <div class="pd-amenities">
+            <span v-for="item in amenities" :key="item.amenity" class="pd-amenity-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              {{ item.amenity_data?.name || item.amenity }}
+            </span>
+          </div>
+        </template>
       </div>
     </div>
 
+    <!-- ── Дом + детали помещения ────────────────────────────── -->
     <div class="grid grid--2">
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div class="surface-head__meta">Дом</div>
           <div class="surface-head__caption">Параметры здания и адреса</div>
         </div>
-        <h2 class="h3">Информация о доме</h2>
+        <h2 class="h3">Информация о здании</h2>
         <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Адрес" :value="property.full_address || '—'" />
-          <InfoRow label="Город" :value="property.house_data?.street?.city?.name || '—'" />
-          <InfoRow label="Регион" :value="property.house_data?.street?.city?.region || '—'" />
-          <InfoRow label="Улица" :value="property.house_data?.street?.name || '—'" />
-          <InfoRow label="Тип улицы" :value="property.house_data?.street?.street_type || '—'" />
-          <InfoRow label="Дом" :value="property.house_data?.house_number || '—'" />
-          <InfoRow label="Почтовый индекс" :value="property.house_data?.postal_code || '—'" />
-          <InfoRow label="Год постройки" :value="property.building_details?.year_built || '—'" />
-          <InfoRow label="Этажей в доме" :value="property.building_details?.total_floors || '—'" />
-          <InfoRow label="Материал стен" :value="property.building_details?.building_material_data?.name || '—'" />
-          <InfoRow label="Лифты" :value="property.building_details?.elevators_count ?? '—'" />
+          <InfoRow label="Адрес"             :value="property.full_address || '—'" />
+          <InfoRow label="Город"             :value="property.house_data?.street?.city?.name || '—'" />
+          <InfoRow label="Регион"            :value="property.house_data?.street?.city?.region || '—'" />
+          <InfoRow label="Улица"             :value="property.house_data?.street?.name || '—'" />
+          <InfoRow label="Тип улицы"         :value="property.house_data?.street?.street_type || '—'" />
+          <InfoRow label="Дом"               :value="property.house_data?.house_number || '—'" />
+          <InfoRow label="Почтовый индекс"   :value="property.house_data?.postal_code || '—'" />
+          <InfoRow label="Год постройки"     :value="property.building_details?.year_built || '—'" />
+          <InfoRow label="Этажей в доме"     :value="property.building_details?.total_floors || '—'" />
+          <InfoRow label="Материал стен"     :value="property.building_details?.building_material_data?.name || '—'" />
+          <InfoRow label="Лифты"             :value="property.building_details?.elevators_count ?? '—'" />
         </div>
       </div>
 
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div class="surface-head__meta">
-            {{ property.property_type_code === 'commercial' ? 'Коммерция' : 'Жилая часть' }}
+            {{ normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial' ? 'Коммерция' : 'Жилая часть' }}
           </div>
           <div class="surface-head__caption">Детали из связанных таблиц</div>
         </div>
         <h2 class="h3">
-          {{ property.property_type_code === 'commercial' ? 'Коммерческие параметры' : 'Жилые параметры' }}
+          {{ normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial' ? 'Коммерческие параметры' : 'Жилые параметры' }}
         </h2>
-        <div v-if="normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial'" class="stack" style="margin-top: 12px">
-          <InfoRow label="Тип помещения" :value="property.commercial_property_details?.commercial_type_data?.name || '—'" />
-          <InfoRow label="Полезная площадь" :value="property.commercial_property_details?.usable_area ? property.commercial_property_details.usable_area + ' м²' : '—'" />
-          <InfoRow label="Высота потолков" :value="property.commercial_property_details?.ceiling_height ? property.commercial_property_details.ceiling_height + ' м' : '—'" />
-          <InfoRow label="Нагрузка на пол" :value="property.commercial_property_details?.floor_load ? property.commercial_property_details.floor_load + ' кг/м²' : '—'" />
+        <div v-if="normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial'"
+             class="stack" style="margin-top: 12px">
+          <InfoRow label="Тип коммерции"        :value="property.commercial_property_details?.commercial_type_data?.name || '—'" />
+          <InfoRow label="Полезная площадь"      :value="property.commercial_property_details?.usable_area ? property.commercial_property_details.usable_area + ' м²' : '—'" />
+          <InfoRow label="Высота потолков"       :value="property.commercial_property_details?.ceiling_height ? property.commercial_property_details.ceiling_height + ' м' : '—'" />
+          <InfoRow label="Нагрузка на пол"       :value="property.commercial_property_details?.floor_load ? property.commercial_property_details.floor_load + ' кг/м²' : '—'" />
           <InfoRow label="Электрическая мощность" :value="property.commercial_property_details?.electric_power_kw ? property.commercial_property_details.electric_power_kw + ' кВт' : '—'" />
-          <InfoRow label="Отдельный вход" :value="property.commercial_property_details?.has_separate_entrance ? 'Да' : 'Нет'" />
-          <InfoRow label="Витринные окна" :value="property.commercial_property_details?.has_display_windows ? 'Да' : 'Нет'" />
-          <InfoRow label="Первая линия" :value="property.commercial_property_details?.is_first_line ? 'Да' : 'Нет'" />
-          <InfoRow label="Парковочные места" :value="property.commercial_property_details?.parking_spaces ?? '—'" />
+          <InfoRow label="Отдельный вход"        :value="property.commercial_property_details?.has_separate_entrance ? 'Да' : 'Нет'" />
+          <InfoRow label="Витринные окна"        :value="property.commercial_property_details?.has_display_windows ? 'Да' : 'Нет'" />
+          <InfoRow label="Первая линия"          :value="property.commercial_property_details?.is_first_line ? 'Да' : 'Нет'" />
+          <InfoRow label="Парковочные места"     :value="property.commercial_property_details?.parking_spaces ?? '—'" />
         </div>
         <div v-else class="stack" style="margin-top: 12px">
-          <InfoRow label="Жилая площадь" :value="property.property_details?.living_area ? property.property_details.living_area + ' м²' : '—'" />
-          <InfoRow label="Площадь кухни" :value="property.property_details?.kitchen_area ? property.property_details.kitchen_area + ' м²' : '—'" />
-          <InfoRow label="Высота потолков" :value="property.property_details?.ceiling_height ? property.property_details.ceiling_height + ' м' : '—'" />
-          <InfoRow label="Балконы" :value="property.property_details?.balcony_count ?? '—'" />
-          <InfoRow label="Санузлы" :value="property.property_details?.bathroom_count ?? '—'" />
-          <InfoRow label="Тип санузла" :value="property.property_details?.bathroom_type_data?.name || '—'" />
-          <InfoRow label="Тип ремонта" :value="property.property_details?.renovation_type_data?.name || '—'" />
-          <InfoRow label="Спальни" :value="property.property_details?.bedrooms_count ?? '—'" />
-          <InfoRow label="Этажей в квартире / доме" :value="property.property_details?.floors_count ?? '—'" />
-          <InfoRow label="Площадь участка" :value="property.property_details?.land_area ? property.property_details.land_area + ' м²' : '—'" />
+          <InfoRow label="Жилая площадь"         :value="property.property_details?.living_area ? property.property_details.living_area + ' м²' : '—'" />
+          <InfoRow label="Площадь кухни"         :value="property.property_details?.kitchen_area ? property.property_details.kitchen_area + ' м²' : '—'" />
+          <InfoRow label="Высота потолков"       :value="property.property_details?.ceiling_height ? property.property_details.ceiling_height + ' м' : '—'" />
+          <InfoRow label="Балконы"               :value="property.property_details?.balcony_count ?? '—'" />
+          <InfoRow label="Санузлы"               :value="property.property_details?.bathroom_count ?? '—'" />
+          <InfoRow label="Тип санузла"           :value="property.property_details?.bathroom_type_data?.name || '—'" />
+          <InfoRow label="Тип ремонта"           :value="property.property_details?.renovation_type_data?.name || '—'" />
+          <InfoRow label="Спальни"               :value="property.property_details?.bedrooms_count ?? '—'" />
+          <InfoRow label="Этажей в помещении"    :value="property.property_details?.floors_count ?? '—'" />
+          <InfoRow label="Площадь участка"       :value="property.property_details?.land_area ? property.property_details.land_area + ' м²' : '—'" />
         </div>
       </div>
     </div>
 
+    <!-- ── Просмотры клиента ──────────────────────────────────── -->
     <div v-if="clientViewings.length" class="panel panel--light">
       <div class="surface-head property-surface-head">
         <div>
@@ -295,35 +386,22 @@
             </div>
           </div>
           <div class="viewing-card__actions">
-            <a
-              v-if="viewing.payment_url && ['pending', 'failed'].includes(viewing.payment_status)"
-              class="btn btn--accent btn--sm"
-              :href="viewing.payment_url"
-              target="_blank"
-              rel="noreferrer"
-            >
+            <a v-if="viewing.payment_url && ['pending', 'failed'].includes(viewing.payment_status)"
+               class="btn btn--accent btn--sm"
+               :href="viewing.payment_url"
+               target="_blank" rel="noreferrer">
               Перейти к оплате
             </a>
-            <button
-              v-else-if="canInitiateViewingPayment(viewing)"
-              class="btn btn--accent btn--sm"
-              :disabled="payingViewingId === viewing.id"
-              @click="startViewingPayment(viewing)"
-            >
-              {{
-                payingViewingId === viewing.id
-                  ? 'Подготовка…'
-                  : viewing.payment_id
-                    ? 'Получить новую ссылку'
-                    : 'Оплатить просмотр'
-              }}
+            <button v-else-if="canInitiateViewingPayment(viewing)"
+                    class="btn btn--accent btn--sm"
+                    :disabled="payingViewingId === viewing.id"
+                    @click="startViewingPayment(viewing)">
+              {{ payingViewingId === viewing.id ? 'Подготовка…' : viewing.payment_id ? 'Получить новую ссылку' : 'Оплатить просмотр' }}
             </button>
-            <button
-              v-if="viewing.payment_id && ['pending', 'failed'].includes(viewing.payment_status)"
-              class="btn btn--sm"
-              :disabled="syncingPaymentId === viewing.payment_id"
-              @click="refreshViewingPayment(viewing)"
-            >
+            <button v-if="viewing.payment_id && ['pending', 'failed'].includes(viewing.payment_status)"
+                    class="btn btn--sm"
+                    :disabled="syncingPaymentId === viewing.payment_id"
+                    @click="refreshViewingPayment(viewing)">
               {{ syncingPaymentId === viewing.payment_id ? 'Проверка…' : 'Проверить оплату' }}
             </button>
           </div>
@@ -331,6 +409,7 @@
       </div>
     </div>
 
+    <!-- ── Документы + собственники ─────────────────────────── -->
     <div class="grid grid--2">
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
@@ -350,69 +429,41 @@
         <div v-else class="muted" style="margin-top: 12px">Документы не загружены.</div>
       </div>
 
-      <div class="panel panel--light">
+      <div v-if="property.owners?.length" class="panel panel--light">
         <div class="surface-head property-surface-head">
-          <div class="surface-head__meta">История цен</div>
-          <div class="surface-head__caption">Изменения стоимости</div>
+          <div class="surface-head__meta">Собственники</div>
+          <div class="surface-head__caption">{{ property.owners.length }} записей</div>
         </div>
-        <h2 class="h3">Цены</h2>
-        <div v-if="priceHistory.length" class="table-wrap property-history-table" style="margin-top: 12px">
-          <table class="table">
-            <thead><tr><th>Дата</th><th>Старая</th><th>Новая</th><th>Кем</th></tr></thead>
-            <tbody>
-              <tr v-for="item in priceHistory" :key="item.id">
-                <td>{{ formatDate(item.changed_at) }}</td>
-                <td>{{ item.old_price ? formatMoney(item.old_price) + ' ₽' : '—' }}</td>
-                <td>{{ formatMoney(item.new_price) }} ₽</td>
-                <td>{{ item.changed_by_username || '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="muted" style="margin-top: 12px">История цен отсутствует.</div>
-      </div>
-    </div>
-
-    <div class="panel panel--light" v-if="amenities.length">
-      <div class="surface-head property-surface-head">
-        <div class="surface-head__meta">Удобства</div>
-        <div class="surface-head__caption">{{ amenities.length }} отметок</div>
-      </div>
-      <h2 class="h3">Отмеченные удобства</h2>
-      <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 12px">
-        <span v-for="item in amenities" :key="item.amenity" class="tag tag--panel">
-          {{ item.amenity_data?.name || item.amenity }}
-        </span>
-      </div>
-    </div>
-
-    <div v-if="property.owners?.length" class="panel panel--light">
-      <div class="surface-head property-surface-head">
-        <div class="surface-head__meta">Собственники</div>
-        <div class="surface-head__caption">{{ property.owners.length }} записей</div>
-      </div>
-      <h2 class="h3">Владельцы объекта</h2>
-      <div class="stack" style="margin-top: 12px">
-        <div v-for="owner in property.owners" :key="`${owner.property}-${owner.client_profile}`" class="owner-row">
-          <div class="owner-row__main">
-            <b>
-              {{ [owner.client_last_name, owner.client_first_name, owner.client_middle_name].filter(Boolean).join(' ') || owner.client_username || '—' }}
-            </b>
-            <div class="muted" style="font-size: 12px">
-              {{ owner.client_username || '—' }}
-              <span v-if="owner.ownership_share !== null && owner.ownership_share !== undefined">
-                · {{ owner.ownership_share }}%
-              </span>
+        <h2 class="h3">Владельцы объекта</h2>
+        <div class="stack" style="margin-top: 12px">
+          <div v-for="owner in property.owners" :key="`${owner.property}-${owner.client_profile}`" class="owner-row">
+            <div class="owner-row__main">
+              <b>{{ [owner.client_last_name, owner.client_first_name, owner.client_middle_name].filter(Boolean).join(' ') || owner.client_username || '—' }}</b>
+              <div class="muted" style="font-size: 12px">
+                {{ owner.client_username || '—' }}
+                <span v-if="owner.ownership_share !== null && owner.ownership_share !== undefined">
+                  · {{ owner.ownership_share }}%
+                </span>
+              </div>
+            </div>
+            <div class="owner-row__contacts">
+              <span v-if="owner.client_phone">{{ owner.client_phone }}</span>
+              <span v-if="owner.client_email">{{ owner.client_email }}</span>
             </div>
           </div>
-          <div class="owner-row__contacts">
-            <span v-if="owner.client_phone">{{ owner.client_phone }}</span>
-            <span v-if="owner.client_email">{{ owner.client_email }}</span>
-          </div>
         </div>
+      </div>
+      <div v-else class="panel panel--light">
+        <div class="surface-head property-surface-head">
+          <div class="surface-head__meta">Собственники</div>
+          <div class="surface-head__caption">Нет данных</div>
+        </div>
+        <h2 class="h3">Владельцы объекта</h2>
+        <div class="muted" style="margin-top: 12px">Собственники не указаны.</div>
       </div>
     </div>
 
+    <!-- ── Управление статусом (только для сотрудников) ──────── -->
     <div v-if="auth.isAdminOrManager" class="panel panel--light">
       <div class="surface-head property-surface-head">
         <div class="surface-head__meta">Управление</div>
@@ -432,6 +483,7 @@
       </div>
     </div>
 
+    <!-- ── История изменений статуса ─────────────────────────── -->
     <div class="panel panel--light" v-if="history.length">
       <div class="surface-head property-surface-head">
         <div class="surface-head__meta">Журнал изменений</div>
@@ -515,6 +567,7 @@ onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 const showRequestForm = ref(false)
+const showPriceHistory = ref(false)
 const requestError = ref('')
 const requestForm = reactive({ description: '' })
 
@@ -1108,5 +1161,329 @@ watch(() => route.params.id, () => {
 
 .property-history-table .table {
   min-width: 560px;
+}
+
+/* ── KPI-полоса ─────────────────────────────────────────── */
+.pd-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.pd-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 20px;
+  background: var(--grad-card-soft);
+  border: 1px solid var(--c-border);
+  border-radius: 22px;
+  box-shadow: var(--shadow-1);
+}
+
+.pd-kpi-card--accent {
+  background: linear-gradient(135deg, rgba(46, 159, 152, 0.22) 0%, rgba(27, 77, 62, 0.55) 100%);
+  border-color: rgba(99, 208, 197, 0.28);
+  box-shadow: var(--shadow-glow);
+}
+
+.pd-kpi-card__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.pd-kpi-card__value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--c-ink);
+  line-height: 1.15;
+}
+
+.pd-kpi-card--accent .pd-kpi-card__value {
+  color: var(--c-accent-2);
+}
+
+.pd-kpi-card__meta {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  margin-top: 2px;
+}
+
+/* ── Статус-бейдж ─────────────────────────────────────── */
+.pd-status-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 208, 197, 0.22);
+  background: rgba(99, 208, 197, 0.10);
+  color: var(--c-accent-2);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+
+/* ── Удобства ─────────────────────────────────────────── */
+.pd-amenities-label {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.pd-amenities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pd-amenity-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--c-ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.pd-amenity-tag svg {
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+
+.pd-amenity-tag:hover {
+  background: rgba(99, 208, 197, 0.08);
+  border-color: rgba(99, 208, 197, 0.22);
+}
+
+/* ── Кнопка истории цен ─────────────────────────────── */
+.pd-price-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.pd-price-history-btn:hover {
+  background: rgba(99, 208, 197, 0.10);
+  border-color: rgba(99, 208, 197, 0.28);
+  color: var(--c-accent-2);
+}
+
+.pd-price-history-btn svg {
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+
+/* ── Модал истории цен ───────────────────────────────── */
+.ph-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(4, 12, 20, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ph-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 80vh;
+  background: linear-gradient(180deg, #0d3b3e 0%, #042e2e 100%);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 28px;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.65), var(--shadow-glow);
+  overflow: hidden;
+}
+
+.ph-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.ph-modal__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-accent);
+  margin-bottom: 4px;
+}
+
+.ph-modal__title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--c-ink);
+  margin: 0;
+}
+
+.ph-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 24px;
+}
+
+/* ── Timeline ─────────────────────────────────────────── */
+.ph-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ph-item {
+  display: flex;
+  gap: 16px;
+  position: relative;
+}
+
+.ph-item__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c-border-strong);
+  border: 2px solid rgba(120, 216, 206, 0.4);
+  flex-shrink: 0;
+  margin-top: 4px;
+  z-index: 1;
+}
+
+.ph-item__dot--up {
+  background: rgba(94, 208, 194, 0.30);
+  border-color: var(--c-success);
+}
+
+.ph-item__dot--down {
+  background: rgba(194, 85, 74, 0.28);
+  border-color: var(--c-danger);
+}
+
+.ph-item__line {
+  position: absolute;
+  left: 5px;
+  top: 16px;
+  bottom: -20px;
+  width: 2px;
+  background: rgba(120, 216, 206, 0.12);
+}
+
+.ph-item__content {
+  flex: 1;
+  padding-bottom: 20px;
+}
+
+.ph-item__date {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  margin-bottom: 6px;
+}
+
+.ph-item__prices {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ph-item__old {
+  font-size: 14px;
+  color: var(--c-text-muted);
+  text-decoration: line-through;
+}
+
+.ph-item__arrow {
+  flex-shrink: 0;
+}
+
+.ph-item__arrow--up {
+  color: var(--c-success);
+  transform: rotate(-45deg);
+}
+
+.ph-item__arrow--down {
+  color: var(--c-danger);
+  transform: rotate(45deg);
+}
+
+.ph-item__new {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--c-ink);
+}
+
+.ph-item__delta {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+
+.ph-item__delta--up {
+  background: rgba(94, 208, 194, 0.14);
+  color: var(--c-success);
+  border: 1px solid rgba(94, 208, 194, 0.22);
+}
+
+.ph-item__delta--down {
+  background: rgba(194, 85, 74, 0.14);
+  color: var(--c-danger-2);
+  border: 1px solid rgba(194, 85, 74, 0.22);
+}
+
+.ph-item__by {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  margin-top: 4px;
+}
+
+/* ── Transition модала цен ────────────────────────────── */
+.ph-enter-active,
+.ph-leave-active {
+  transition: opacity 0.22s ease;
+}
+.ph-enter-active .ph-modal,
+.ph-leave-active .ph-modal {
+  transition: transform 0.22s ease;
+}
+.ph-enter-from,
+.ph-leave-to {
+  opacity: 0;
+}
+.ph-enter-from .ph-modal {
+  transform: scale(0.95) translateY(10px);
+}
+.ph-leave-to .ph-modal {
+  transform: scale(0.95) translateY(10px);
 }
 </style>

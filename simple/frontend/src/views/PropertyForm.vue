@@ -105,7 +105,7 @@
       </section>
 
       <section v-show="currentStep === 2" class="stack property-form__step-panel">
-        <div v-if="showBuildingDetailsSection" class="panel panel--light property-form__subpanel">
+        <div class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
               <h3 class="h4">Адрес объекта</h3>
@@ -132,9 +132,6 @@
             <span class="tag tag--accent">{{ addressPicked.value }}</span>
             <span v-if="addressPicked.postal_code" class="tag">
               Индекс: {{ addressPicked.postal_code }}
-            </span>
-            <span v-if="addressPicked.geo_lat && addressPicked.geo_lon" class="tag">
-              {{ formatCoordinate(addressPicked.geo_lat) }}, {{ formatCoordinate(addressPicked.geo_lon) }}
             </span>
           </div>
 
