@@ -591,7 +591,34 @@
         </div>
       </section>
 
-      <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="error" class="property-form__error-block" role="alert">
+        <div class="property-form__error-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>Ошибка сохранения</span>
+        </div>
+        <ul v-if="errorDetails.fields.length" class="property-form__error-list">
+          <li v-for="field in errorDetails.fields" :key="field.label">
+            <b>{{ field.label }}:</b> {{ field.message }}
+          </li>
+        </ul>
+        <p v-else class="property-form__error-text">{{ error }}</p>
+        <button
+          v-if="errorDetails.step && errorDetails.step !== currentStep"
+          class="property-form__error-goto"
+          type="button"
+          @click="currentStep = errorDetails.step"
+        >
+          Перейти к шагу {{ errorDetails.step }} ({{ steps[errorDetails.step - 1]?.title }})
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
 
       <div class="row row--between property-form__footer">
         <button class="btn" type="button" @click="$router.back()">Отмена</button>
@@ -1270,6 +1297,9 @@ function resetPropertyFormState() {
   removedPhotoIds.value = []
   newPhotoUrl.value = ''
   error.value = ''
+  errorDetails.message = ''
+  errorDetails.step = null
+  errorDetails.fields = []
   propertyDraftRestored.value = false
   currentStep.value = 1
   for (const key of Object.keys(touchedSteps)) {
@@ -1291,6 +1321,13 @@ async function ensureLookupLoaded(key, endpoint) {
     params: { page_size: LOOKUP_PAGE_SIZE },
   })
   dict[key] = unpackPaginated(data).items
+}
+
+// Remove all *_data keys (nested objects returned by the API) from a form object
+// so they don't accidentally get sent to the backend as non-PK values.
+function stripDataKeys(obj) {
+  if (!obj || typeof obj !== 'object') return {}
+  return Object.fromEntries(Object.entries(obj).filter(([key]) => !key.endsWith('_data')))
 }
 
 async function initializeForm() {
@@ -1333,14 +1370,14 @@ async function initializeForm() {
         description: data.description,
         building_details: {
           ...createBuildingDetailsForm(),
-          ...(data.building_details || {}),
+          ...stripDataKeys(data.building_details || {}),
           building_material: data.building_details?.building_material
             ?? data.building_details?.building_material_data?.id
             ?? null,
         },
         property_details: {
           ...createPropertyDetailsForm(),
-          ...(data.property_details || {}),
+          ...stripDataKeys(data.property_details || {}),
           bathroom_type: data.property_details?.bathroom_type
             ?? data.property_details?.bathroom_type_data?.id
             ?? null,
@@ -1350,7 +1387,7 @@ async function initializeForm() {
         },
         commercial_property_details: {
           ...createCommercialPropertyDetailsForm(),
-          ...(data.commercial_property_details || {}),
+          ...stripDataKeys(data.commercial_property_details || {}),
           commercial_type: data.commercial_property_details?.commercial_type
             ?? data.commercial_property_details?.commercial_type_data?.id
             ?? null,
@@ -1437,9 +1474,76 @@ async function uploadPhotos(propertyId) {
   }
 }
 
+// Map server error field names to step numbers for navigation
+const FIELD_STEP_MAP = {
+  operation_type: 1, premises_type: 1,
+  address: 2, address_data: 2,
+  title: 3, price: 3, area_total: 3, rooms_count: 3, floor_number: 3,
+  cadastral_number: 3, status: 3,
+  building_details_data: 3, property_details_data: 3, commercial_property_details_data: 3,
+  description: 5, documents: 5,
+}
+
+// Reactive error details for structured display
+const errorDetails = reactive({ message: '', step: null, fields: [] })
+
+// Russian labels for all backend field names (top-level and nested)
+const FIELD_LABELS = {
+  // Top-level
+  title: 'Название', operation_type: 'Тип операции', status: 'Статус',
+  premises_type: 'Тип помещения', price: 'Цена', area_total: 'Общая площадь',
+  rooms_count: 'Количество комнат', floor_number: 'Этаж', address: 'Адрес',
+  cadastral_number: 'Кадастровый номер', is_published: 'Публикация',
+  description: 'Описание', amenity_ids: 'Удобства',
+  building_details_data: 'Параметры здания',
+  property_details_data: 'Параметры помещения',
+  commercial_property_details_data: 'Коммерческие параметры',
+  // building_details sub-fields
+  year_built: 'Год постройки', total_floors: 'Этажей в здании',
+  building_material: 'Материал стен', elevators_count: 'Количество лифтов',
+  // property_details sub-fields
+  living_area: 'Жилая площадь', kitchen_area: 'Площадь кухни',
+  ceiling_height: 'Высота потолков', balcony_count: 'Количество балконов',
+  bathroom_count: 'Количество санузлов', bathroom_type: 'Тип санузла',
+  renovation_type: 'Тип ремонта', bedrooms_count: 'Спальни',
+  floors_count: 'Этажей в помещении', land_area: 'Площадь участка',
+  // commercial sub-fields
+  commercial_type: 'Тип коммерции', usable_area: 'Полезная площадь',
+  floor_load: 'Нагрузка на пол', electric_power_kw: 'Электрическая мощность',
+  parking_spaces: 'Парковочные места', has_separate_entrance: 'Отдельный вход',
+  has_display_windows: 'Витринные окна', is_first_line: 'Первая линия',
+}
+
+function parseServerErrors(data) {
+  if (!data || typeof data !== 'object') return { message: '', step: null, fields: [] }
+  const fields = []
+  let firstStep = null
+  for (const [key, value] of Object.entries(data)) {
+    // Flatten nested errors (e.g. building_details_data: {elevators_count: [...]})
+    if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+      for (const [subKey, subVal] of Object.entries(value)) {
+        const msg = Array.isArray(subVal) ? subVal.filter(Boolean).join(' ') : String(subVal || '')
+        const parentLabel = FIELD_LABELS[key] || key
+        const subLabel = FIELD_LABELS[subKey] || subKey
+        if (msg) fields.push({ label: `${parentLabel} / ${subLabel}`, message: msg })
+      }
+    } else {
+      const msg = Array.isArray(value) ? value.filter(Boolean).join(' ') : String(value || '')
+      if (msg) fields.push({ label: FIELD_LABELS[key] || key, message: msg })
+    }
+    const step = FIELD_STEP_MAP[key]
+    if (step && (!firstStep || step < firstStep)) firstStep = step
+  }
+  const message = fields.map((f) => `${f.label}: ${f.message}`).join(' · ')
+  return { message, step: firstStep, fields }
+}
+
 async function submit() {
   loading.value = true
   error.value = ''
+  errorDetails.message = ''
+  errorDetails.step = null
+  errorDetails.fields = []
   try {
     const payload = {
       title: form.title,
@@ -1453,28 +1557,33 @@ async function submit() {
       cadastral_number: form.cadastral_number || null,
       is_published: !!form.is_published,
       description: form.description,
-      building_details_data: {
+      building_details_data: stripDataKeys({
         ...form.building_details,
         building_material: form.building_details.building_material || null,
-      },
-      property_details_data: {
+      }),
+      property_details_data: stripDataKeys({
         ...form.property_details,
         bathroom_type: form.property_details.bathroom_type || null,
         renovation_type: form.property_details.renovation_type || null,
         floors_count: isHouseType.value ? form.property_details.floors_count : null,
-      },
-      commercial_property_details_data: {
+      }),
+      commercial_property_details_data: stripDataKeys({
         ...form.commercial_property_details,
         commercial_type: form.commercial_property_details.commercial_type || null,
-      },
+      }),
       amenity_ids: [...form.amenity_ids],
     }
 
     if (addressPicked.value) {
+      // User selected a new address from DaData suggestions
       payload.address_data = addressPicked.value
-    } else if (form.address) {
+    } else if (isEdit.value && form.address && typeof form.address === 'number') {
+      // Editing: keep existing address by its numeric PK — don't re-send address_data
       payload.address = form.address
-    } else if (!isEdit.value) {
+    } else if (isEdit.value) {
+      // Editing without touching the address field — omit address entirely,
+      // backend will keep the existing one
+    } else {
       throw new Error('Выберите адрес из подсказок.')
     }
 
@@ -1487,13 +1596,20 @@ async function submit() {
     syncPropertyBaseline()
     router.push(`/properties/${data.id}`)
   } catch (e) {
-    error.value = extractError(e, 'Не удалось сохранить объект.')
     const data = e.response?.data
     if (typeof data === 'object' && data) {
-      const formatted = formatPropertyValidationError(data)
-      error.value = formatted || extractError(e, 'Не удалось сохранить объект.')
+      const parsed = parseServerErrors(data)
+      errorDetails.message = parsed.message
+      errorDetails.step = parsed.step
+      errorDetails.fields = parsed.fields
+      error.value = parsed.message || extractError(e, 'Не удалось сохранить объект.')
+      // Auto-navigate to the step that has errors
+      if (parsed.step && parsed.step !== currentStep.value) {
+        currentStep.value = parsed.step
+      }
     } else {
-      error.value = e.message || 'Не удалось сохранить объект.'
+      error.value = e.message || extractError(e, 'Не удалось сохранить объект.')
+      errorDetails.message = error.value
     }
   } finally {
     loading.value = false
@@ -1781,6 +1897,69 @@ onBeforeUnmount(() => {
 
 .property-form__required {
   color: var(--c-danger);
+}
+
+/* ── Structured server error block ─────────────────────── */
+.property-form__error-block {
+  border: 1px solid rgba(194, 85, 74, 0.45);
+  background: rgba(194, 85, 74, 0.10);
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.property-form__error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--c-danger-2, #e87b72);
+}
+
+.property-form__error-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--c-ink-soft);
+}
+
+.property-form__error-list b {
+  color: var(--c-danger-2, #e87b72);
+  font-weight: 600;
+}
+
+.property-form__error-text {
+  font-size: 13px;
+  color: var(--c-ink-soft);
+  margin: 0;
+}
+
+.property-form__error-goto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(194, 85, 74, 0.35);
+  background: rgba(194, 85, 74, 0.12);
+  color: var(--c-danger-2, #e87b72);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.property-form__error-goto:hover {
+  background: rgba(194, 85, 74, 0.20);
+  border-color: rgba(194, 85, 74, 0.55);
 }
 
 .property-form__field-error {
