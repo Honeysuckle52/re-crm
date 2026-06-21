@@ -1617,8 +1617,14 @@ onBeforeUnmount(() => {
 }
 
 .property-form__hero {
-  padding: 24px 28px 44px;
+  padding: 24px 28px 32px;
   gap: 20px;
+  height: auto;
+  min-height: auto;
+  max-height: none;
+  flex: 0 0 auto;
+  overflow: visible;
+  contain: none;
 }
 
 .property-form__hero-top {
