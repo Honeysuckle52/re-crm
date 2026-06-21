@@ -1,5 +1,6 @@
 import { onBeforeUnmount, onMounted, unref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
+import { useConfirmStore } from '../store/confirm'
 
 function resolveFlag(value) {
   if (typeof value === 'function') return !!value()
@@ -10,14 +11,24 @@ export function useUnsavedChangesGuard({
   enabled = true,
   isDirty = false,
   message = 'Есть несохранённые изменения. Покинуть страницу?',
+  title = 'Несохранённые изменения',
+  confirmLabel = 'Покинуть',
+  cancelLabel = 'Остаться',
 } = {}) {
   function shouldBlock() {
     return resolveFlag(enabled) && resolveFlag(isDirty)
   }
 
-  function confirmLeave() {
+  async function confirmLeave() {
     if (!shouldBlock()) return true
-    return window.confirm(message)
+    const confirm = useConfirmStore()
+    return confirm.ask({
+      title,
+      message,
+      confirmLabel,
+      cancelLabel,
+      danger: false,
+    })
   }
 
   function handleBeforeUnload(event) {
@@ -38,7 +49,10 @@ export function useUnsavedChangesGuard({
     }
   })
 
-  onBeforeRouteLeave(() => confirmLeave())
+  onBeforeRouteLeave(async () => {
+    if (!shouldBlock()) return true
+    return confirmLeave()
+  })
 
   return {
     confirmLeave,

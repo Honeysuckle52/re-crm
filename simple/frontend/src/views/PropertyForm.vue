@@ -1723,6 +1723,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 18px;
   padding: 22px;
+  overflow: visible;
 }
 
 .property-form__surface-head {

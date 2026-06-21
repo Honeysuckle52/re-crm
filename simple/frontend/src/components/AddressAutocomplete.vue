@@ -91,7 +91,7 @@ function handleBlur() {
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  z-index: 20;
+  z-index: 200;
   max-height: 320px;
   overflow: auto;
   border-radius: 22px;
