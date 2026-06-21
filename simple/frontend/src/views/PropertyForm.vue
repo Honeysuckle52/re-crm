@@ -1323,6 +1323,13 @@ async function ensureLookupLoaded(key, endpoint) {
   dict[key] = unpackPaginated(data).items
 }
 
+// Remove all *_data keys (nested objects returned by the API) from a form object
+// so they don't accidentally get sent to the backend as non-PK values.
+function stripDataKeys(obj) {
+  if (!obj || typeof obj !== 'object') return {}
+  return Object.fromEntries(Object.entries(obj).filter(([key]) => !key.endsWith('_data')))
+}
+
 async function initializeForm() {
   const seq = ++initSeq
   loading.value = true
@@ -1363,14 +1370,14 @@ async function initializeForm() {
         description: data.description,
         building_details: {
           ...createBuildingDetailsForm(),
-          ...(data.building_details || {}),
+          ...stripDataKeys(data.building_details || {}),
           building_material: data.building_details?.building_material
             ?? data.building_details?.building_material_data?.id
             ?? null,
         },
         property_details: {
           ...createPropertyDetailsForm(),
-          ...(data.property_details || {}),
+          ...stripDataKeys(data.property_details || {}),
           bathroom_type: data.property_details?.bathroom_type
             ?? data.property_details?.bathroom_type_data?.id
             ?? null,
@@ -1380,7 +1387,7 @@ async function initializeForm() {
         },
         commercial_property_details: {
           ...createCommercialPropertyDetailsForm(),
-          ...(data.commercial_property_details || {}),
+          ...stripDataKeys(data.commercial_property_details || {}),
           commercial_type: data.commercial_property_details?.commercial_type
             ?? data.commercial_property_details?.commercial_type_data?.id
             ?? null,
@@ -1480,27 +1487,49 @@ const FIELD_STEP_MAP = {
 // Reactive error details for structured display
 const errorDetails = reactive({ message: '', step: null, fields: [] })
 
+// Russian labels for all backend field names (top-level and nested)
+const FIELD_LABELS = {
+  // Top-level
+  title: 'Название', operation_type: 'Тип операции', status: 'Статус',
+  premises_type: 'Тип помещения', price: 'Цена', area_total: 'Общая площадь',
+  rooms_count: 'Количество комнат', floor_number: 'Этаж', address: 'Адрес',
+  cadastral_number: 'Кадастровый номер', is_published: 'Публикация',
+  description: 'Описание', amenity_ids: 'Удобства',
+  building_details_data: 'Параметры здания',
+  property_details_data: 'Параметры помещения',
+  commercial_property_details_data: 'Коммерческие параметры',
+  // building_details sub-fields
+  year_built: 'Год постройки', total_floors: 'Этажей в здании',
+  building_material: 'Материал стен', elevators_count: 'Количество лифтов',
+  // property_details sub-fields
+  living_area: 'Жилая площадь', kitchen_area: 'Площадь кухни',
+  ceiling_height: 'Высота потолков', balcony_count: 'Количество балконов',
+  bathroom_count: 'Количество санузлов', bathroom_type: 'Тип санузла',
+  renovation_type: 'Тип ремонта', bedrooms_count: 'Спальни',
+  floors_count: 'Этажей в помещении', land_area: 'Площадь участка',
+  // commercial sub-fields
+  commercial_type: 'Тип коммерции', usable_area: 'Полезная площадь',
+  floor_load: 'Нагрузка на пол', electric_power_kw: 'Электрическая мощность',
+  parking_spaces: 'Парковочные места', has_separate_entrance: 'Отдельный вход',
+  has_display_windows: 'Витринные окна', is_first_line: 'Первая линия',
+}
+
 function parseServerErrors(data) {
   if (!data || typeof data !== 'object') return { message: '', step: null, fields: [] }
-  const labels = {
-    title: 'Название', operation_type: 'Тип операции', status: 'Статус',
-    premises_type: 'Тип помещения', price: 'Цена', area_total: 'Площадь',
-    rooms_count: 'Количество комнат', floor_number: 'Этаж', address: 'Адрес',
-    building_details_data: 'Параметры здания', property_details_data: 'Параметры помещения',
-    commercial_property_details_data: 'Коммерческие параметры',
-  }
   const fields = []
   let firstStep = null
   for (const [key, value] of Object.entries(data)) {
-    // Flatten nested errors (e.g. building_details_data: {building_material: [...]})
+    // Flatten nested errors (e.g. building_details_data: {elevators_count: [...]})
     if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
       for (const [subKey, subVal] of Object.entries(value)) {
         const msg = Array.isArray(subVal) ? subVal.filter(Boolean).join(' ') : String(subVal || '')
-        if (msg) fields.push({ label: `${labels[key] || key} / ${subKey}`, message: msg })
+        const parentLabel = FIELD_LABELS[key] || key
+        const subLabel = FIELD_LABELS[subKey] || subKey
+        if (msg) fields.push({ label: `${parentLabel} / ${subLabel}`, message: msg })
       }
     } else {
       const msg = Array.isArray(value) ? value.filter(Boolean).join(' ') : String(value || '')
-      if (msg) fields.push({ label: labels[key] || key, message: msg })
+      if (msg) fields.push({ label: FIELD_LABELS[key] || key, message: msg })
     }
     const step = FIELD_STEP_MAP[key]
     if (step && (!firstStep || step < firstStep)) firstStep = step
@@ -1516,12 +1545,6 @@ async function submit() {
   errorDetails.step = null
   errorDetails.fields = []
   try {
-    // Strip nested _data objects — send only IDs to the backend
-    const cleanObject = (obj) =>
-      Object.fromEntries(
-        Object.entries(obj).filter(([key]) => !key.endsWith('_data')),
-      )
-
     const payload = {
       title: form.title,
       operation_type: form.operation_type,
@@ -1534,17 +1557,17 @@ async function submit() {
       cadastral_number: form.cadastral_number || null,
       is_published: !!form.is_published,
       description: form.description,
-      building_details_data: cleanObject({
+      building_details_data: stripDataKeys({
         ...form.building_details,
         building_material: form.building_details.building_material || null,
       }),
-      property_details_data: cleanObject({
+      property_details_data: stripDataKeys({
         ...form.property_details,
         bathroom_type: form.property_details.bathroom_type || null,
         renovation_type: form.property_details.renovation_type || null,
         floors_count: isHouseType.value ? form.property_details.floors_count : null,
       }),
-      commercial_property_details_data: cleanObject({
+      commercial_property_details_data: stripDataKeys({
         ...form.commercial_property_details,
         commercial_type: form.commercial_property_details.commercial_type || null,
       }),
@@ -1552,10 +1575,15 @@ async function submit() {
     }
 
     if (addressPicked.value) {
+      // User selected a new address from DaData suggestions
       payload.address_data = addressPicked.value
-    } else if (form.address) {
+    } else if (isEdit.value && form.address && typeof form.address === 'number') {
+      // Editing: keep existing address by its numeric PK — don't re-send address_data
       payload.address = form.address
-    } else if (!isEdit.value) {
+    } else if (isEdit.value) {
+      // Editing without touching the address field — omit address entirely,
+      // backend will keep the existing one
+    } else {
       throw new Error('Выберите адрес из подсказок.')
     }
 
