@@ -591,7 +591,34 @@
         </div>
       </section>
 
-      <div v-if="error" class="error">{{ error }}</div>
+      <div v-if="error" class="property-form__error-block" role="alert">
+        <div class="property-form__error-header">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>Ошибка сохранения</span>
+        </div>
+        <ul v-if="errorDetails.fields.length" class="property-form__error-list">
+          <li v-for="field in errorDetails.fields" :key="field.label">
+            <b>{{ field.label }}:</b> {{ field.message }}
+          </li>
+        </ul>
+        <p v-else class="property-form__error-text">{{ error }}</p>
+        <button
+          v-if="errorDetails.step && errorDetails.step !== currentStep"
+          class="property-form__error-goto"
+          type="button"
+          @click="currentStep = errorDetails.step"
+        >
+          Перейти к шагу {{ errorDetails.step }} ({{ steps[errorDetails.step - 1]?.title }})
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
 
       <div class="row row--between property-form__footer">
         <button class="btn" type="button" @click="$router.back()">Отмена</button>
@@ -1270,6 +1297,9 @@ function resetPropertyFormState() {
   removedPhotoIds.value = []
   newPhotoUrl.value = ''
   error.value = ''
+  errorDetails.message = ''
+  errorDetails.step = null
+  errorDetails.fields = []
   propertyDraftRestored.value = false
   currentStep.value = 1
   for (const key of Object.keys(touchedSteps)) {
@@ -1437,10 +1467,61 @@ async function uploadPhotos(propertyId) {
   }
 }
 
+// Map server error field names to step numbers for navigation
+const FIELD_STEP_MAP = {
+  operation_type: 1, premises_type: 1,
+  address: 2, address_data: 2,
+  title: 3, price: 3, area_total: 3, rooms_count: 3, floor_number: 3,
+  cadastral_number: 3, status: 3,
+  building_details_data: 3, property_details_data: 3, commercial_property_details_data: 3,
+  description: 5, documents: 5,
+}
+
+// Reactive error details for structured display
+const errorDetails = reactive({ message: '', step: null, fields: [] })
+
+function parseServerErrors(data) {
+  if (!data || typeof data !== 'object') return { message: '', step: null, fields: [] }
+  const labels = {
+    title: 'Название', operation_type: 'Тип операции', status: 'Статус',
+    premises_type: 'Тип помещения', price: 'Цена', area_total: 'Площадь',
+    rooms_count: 'Количество комнат', floor_number: 'Этаж', address: 'Адрес',
+    building_details_data: 'Параметры здания', property_details_data: 'Параметры помещения',
+    commercial_property_details_data: 'Коммерческие параметры',
+  }
+  const fields = []
+  let firstStep = null
+  for (const [key, value] of Object.entries(data)) {
+    // Flatten nested errors (e.g. building_details_data: {building_material: [...]})
+    if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+      for (const [subKey, subVal] of Object.entries(value)) {
+        const msg = Array.isArray(subVal) ? subVal.filter(Boolean).join(' ') : String(subVal || '')
+        if (msg) fields.push({ label: `${labels[key] || key} / ${subKey}`, message: msg })
+      }
+    } else {
+      const msg = Array.isArray(value) ? value.filter(Boolean).join(' ') : String(value || '')
+      if (msg) fields.push({ label: labels[key] || key, message: msg })
+    }
+    const step = FIELD_STEP_MAP[key]
+    if (step && (!firstStep || step < firstStep)) firstStep = step
+  }
+  const message = fields.map((f) => `${f.label}: ${f.message}`).join(' · ')
+  return { message, step: firstStep, fields }
+}
+
 async function submit() {
   loading.value = true
   error.value = ''
+  errorDetails.message = ''
+  errorDetails.step = null
+  errorDetails.fields = []
   try {
+    // Strip nested _data objects — send only IDs to the backend
+    const cleanObject = (obj) =>
+      Object.fromEntries(
+        Object.entries(obj).filter(([key]) => !key.endsWith('_data')),
+      )
+
     const payload = {
       title: form.title,
       operation_type: form.operation_type,
@@ -1453,20 +1534,20 @@ async function submit() {
       cadastral_number: form.cadastral_number || null,
       is_published: !!form.is_published,
       description: form.description,
-      building_details_data: {
+      building_details_data: cleanObject({
         ...form.building_details,
         building_material: form.building_details.building_material || null,
-      },
-      property_details_data: {
+      }),
+      property_details_data: cleanObject({
         ...form.property_details,
         bathroom_type: form.property_details.bathroom_type || null,
         renovation_type: form.property_details.renovation_type || null,
         floors_count: isHouseType.value ? form.property_details.floors_count : null,
-      },
-      commercial_property_details_data: {
+      }),
+      commercial_property_details_data: cleanObject({
         ...form.commercial_property_details,
         commercial_type: form.commercial_property_details.commercial_type || null,
-      },
+      }),
       amenity_ids: [...form.amenity_ids],
     }
 
@@ -1487,13 +1568,20 @@ async function submit() {
     syncPropertyBaseline()
     router.push(`/properties/${data.id}`)
   } catch (e) {
-    error.value = extractError(e, 'Не удалось сохранить объект.')
     const data = e.response?.data
     if (typeof data === 'object' && data) {
-      const formatted = formatPropertyValidationError(data)
-      error.value = formatted || extractError(e, 'Не удалось сохранить объект.')
+      const parsed = parseServerErrors(data)
+      errorDetails.message = parsed.message
+      errorDetails.step = parsed.step
+      errorDetails.fields = parsed.fields
+      error.value = parsed.message || extractError(e, 'Не удалось сохранить объект.')
+      // Auto-navigate to the step that has errors
+      if (parsed.step && parsed.step !== currentStep.value) {
+        currentStep.value = parsed.step
+      }
     } else {
-      error.value = e.message || 'Не удалось сохранить объект.'
+      error.value = e.message || extractError(e, 'Не удалось сохранить объект.')
+      errorDetails.message = error.value
     }
   } finally {
     loading.value = false
@@ -1781,6 +1869,69 @@ onBeforeUnmount(() => {
 
 .property-form__required {
   color: var(--c-danger);
+}
+
+/* ── Structured server error block ─────────────────────── */
+.property-form__error-block {
+  border: 1px solid rgba(194, 85, 74, 0.45);
+  background: rgba(194, 85, 74, 0.10);
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.property-form__error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--c-danger-2, #e87b72);
+}
+
+.property-form__error-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--c-ink-soft);
+}
+
+.property-form__error-list b {
+  color: var(--c-danger-2, #e87b72);
+  font-weight: 600;
+}
+
+.property-form__error-text {
+  font-size: 13px;
+  color: var(--c-ink-soft);
+  margin: 0;
+}
+
+.property-form__error-goto {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(194, 85, 74, 0.35);
+  background: rgba(194, 85, 74, 0.12);
+  color: var(--c-danger-2, #e87b72);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.property-form__error-goto:hover {
+  background: rgba(194, 85, 74, 0.20);
+  border-color: rgba(194, 85, 74, 0.55);
 }
 
 .property-form__field-error {
