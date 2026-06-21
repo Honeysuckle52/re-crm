@@ -141,6 +141,35 @@
               <div class="muted">{{ existingAddress }}</div>
             </div>
           </div>
+
+          <div v-if="displayCoords.lat !== null || displayCoords.lon !== null" class="grid grid--2 property-form__grid property-form__coords-row">
+            <div class="field">
+              <label class="property-form__coords-label">
+                Широта
+                <span class="tag property-form__coords-tag">DaData</span>
+              </label>
+              <input
+                class="input property-form__coords-input"
+                type="text"
+                :value="displayCoords.lat ?? '—'"
+                readonly
+                tabindex="-1"
+              />
+            </div>
+            <div class="field">
+              <label class="property-form__coords-label">
+                Долгота
+                <span class="tag property-form__coords-tag">DaData</span>
+              </label>
+              <input
+                class="input property-form__coords-input"
+                type="text"
+                :value="displayCoords.lon ?? '—'"
+                readonly
+                tabindex="-1"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -899,6 +928,22 @@ const showBedroomField = computed(() => isApartmentType.value || isHouseType.val
 const currentStepMeta = computed(() => steps.find((step) => step.id === currentStep.value) || steps[0])
 const propertyOwners = computed(() => propertyData.value?.owners || [])
 const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
+
+// Coordinates: prefer freshly picked from DaData, fall back to saved on existing object
+const displayCoords = computed(() => {
+  if (addressPicked.value) {
+    return {
+      lat: addressPicked.value.geo_lat ?? null,
+      lon: addressPicked.value.geo_lon ?? null,
+    }
+  }
+  if (isEdit.value && propertyData.value) {
+    const lat = propertyData.value.coordinates_lat ?? propertyData.value.address_data?.geo_lat ?? null
+    const lon = propertyData.value.coordinates_lon ?? propertyData.value.address_data?.geo_lon ?? null
+    return { lat, lon }
+  }
+  return { lat: null, lon: null }
+})
 const isPropertyDirty = computed(() => propertyDirtySnapshot.value !== propertyBaseline.value)
 const currentStepErrors = computed(() => touchedSteps[currentStep.value] ? getStepErrors(currentStep.value) : [])
 const fieldErrors = computed(() => getFieldErrorsForStep(currentStep.value))
@@ -2145,5 +2190,33 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+/* ── Coordinates auto-filled from DaData ─────────────────── */
+.property-form__coords-row {
+  margin-top: 4px;
+}
+
+.property-form__coords-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.property-form__coords-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(120, 216, 206, 0.12);
+  border: 1px solid rgba(120, 216, 206, 0.25);
+  color: var(--c-accent, #78d8ce);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.property-form__coords-input {
+  opacity: 0.72;
+  cursor: default;
+  pointer-events: none;
 }
 </style>
