@@ -1500,7 +1500,7 @@ const FIELD_LABELS = {
   commercial_property_details_data: 'Коммерческие параметры',
   // building_details sub-fields
   year_built: 'Год постройки', total_floors: 'Этажей в здании',
-  building_material: 'Материал стен', elevators_count: 'Количество лифтов',
+  building_material: 'Мат��риал стен', elevators_count: 'Количество лифтов',
   // property_details sub-fields
   living_area: 'Жилая площадь', kitchen_area: 'Площадь кухни',
   ceiling_height: 'Высота потолков', balcony_count: 'Количество балконов',
@@ -2103,9 +2103,9 @@ onBeforeUnmount(() => {
 .property-form__step-error {
   padding: 12px 14px;
   border-radius: var(--r-sm);
-  border: 1px solid rgba(220, 87, 87, 0.3);
-  background: rgba(220, 87, 87, 0.12);
-  color: #ffe9e9;
+  border: 1px solid rgba(194, 85, 74, 0.35);
+  background: rgba(194, 85, 74, 0.10);
+  color: var(--c-danger-2, #e87b72);
   font-size: 14px;
 }
 
