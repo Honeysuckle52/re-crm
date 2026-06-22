@@ -277,13 +277,11 @@ DADATA_API_KEY = os.getenv(
 
 # 2GIS Places API — обогащение объектов недвижимости данными и фото.
 TWOGIS_API_KEY = os.getenv('TWOGIS_API_KEY', '')
-SBER_API_URL = os.getenv(
-    'SBER_API_URL',
-    'https://3dsec.sberbank.ru/payment/rest/',
-)
-SBER_USERNAME = os.environ.get('SBER_USERNAME', '')
-SBER_PASSWORD = os.environ.get('SBER_PASSWORD', '')
-SBER_SANDBOX  = os.environ.get('SBER_SANDBOX', 'True') == 'True'
-SBER_PAYMENT_TIMEOUT = os.environ.get('SBER_PAYMENT_TIMEOUT', 10)
-SBER_VIEWING_AMOUNTS = json.loads(os.environ.get('SBER_VIEWING_AMOUNTS', '{}')
-)
+SMARTPAY_TOKEN = os.getenv('SMARTPAY_TOKEN', '')
+SMARTPAY_SERVICE_ID = os.getenv('SMARTPAY_SERVICE_ID', '')
+SMARTPAY_AMOUNT = int(os.getenv('SMARTPAY_AMOUNT', '100'))
+SMARTPAY_TIMEOUT = int(os.getenv('SMARTPAY_TIMEOUT', '15'))
+SMARTPAY_API_BASE_URL = os.getenv('SMARTPAY_API_BASE_URL', 'https://api.smartmarket.tech/v1/')
+SMARTPAY_CREATE_INVOICE_PATH = os.getenv('SMARTPAY_CREATE_INVOICE_PATH', 'invoices/')
+SMARTPAY_STATUS_PATH_TEMPLATE = os.getenv('SMARTPAY_STATUS_PATH_TEMPLATE', 'invoices/{invoice_id}/')
+SMARTPAY_REFUND_PATH_TEMPLATE = os.getenv('SMARTPAY_REFUND_PATH_TEMPLATE', 'invoices/{invoice_id}/refund/')

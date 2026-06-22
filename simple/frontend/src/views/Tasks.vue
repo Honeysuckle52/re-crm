@@ -568,8 +568,8 @@
                   Объект: {{ task.property_title }}
                 </div>
               </td>
-              <td>
-                <span class="tag tag--type task-badge">
+              <td class="task-type-cell">
+                <span class="tag tag--type task-badge task-badge--type-full">
                   {{ task.task_type_display || taskTypeLabel(task.task_type) }}
                 </span>
               </td>
@@ -888,8 +888,20 @@ function mapAssigneeOption(user) {
   return {
     id: user.id,
     label: displayName(user),
-    hint: '',
+    hint: assigneeRoleLabel(user),
   }
+}
+
+function assigneeRoleLabel(user) {
+  if (user.role_name) {
+    const normalized = String(user.role_name).trim().toLowerCase()
+    if (normalized.includes('админ')) return 'Админ'
+    if (normalized.includes('менедж')) return 'Менеджер'
+    if (normalized.includes('агент')) return 'Агент'
+  }
+  if (user.is_admin) return 'Админ'
+  if (user.is_manager) return 'Менеджер'
+  return 'Агент'
 }
 
 function mapClientOption(user) {
@@ -1571,11 +1583,11 @@ onMounted(async () => {
 }
 
 .tasks-table__col--title {
-  width: 25%;
+  width: 23%;
 }
 
 .tasks-table__col--type {
-  width: 8%;
+  width: 12%;
 }
 
 .tasks-table__col--assignee {
@@ -1625,8 +1637,17 @@ onMounted(async () => {
 }
 
 .task-actions__status {
-  flex: 0 0 104px;
-  min-width: 104px;
+  flex: 0 0 136px;
+  min-width: 136px;
+  color: var(--c-page-text);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, var(--c-accent) 50%),
+    linear-gradient(135deg, var(--c-accent) 50%, transparent 50%);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 20px rgba(16, 55, 52, 0.08);
 }
 
 .task-actions__info {
@@ -1785,10 +1806,23 @@ onMounted(async () => {
 }
 
 .task-badge--type-full {
+  display: flex;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   white-space: normal;
   text-align: center;
   line-height: 1.2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+  padding: 9px 12px;
+  border-radius: 18px;
+  justify-content: center;
+}
+
+.task-type-cell {
+  min-width: 0;
 }
 
 .tag--type {

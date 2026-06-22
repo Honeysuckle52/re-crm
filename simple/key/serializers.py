@@ -283,7 +283,16 @@ class UserSerializer(serializers.ModelSerializer):
         return normalize_russian_phone(value)
 
     def get_full_name(self, obj):
-        profile = getattr(obj, 'client_profile', None) or getattr(obj, 'employee_profile', None)
+        profile = None
+        try:
+            profile = getattr(obj, 'client_profile', None)
+        except Exception:
+            profile = None
+        if profile is None:
+            try:
+                profile = getattr(obj, 'employee_profile', None)
+            except Exception:
+                profile = None
         if profile is None:
             return obj.username
         parts = [
@@ -1833,6 +1842,8 @@ class DealSerializer(serializers.ModelSerializer):
                                            read_only=True)
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
+    agent_full_name = serializers.SerializerMethodField()
+    client_full_name = serializers.SerializerMethodField()
     contract_url = serializers.SerializerMethodField()
     contract_status = serializers.CharField(read_only=True)
     contract_status_display = serializers.CharField(
@@ -1843,7 +1854,9 @@ class DealSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Deal
         fields = ['id', 'deal_number', 'property', 'property_title',
-                  'agent', 'agent_username', 'client', 'client_username',
+                  'agent', 'agent_username', 'agent_full_name',
+                  'client', 'client_username',
+                  'client_full_name',
                   'operation_type', 'operation_type_name',
                   'status', 'status_name', 'status_code',
                   'price_final', 'commission_percent', 'commission_amount',
@@ -1866,6 +1879,46 @@ class DealSerializer(serializers.ModelSerializer):
         if not obj.contract_file or obj.contract_status != 'ready':
             return None
         return f'/api/deals/{obj.pk}/contract/'
+
+    @staticmethod
+    def _display_client_name(user) -> str:
+        if user is None:
+            return '—'
+        profile = getattr(user, 'client_profile', None)
+        if profile is None:
+            return user.username or '—'
+        company = getattr(profile, 'company_details', None)
+        company_name = (getattr(company, 'company_name', '') or '').strip()
+        if company_name:
+            return company_name
+        parts = [
+            (profile.last_name or '').strip(),
+            (profile.first_name or '').strip(),
+            (profile.middle_name or '').strip(),
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        return full_name or user.username or '—'
+
+    def get_client_full_name(self, obj) -> str:
+        return self._display_client_name(obj.client)
+
+    @staticmethod
+    def _display_employee_name(user) -> str:
+        if user is None:
+            return '—'
+        profile = getattr(user, 'employee_profile', None)
+        if profile is None:
+            return user.username or '—'
+        parts = [
+            (profile.last_name or '').strip(),
+            (profile.first_name or '').strip(),
+            ((getattr(profile, 'middle_name', None) or '')).strip(),
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        return full_name or user.username or '—'
+
+    def get_agent_full_name(self, obj) -> str:
+        return self._display_employee_name(obj.agent)
 
     def get_allowed_status_ids(self, obj) -> list[int]:
         statuses_by_code = self.context.setdefault(
@@ -2206,6 +2259,8 @@ class ViewingPaymentSerializer(serializers.ModelSerializer):
     client_username = serializers.CharField(source='client.username', read_only=True)
     property_title = serializers.CharField(source='property.title', read_only=True)
     viewing_status_code = serializers.CharField(source='viewing.status.code', read_only=True)
+    invoice_id = serializers.CharField(source='sber_order_id', read_only=True)
+    transaction_id = serializers.CharField(source='sber_transaction_id', read_only=True)
 
     class Meta:
         model = models.ViewingPayment
@@ -2218,6 +2273,8 @@ class ViewingPaymentSerializer(serializers.ModelSerializer):
             'property_title',
             'amount',
             'status',
+            'invoice_id',
+            'transaction_id',
             'sber_order_id',
             'sber_transaction_id',
             'payment_url',

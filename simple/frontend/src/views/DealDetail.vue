@@ -1,28 +1,31 @@
 <template>
-  <section class="stack" v-if="deal">
-    <div class="hero" style="padding: 24px 28px">
-      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
+  <section v-if="deal" class="stack">
+    <div class="hero deal-detail-hero">
+      <div class="row row--between deal-detail-hero__row">
         <div>
-          <div class="hero__eyebrow">СДЕЛКА {{ deal.deal_number }}</div>
-          <h1 class="h2" style="color: #fff; margin-top: 8px">
-            {{ deal.operation_type_name }} · {{ deal.client_username || 'клиент не указан' }}
+          <div class="hero__eyebrow">Сделка {{ deal.deal_number }}</div>
+          <h1 class="h2 deal-detail-hero__title">
+            {{ deal.operation_type_name || 'Сделка' }} · {{ deal.client_full_name || deal.client_username || 'клиент не указан' }}
           </h1>
-          <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
-            {{ deal.deal_date ? formatDate(deal.deal_date) : 'Дата не указана' }} ·
+          <div class="deal-detail-hero__meta">
+            {{ deal.deal_date ? formatDate(deal.deal_date) : 'Дата не указана' }}
             <span class="tag" :class="dealStatusClass(deal.status_name)">{{ deal.status_name || '—' }}</span>
           </div>
         </div>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
+
+        <div class="row deal-detail-hero__actions">
           <button
             v-if="deal.contract_url"
-            class="btn btn--sm"
+            class="btn btn--sm deal-detail__contract-btn"
+            type="button"
             @click="downloadContract"
           >
-            Скачать PDF
+            Скачать договор
           </button>
           <button
             v-else-if="auth.isStaff"
-            class="btn btn--sm btn--ghost"
+            class="btn btn--sm btn--ghost deal-detail__contract-btn"
+            type="button"
             :disabled="dealContractQueueActive(deal)"
             @click="regenerateContract"
           >
@@ -35,13 +38,13 @@
     <div class="grid grid--2">
       <div class="panel panel--light">
         <h2 class="h3">Основные данные</h2>
-        <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Номер" :value="deal.deal_number" />
+        <div class="stack deal-detail__info">
+          <InfoRow label="Номер сделки" :value="deal.deal_number" />
           <InfoRow label="Тип операции" :value="deal.operation_type_name || '—'" />
           <InfoRow label="Стоимость" :value="`${formatMoney(deal.price_final)} ₽`" />
           <InfoRow label="Комиссия" :value="commissionLabel" />
-          <InfoRow label="Клиент" :value="deal.client_username || '—'" />
-          <InfoRow label="Агент" :value="deal.agent_username || '—'" />
+          <InfoRow label="Клиент" :value="deal.client_full_name || deal.client_username || '—'" />
+          <InfoRow label="Агент" :value="deal.agent_full_name || deal.agent_username || '—'" />
           <InfoRow label="Дата сделки" :value="deal.deal_date ? formatDate(deal.deal_date) : '—'" />
         </div>
 
@@ -63,8 +66,9 @@
       </div>
 
       <div class="panel panel--light">
-        <h2 class="h3">Связанные сущности</h2>
-        <div class="stack" style="margin-top: 12px">
+        <h2 class="h3">Связанные данные</h2>
+
+        <div class="stack deal-detail__links">
           <div class="deal-detail__link-row">
             <span class="muted">Объект</span>
             <router-link v-if="deal.property" :to="`/properties/${deal.property}`" class="link">
@@ -72,24 +76,30 @@
             </router-link>
             <span v-else>—</span>
           </div>
+
           <div class="deal-detail__link-row">
             <span class="muted">Заявка</span>
             <router-link v-if="deal.request" :to="`/requests/${deal.request}`" class="link">
-              #{{ deal.request }}
+              №{{ deal.request }}
             </router-link>
             <span v-else>—</span>
           </div>
         </div>
 
-        <h2 class="h3" style="margin-top: 20px">Договор</h2>
-        <div class="deal-contract" style="margin-top: 12px">
-          <div class="stack" style="gap: 4px; flex: 1">
-            <div class="deal-contract__label">{{ dealContractStatusLabel(deal) }}</div>
-            <div class="muted">{{ dealContractStatusHint(deal) }}</div>
-            <div v-if="deal.contract_requested_at" class="muted" style="font-size: 12px">
+        <h2 class="h3 deal-detail__section-title">Договор</h2>
+        <div class="deal-contract-card">
+          <div class="deal-contract-card__head">
+            <div class="deal-contract-card__title">{{ dealContractStatusLabel(deal) }}</div>
+            <span class="tag deal-contract-card__badge">{{ deal.contract_status_display || 'Статус не указан' }}</span>
+          </div>
+          <div class="muted deal-contract-card__hint">
+            {{ dealContractStatusHint(deal) }}
+          </div>
+          <div class="deal-contract-card__meta">
+            <div v-if="deal.contract_requested_at" class="muted">
               Поставлен в очередь: {{ formatDate(deal.contract_requested_at) }}
             </div>
-            <div v-if="deal.contract_generated_at" class="muted" style="font-size: 12px">
+            <div v-if="deal.contract_generated_at" class="muted">
               Сформирован: {{ formatDate(deal.contract_generated_at) }}
             </div>
           </div>
@@ -112,7 +122,7 @@
 
   <section v-else class="stack">
     <div class="panel panel--light empty">
-      {{ loading ? 'Загрузка сделки…' : 'Сделка не найдена.' }}
+      {{ loading ? 'Загрузка сделки...' : 'Сделка не найдена.' }}
     </div>
   </section>
 </template>
@@ -236,11 +246,77 @@ watch(() => route.params.id, async () => {
 </script>
 
 <style scoped>
+.deal-detail-hero {
+  padding: 24px 28px;
+}
+
+.deal-detail-hero__row {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.deal-detail-hero__title {
+  color: #fff;
+  margin-top: 8px;
+}
+
+.deal-detail-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.deal-detail-hero__actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deal-detail__contract-btn {
+  min-width: 180px;
+  color: #17302f;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.deal-detail__contract-btn.btn--ghost {
+  color: #17302f;
+}
+
+.deal-detail__info {
+  margin-top: 12px;
+}
+
 .deal-detail__status {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 16px;
+}
+
+.deal-detail__status .select {
+  color-scheme: light;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(230, 238, 242, 0.95)),
+    linear-gradient(45deg, transparent 50%, var(--c-accent) 50%),
+    linear-gradient(135deg, var(--c-accent) 50%, transparent 50%);
+  color: var(--c-page-text);
+  border-color: rgba(21, 56, 57, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 20px rgba(16, 55, 52, 0.08);
+}
+
+.deal-detail__status .select option {
+  background: #f4f8fa;
+  color: var(--c-page-text);
+}
+
+.deal-detail__links {
+  margin-top: 12px;
 }
 
 .deal-detail__link-row {
@@ -250,9 +326,55 @@ watch(() => route.params.id, async () => {
   gap: 16px;
 }
 
-.deal-contract__label {
+.deal-detail__section-title {
+  margin-top: 20px;
+}
+
+.deal-contract-card {
+  margin-top: 12px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(21, 56, 57, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(232, 240, 243, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 14px 30px rgba(16, 55, 52, 0.08);
+  color: var(--c-page-text);
+}
+
+.deal-contract-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.deal-contract-card__title {
   font-size: 18px;
   font-weight: 700;
+  color: var(--c-page-text);
+}
+
+.deal-contract-card__badge {
+  flex: 0 0 auto;
+}
+
+.deal-contract-card__hint {
+  margin-top: 8px;
+  line-height: 1.35;
+  color: var(--c-page-text);
+}
+
+.deal-contract-card__meta {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+  color: var(--c-page-text);
+}
+
+.deal-contract-card__meta .muted,
+.deal-contract-card__hint.muted {
   color: var(--c-page-text);
 }
 
@@ -274,9 +396,15 @@ watch(() => route.params.id, async () => {
 }
 
 @media (max-width: 900px) {
-  .deal-detail__link-row {
+  .deal-detail__link-row,
+  .deal-contract-card__head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .deal-detail__contract-btn {
+    min-width: 0;
+    width: 100%;
   }
 }
 </style>

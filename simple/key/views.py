@@ -39,6 +39,7 @@ from .viewing_payments import (
     ViewingPaymentAccessDenied,
     ViewingPaymentValidationError,
     create_viewing_payment,
+    fetch_smartpay_status,
     mark_payment_failed,
     refund_payment,
     sync_payment_with_sber,
@@ -582,12 +583,12 @@ class UserViewSet(viewsets.ModelViewSet):
         'username',
         'email',
         'phone',
-        'client_profile__first_name',
         'client_profile__last_name',
+        'client_profile__first_name',
         'client_profile__middle_name',
-        'employee_profile__first_name',
         'employee_profile__last_name',
-        'employee_profile__middle_name',
+        'employee_profile__first_name',
+        'client_profile__company_details__company_name',
     ]
 
     def get_queryset(self):
@@ -1898,8 +1899,17 @@ class DealViewSet(viewsets.ModelViewSet):
     ).all()
     serializer_class = serializers.DealSerializer
     permission_classes = [IsEmployeeOrReadOnly]
-    filter_backends = [filters.OrderingFilter]
+    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['deal_date', 'contract_generated_at', 'price_final']
+    search_fields = [
+        '=deal_number',
+        'client__username',
+        'client__client_profile__last_name',
+        'client__client_profile__first_name',
+        'client__client_profile__middle_name',
+        'client__client_profile__company_details__company_name',
+        'property__title',
+    ]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -2081,6 +2091,49 @@ class PropertyViewingViewSet(viewsets.ModelViewSet):
         return qs
 
 
+    @action(detail=True, methods=['post'], url_path='initiate_payment')
+    def initiate_payment(self, request, pk=None):
+        viewing = self.get_object()
+        try:
+            payment = create_viewing_payment(viewing, request.user, request)
+        except ViewingPaymentAccessDenied as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except (ViewingPaymentValidationError, SberAcquiringError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            serializers.ViewingPaymentSerializer(payment, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=['get'], url_path='payment_status')
+    def payment_status(self, request, pk=None):
+        viewing = self.get_object()
+        payment = getattr(viewing, 'payment', None)
+        if payment is None:
+            return Response(
+                {'detail': 'Для этого просмотра ещё не создана оплата.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if (
+            request.user.id != payment.client_id
+            and not request.user.is_employee
+            and not request.user.is_admin_or_manager
+        ):
+            return Response({'detail': 'Недостаточно прав.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            provider_response = fetch_smartpay_status(payment)
+            payment, provider_response = sync_payment_with_sber(payment, actor=request.user)
+        except (ViewingPaymentValidationError, SberAcquiringError) as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                'payment': serializers.ViewingPaymentSerializer(payment, context={'request': request}).data,
+                'provider_response': provider_response,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ViewingPaymentInitiateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2166,9 +2219,14 @@ class ViewingPaymentWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        order_id = request.data.get('orderId') or request.data.get('order_id')
+        order_id = (
+            request.data.get('orderId')
+            or request.data.get('order_id')
+            or request.data.get('invoice_id')
+            or request.data.get('invoiceId')
+        )
         if not order_id:
-            return Response({'detail': 'orderId is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'invoice_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
         payment = get_object_or_404(models.ViewingPayment, sber_order_id=order_id)
         try:
             payment, _ = sync_payment_with_sber(payment)

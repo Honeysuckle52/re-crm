@@ -96,6 +96,10 @@ export function initiateTaskViewingPayment(id) {
   })
 }
 
+export function initiateViewingPayment(id) {
+  return initiateTaskViewingPayment(id)
+}
+
 export function takeRequest(id) {
   return call(() => api.post(`/requests/${id}/take/`))
 }
