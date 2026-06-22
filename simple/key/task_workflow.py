@@ -53,6 +53,7 @@ TASK_DEFAULT_SCHEMA = [
         'outcomes': [
             {'code': 'called', 'label': 'позвонил'},
             {'code': 'messaged', 'label': 'написал'},
+            {'code': 'in_person', 'label': 'клиент присутствует лично'},
             {'code': 'missed', 'label': 'не дозвонился'},
         ],
     },

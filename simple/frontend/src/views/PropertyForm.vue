@@ -399,7 +399,7 @@
           </div>
 
           <p class="muted property-form__text">
-            Пос��е создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
+            После создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
           </p>
 
           <div v-if="photos.length" class="grid grid--3 property-form__photo-grid">
@@ -440,7 +440,7 @@
             <div class="surface-head__meta">
               <h3 class="h4">Описание</h3>
             </div>
-            <div class="surface-head__caption">Свободное описание объекта для карточки и работы мен��джера.</div>
+            <div class="surface-head__caption">Свободное описание объекта для карточки и работы менджера.</div>
           </div>
 
           <div class="field">
@@ -468,7 +468,7 @@
                 <input class="input" v-model="newDocument.document_name" />
               </div>
               <div class="field">
-                <label>Ссылк�� на файл</label>
+                <label>Ссылка на файл</label>
                 <input class="input" v-model="newDocument.file_url" />
               </div>
             </div>
@@ -1283,7 +1283,7 @@ function isPropertyDraftEmpty(draft) {
 function formatPropertyValidationError(data) {
   const labels = {
     title: 'Название',
-    operation_type: 'Тип операц��и',
+    operation_type: 'Тип операци',
     status: 'Статус',
     premises_type: 'Тип помещения',
     price: 'Цена',
@@ -1621,7 +1621,7 @@ const { clearDraft: clearPropertyEditDraft, restoreDraft: restorePropertyEditDra
 useUnsavedChangesGuard({
   enabled: () => isPropertyDirty.value,
   isDirty: () => isPropertyDirty.value,
-  message: 'Есть несохра��ённые изменения в карточке объекта. Покинуть страницу?',
+  message: 'Есть несохраённые изменения в карточке объекта. Покинуть страницу?',
 })
 
 async function uploadPhotos(propertyId) {
@@ -1681,7 +1681,7 @@ const FIELD_LABELS = {
   commercial_property_details_data: 'Коммерческие параметры',
   // building_details sub-fields
   year_built: 'Год постройки', total_floors: 'Этажей в здании',
-  building_material: 'Мат��риал стен', elevators_count: 'Количество лифтов',
+  building_material: 'Матриал стен', elevators_count: 'Количество лифтов',
   // property_details sub-fields
   living_area: 'Жилая площадь', kitchen_area: 'Площадь кухни',
   ceiling_height: 'Высота потолков', balcony_count: 'Количество балконов',
@@ -1743,7 +1743,7 @@ async function submit() {
       // Editing without touching the address field — omit address entirely,
       // backend will keep the existing one
     } else {
-      throw new Error('Выбе��ите адрес из подсказок.')
+      throw new Error('Выбеите адрес из подсказок.')
     }
 
     const url = isEdit.value ? `/properties/${route.params.id}/` : '/properties/'
