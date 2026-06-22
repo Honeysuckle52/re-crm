@@ -1,0 +1,14 @@
+Здравствуйте, {{ client_name }}!
+
+Статус вашей сделки {{ deal.deal_number }} изменён.
+
+Предыдущий статус: {{ previous_status_name|default:"—" }}
+Текущий статус: {{ current_status_name|default:"—" }}
+
+{% if property %}Объект: {{ property.title }}
+{% endif %}{% if contract_url %}Документы и детали доступны в разделе сделок: {{ deal_url }}
+{% else %}Следите за обновлениями в разделе сделок: {{ deal_url }}
+{% endif %}
+
+С уважением,
+{{ agency_name }}

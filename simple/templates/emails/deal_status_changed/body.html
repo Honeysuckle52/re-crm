@@ -1,0 +1,17 @@
+{% extends "emails/_base.html" %}
+
+{% block content %}
+  <h1>Статус сделки обновлён</h1>
+  <p>Здравствуйте, {{ client_name }}!</p>
+  <p>Статус вашей сделки <strong>{{ deal.deal_number }}</strong> изменён.</p>
+  <p>
+    Предыдущий статус: <strong>{{ previous_status_name|default:"—" }}</strong><br />
+    Текущий статус: <strong>{{ current_status_name|default:"—" }}</strong>
+  </p>
+  {% if property %}
+    <p>Объект: <strong>{{ property.title }}</strong></p>
+  {% endif %}
+  <p>
+    <a href="{{ deal_url }}">Открыть раздел сделок</a>
+  </p>
+{% endblock %}
