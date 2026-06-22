@@ -37,7 +37,7 @@
       </div>
     </div>
 
-    <form class="panel panel--light property-form" @submit.prevent="handleSubmit">
+    <form class="panel panel--light property-form" novalidate @submit.prevent="handleSubmit">
       <div class="surface-head property-form__surface-head">
         <div class="surface-head__meta">
           <div class="surface-head__meta">Шаг {{ currentStep }} из {{ steps.length }}</div>
@@ -66,7 +66,7 @@
           <div class="grid grid--2 property-form__grid">
             <div class="field">
               <label>Тип операции <span class="property-form__required">*</span></label>
-              <select ref="operationTypeFieldRef" class="select" v-model.number="form.operation_type" required>
+              <select ref="operationTypeFieldRef" class="select" v-model.number="form.operation_type">
                 <option v-for="item in dict.operations" :key="item.id" :value="item.id">
                   {{ item.name }}
                 </option>
@@ -76,7 +76,7 @@
 
             <div class="field">
               <label>Тип объекта <span class="property-form__required">*</span></label>
-              <select ref="premisesTypeFieldRef" class="select" v-model="form.premises_type" required>
+              <select ref="premisesTypeFieldRef" class="select" v-model="form.premises_type">
                 <option v-for="item in dict.propertyTypes" :key="item.id" :value="item.code">
                   {{ item.name }}
                 </option>
@@ -86,7 +86,7 @@
 
             <div v-if="auth.isStaff" class="field">
               <label>Статус</label>
-              <select class="select" v-model.number="form.status" required>
+              <select class="select" v-model.number="form.status">
                 <option v-for="item in dict.statuses" :key="item.id" :value="item.id">
                   {{ item.name }}
                 </option>
@@ -191,14 +191,13 @@
                 ref="titleFieldRef"
                 class="input"
                 v-model="form.title"
-                required
                 placeholder="Например: 2-комнатная на Ленина" />
               <div v-if="fieldErrors.title" class="property-form__field-error">{{ fieldErrors.title }}</div>
             </div>
 
             <div class="field">
               <label>Цена, ₽ <span class="property-form__required">*</span></label>
-              <input ref="priceFieldRef" class="input" type="number" step="1" min="0" max="9999999999" v-model.number="form.price" required />
+              <input ref="priceFieldRef" class="input" type="number" step="1" min="0" max="9999999999" v-model.number="form.price" />
               <div v-if="fieldErrors.price" class="property-form__field-error">{{ fieldErrors.price }}</div>
             </div>
 
@@ -226,7 +225,7 @@
           </div>
         </div>
 
-        <div class="panel panel--light property-form__subpanel">
+        <div v-if="showBuildingDetailsSection" class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
               <h3 class="h4">О доме</h3>
@@ -264,12 +263,15 @@
           </div>
         </div>
 
-        <div v-if="!isCommercialType" class="panel panel--light property-form__subpanel">
+        <!-- Раздел "О помещении" — только для жилых объектов и гаража -->
+        <div v-if="showResidentialDetailsSection || showGarageRenovationOnly" class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
-              <h3 class="h4">О помещении</h3>
+              <h3 class="h4">{{ isGarageType ? 'Параметры гаража' : 'О помещении' }}</h3>
             </div>
-            <div class="surface-head__caption">Планировка, санузлы, ремонт и жилые характеристики.</div>
+            <div class="surface-head__caption">
+              {{ isGarageType ? 'Тип ремонта и состояние гаражного помещения.' : 'Планировка, санузлы, ремонт и жилые характеристики.' }}
+            </div>
           </div>
 
           <div class="grid grid--2 property-form__grid">
@@ -466,7 +468,7 @@
             <div class="surface-head__meta">
               <h3 class="h4">Описание</h3>
             </div>
-            <div class="surface-head__caption">Свободное описание объекта для карточки и работы менеджера.</div>
+            <div class="surface-head__caption">Свободное описание объекта для карточки и работы мен��джера.</div>
           </div>
 
           <div class="field">
@@ -912,6 +914,8 @@ const touchedSteps = reactive({
   5: false,
 })
 let initSeq = 0
+// Флаг подавления очистки полей при программной инициализации формы редактирования
+let isInitializingForm = false
 
 const currentYear = new Date().getFullYear()
 const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
@@ -921,15 +925,28 @@ const isApartmentType = computed(() => normalizedPremisesType.value === 'apartme
 const isRoomType = computed(() => normalizedPremisesType.value === 'room')
 const isLandType = computed(() => normalizedPremisesType.value === 'land')
 const isGarageType = computed(() => normalizedPremisesType.value === 'garage')
-const showBuildingDetailsSection = computed(() => !isLandType.value && !isGarageType.value)
+// "О доме": скрываем для земли, гаража и коммерции (у коммерции свой блок)
+const showBuildingDetailsSection = computed(() => !isLandType.value && !isGarageType.value && !isCommercialType.value)
+// Комнаты: только квартира, дом, комната
 const showRoomsField = computed(() => propertyTypeUsesRooms(normalizedPremisesType.value))
+// Этаж (номер): только квартира и комната
 const showFloorField = computed(() => propertyTypeUsesFloor(normalizedPremisesType.value))
+// Площадь участка: дом и земля
 const showLandAreaField = computed(() => propertyTypeHasLand(normalizedPremisesType.value))
+// Балкон: только квартира и дом
 const showBalconyField = computed(() => isApartmentType.value || isHouseType.value)
+// Жилая площадь + кухня + высота потолков: квартира, дом, комната
 const showResidentialAreaFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+// Санузел: квартира, дом, комната
 const showBathroomFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+// Ремонт: квартира, дом, комната, гараж
 const showRenovationField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value || isGarageType.value)
+// Спальни: квартира, дом, комната
 const showBedroomField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+// Блок "О помещении" (жилое): не для коммерции, не для земли, не для гаража (гараж видит только ремонт)
+const showResidentialDetailsSection = computed(() => !isCommercialType.value && !isLandType.value)
+// Гараж отображает только тип ремонта в разделе "О помещении"
+const showGarageRenovationOnly = computed(() => isGarageType.value)
 const currentStepMeta = computed(() => steps.find((step) => step.id === currentStep.value) || steps[0])
 const propertyOwners = computed(() => propertyData.value?.owners || [])
 const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
@@ -1312,7 +1329,7 @@ function isPropertyDraftEmpty(draft) {
 function formatPropertyValidationError(data) {
   const labels = {
     title: 'Название',
-    operation_type: 'Тип операции',
+    operation_type: 'Тип операц��и',
     status: 'Статус',
     premises_type: 'Тип помещения',
     price: 'Цена',
@@ -1417,6 +1434,7 @@ function stripDataKeys(obj) {
 async function initializeForm() {
   const seq = ++initSeq
   loading.value = true
+  isInitializingForm = true
   resetPropertyFormState()
 
   try {
@@ -1509,6 +1527,9 @@ async function initializeForm() {
   } finally {
     if (seq === initSeq) {
       loading.value = false
+      // Снимаем флаг инициализации в следующем тике, чтобы watcher premises_type
+      // не затёр только что загруженные данные
+      nextTick(() => { isInitializingForm = false })
     }
   }
 }
@@ -1540,7 +1561,7 @@ const { clearDraft: clearPropertyEditDraft, restoreDraft: restorePropertyEditDra
 useUnsavedChangesGuard({
   enabled: () => isPropertyDirty.value,
   isDirty: () => isPropertyDirty.value,
-  message: 'Есть несохранённые изменения в карточке объекта. Покинуть страницу?',
+  message: 'Есть несохра��ённые изменения в карточке объекта. Покинуть страницу?',
 })
 
 async function uploadPhotos(propertyId) {
@@ -1663,18 +1684,26 @@ async function submit() {
         building_material: form.building_details.building_material || null,
         elevators_count: form.building_details.elevators_count ?? 0,
       }),
-      property_details_data: isCommercialType.value ? null : stripDataKeys({
-        living_area: showResidentialAreaFields.value ? (form.property_details.living_area || null) : null,
-        kitchen_area: showResidentialAreaFields.value ? (form.property_details.kitchen_area || null) : null,
-        ceiling_height: showResidentialAreaFields.value ? (form.property_details.ceiling_height || null) : null,
-        balcony_count: showBalconyField.value ? (form.property_details.balcony_count ?? 0) : 0,
-        bathroom_count: showBathroomFields.value ? (form.property_details.bathroom_count ?? 1) : 0,
-        bathroom_type: showBathroomFields.value ? (form.property_details.bathroom_type || null) : null,
-        renovation_type: showRenovationField.value ? (form.property_details.renovation_type || null) : null,
-        bedrooms_count: showBedroomField.value ? (form.property_details.bedrooms_count ?? null) : null,
-        floors_count: isHouseType.value ? (form.property_details.floors_count ?? 1) : null,
-        land_area: showLandAreaField.value ? (form.property_details.land_area || null) : null,
-      }),
+      property_details_data: isCommercialType.value
+        // Коммерция хранит детали в commercial_property_details
+        ? null
+        : isGarageType.value
+          // Гараж хранит только тип ремонта
+          ? stripDataKeys({
+            renovation_type: form.property_details.renovation_type || null,
+          })
+          : stripDataKeys({
+            living_area: showResidentialAreaFields.value ? (form.property_details.living_area || null) : null,
+            kitchen_area: showResidentialAreaFields.value ? (form.property_details.kitchen_area || null) : null,
+            ceiling_height: showResidentialAreaFields.value ? (form.property_details.ceiling_height || null) : null,
+            balcony_count: showBalconyField.value ? (form.property_details.balcony_count ?? 0) : 0,
+            bathroom_count: showBathroomFields.value ? (form.property_details.bathroom_count ?? 1) : 0,
+            bathroom_type: showBathroomFields.value ? (form.property_details.bathroom_type || null) : null,
+            renovation_type: showRenovationField.value ? (form.property_details.renovation_type || null) : null,
+            bedrooms_count: showBedroomField.value ? (form.property_details.bedrooms_count ?? null) : null,
+            floors_count: isHouseType.value ? (form.property_details.floors_count ?? 1) : null,
+            land_area: showLandAreaField.value ? (form.property_details.land_area || null) : null,
+          }),
       commercial_property_details_data: isCommercialType.value ? stripDataKeys({
         commercial_type: form.commercial_property_details.commercial_type || null,
         usable_area: form.commercial_property_details.usable_area || null,
@@ -1746,6 +1775,8 @@ watch(addressQuery, (value) => {
 })
 
 watch(() => form.premises_type, (value) => {
+  // Не очищаем поля при первичной загрузке данных в форму редактирования
+  if (isInitializingForm) return
   const type = normalizePropertyType(value)
   if (!type) return
   if (!propertyTypeUsesRooms(type)) {
@@ -1766,6 +1797,10 @@ watch(() => form.premises_type, (value) => {
     form.building_details.building_material = null
     form.building_details.elevators_count = null
   }
+  // Жилые поля: квартира, дом, комната (и гараж сохраняет renovation_type)
+  if (!['apartment', 'house', 'room', 'garage'].includes(type)) {
+    form.property_details.renovation_type = null
+  }
   if (!['apartment', 'house', 'room'].includes(type)) {
     form.property_details.living_area = null
     form.property_details.kitchen_area = null
@@ -1773,7 +1808,6 @@ watch(() => form.premises_type, (value) => {
     form.property_details.balcony_count = null
     form.property_details.bathroom_count = null
     form.property_details.bathroom_type = null
-    form.property_details.renovation_type = null
     form.property_details.bedrooms_count = null
   }
   if (type === 'room') {

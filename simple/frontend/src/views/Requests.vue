@@ -305,9 +305,23 @@
                   @click.stop
                   @change="toggleRequestSelection(requestItem, $event.target.checked)" />
               </td>
-              <td v-if="auth.isStaff" data-label="Клиент">{{ requestItem.client_username }}</td>
+              <td v-if="auth.isStaff" data-label="Клиент">
+                <div class="user-cell">
+                  <span class="user-avatar">{{ getInitials(requestItem.client_full_name || requestItem.client_username) }}</span>
+                  <div class="user-info">
+                    <div class="user-name">{{ requestItem.client_full_name || requestItem.client_username }}</div>
+                    <div class="user-email" v-if="requestItem.client_email">{{ requestItem.client_email }}</div>
+                  </div>
+                </div>
+              </td>
               <td data-label="Агент">
-                <span v-if="requestItem.agent_username">{{ requestItem.agent_username }}</span>
+                <div v-if="requestItem.agent_id" class="user-cell">
+                  <span class="user-avatar">{{ getInitials(requestItem.agent_full_name || requestItem.agent_username) }}</span>
+                  <div class="user-info">
+                    <div class="user-name">{{ requestItem.agent_full_name || requestItem.agent_username }}</div>
+                    <div class="user-email" v-if="requestItem.agent_email">{{ requestItem.agent_email }}</div>
+                  </div>
+                </div>
                 <span v-else class="tag">не назначен</span>
               </td>
               <td data-label="Объект">
@@ -387,7 +401,6 @@
         @change-page-size="setRequestPageSize"
       />
     </div>
-
 
     <PropertyPickerModal
       v-if="propertyPickerOpen"
@@ -570,6 +583,15 @@ const emptyLabel = computed(() => {
 
 const takeDisabled = computed(() => !auth.isManager && !workload.workload.can_take_request)
 
+function getInitials(name) {
+  if (!name) return '?'
+  const parts = name.split(' ')
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase()
+  }
+  return name.substring(0, 2).toUpperCase()
+}
+
 function formatBudget(requestItem) {
   const min = requestItem.min_price ? `${formatMoney(requestItem.min_price)} ₽` : '—'
   const max = requestItem.max_price ? `${formatMoney(requestItem.max_price)} ₽` : '—'
@@ -611,34 +633,26 @@ function formatRequestValidationError(data) {
 }
 
 function mapClientOption(user) {
+  const fullName = user.full_name || user.username
   return {
     id: user.id,
-    label: user.username,
+    label: fullName,
     hint: [user.email, user.phone].filter(Boolean).join(' · ') || 'Клиент',
   }
 }
 
 function mapAgentOption(user) {
+  const fullName = user.full_name || user.username
   return {
     id: user.id,
-    label: user.username,
+    label: fullName,
     hint: [user.role_name, user.email].filter(Boolean).join(' · ') || 'Сотрудник',
-  }
-}
-
-function mapPropertyOption(property) {
-  const title = property.title || `Объект №${property.id}`
-  const price = property.price ? `${formatMoney(property.price)} ₽` : ''
-  return {
-    id: property.id,
-    label: title,
-    hint: [property.operation_type_name, price].filter(Boolean).join(' · ') || 'Объект',
   }
 }
 
 function selectProperty(property) {
   form.property = property.id
-  selectedPropertyLabel.value = `${property.title || `?????? ?${property.id}`}${property.full_address ? ` ? ${property.full_address}` : ''}`
+  selectedPropertyLabel.value = `${property.title || `Объект №${property.id}`}${property.full_address ? ` · ${property.full_address}` : ''}`
   propertyPickerOpen.value = false
 }
 
@@ -1106,6 +1120,50 @@ onMounted(async () => {
   height: 16px;
 }
 
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--c-accent);
+  color: #fff;
+  text-transform: uppercase;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.user-name {
+  font-weight: 600;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-email {
+  font-size: 12px;
+  color: var(--c-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .request-form__grid {
   align-items: start;
 }
@@ -1133,6 +1191,7 @@ onMounted(async () => {
 .request-form__property {
   min-width: 0;
 }
+
 .request-form__budget {
   max-width: 420px;
 }
