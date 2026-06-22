@@ -2,12 +2,31 @@
 """Оркестрация жизненного цикла заявки клиента."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
+
+
+def _best_effort(operation, description: str):
+    """Выполняет необязательный побочный эффект, не роняя основную операцию.
+
+    Письма-уведомления и записи аудита не должны приводить к 500 при
+    взятии/назначении заявки. Каждый такой вызов изолируется в отдельной
+    savepoint-транзакции: при ошибке откатывается только она, а основное
+    действие (назначение агента, смена статуса) сохраняется.
+    """
+    try:
+        with transaction.atomic():
+            return operation()
+    except Exception:  # noqa: BLE001 - побочный эффект не критичен
+        logger.exception('Не удалось выполнить побочное действие: %s', description)
+        return None
 
 from . import audit as audit_service
 from . import business_rules, models
@@ -165,41 +184,54 @@ def sync_request_assignment(
     if update_fields:
         req.save(update_fields=update_fields)
 
-    contact_task, task_created = _ensure_contact_task(req, agent=req.agent)
+    contact_result = _best_effort(
+        lambda: _ensure_contact_task(req, agent=req.agent),
+        f'создание контактной задачи по заявке №{req.pk}',
+    )
+    contact_task, task_created = contact_result if contact_result else (None, False)
     queued_email = None
     if assignment_changed:
-        queued_email = enqueue_request_taken(request=req, agent=req.agent)
-        audit_service.log_event(
-            entity=req,
-            action_code='assigned',
-            action_label='Назначение агента',
-            actor=actor,
-            message=(
-                f'Заявка назначена сотруднику {req.agent.username}.'
+        queued_email = _best_effort(
+            lambda: enqueue_request_taken(request=req, agent=req.agent),
+            f'email о взятии заявки №{req.pk}',
+        )
+        _best_effort(
+            lambda: audit_service.log_event(
+                entity=req,
+                action_code='assigned',
+                action_label='Назначение агента',
+                actor=actor,
+                message=(
+                    f'Заявка назначена сотруднику {req.agent.username}.'
+                ),
+                metadata={
+                    'agent_id': req.agent_id,
+                    'previous_agent_id': previous_agent_id,
+                    'status_code': req.status_code,
+                },
+                property_obj=req.property,
             ),
-            metadata={
-                'agent_id': req.agent_id,
-                'previous_agent_id': previous_agent_id,
-                'status_code': req.status_code,
-            },
-            property_obj=req.property,
+            f'аудит назначения заявки №{req.pk}',
         )
     if task_created and contact_task is not None:
-        audit_service.log_event(
-            entity=contact_task,
-            action_code='created',
-            action_label='Создание задачи',
-            actor=actor or req.agent,
-            message=(
-                f'Автоматически создана контактная задача по заявке №{req.pk}.'
+        _best_effort(
+            lambda: audit_service.log_event(
+                entity=contact_task,
+                action_code='created',
+                action_label='Создание задачи',
+                actor=actor or req.agent,
+                message=(
+                    f'Автоматически создана контактная задача по заявке №{req.pk}.'
+                ),
+                metadata={
+                    'task_type': contact_task.task_type,
+                    'request_id': req.pk,
+                    'auto_created': True,
+                },
+                property_obj=req.property,
+                request_obj=req,
             ),
-            metadata={
-                'task_type': contact_task.task_type,
-                'request_id': req.pk,
-                'auto_created': True,
-            },
-            property_obj=req.property,
-            request_obj=req,
+            f'аудит создания контактной задачи по заявке №{req.pk}',
         )
 
     return RequestAssignmentResult(

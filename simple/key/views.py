@@ -1431,7 +1431,11 @@ class RequestViewSet(viewsets.ModelViewSet):
         'client_profile__user__username',
         'client_profile__user__email',
         'client_profile__user__phone',
+        'client_profile__first_name',
+        'client_profile__last_name',
         'employee_profile__user__username',
+        'employee_profile__first_name',
+        'employee_profile__last_name',
         'property__title',
     ]
 
@@ -2239,7 +2243,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             except WorkloadLimitExceeded as exc:
                 raise ValidationError({'assignee': [exc.detail]})
 
-        # Статус обязателен в модели, но фронт его не передаёт при создании —
+        # Статус обязателен в мод��ли, но фронт его не передаёт при создании —
         # подставляем начальный статус «new» автоматически.
         save_kwargs = {'created_by': self.request.user}
         if 'status' not in serializer.validated_data:

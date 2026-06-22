@@ -309,7 +309,7 @@
                 <div class="user-name">{{ requestItem.client_full_name || requestItem.client_username }}</div>
               </td>
               <td data-label="Агент">
-                <div v-if="requestItem.agent_id" class="user-name">
+                <div v-if="requestItem.agent" class="user-name">
                   {{ requestItem.agent_full_name || requestItem.agent_username }}
                 </div>
                 <span v-else class="tag tag-unassigned">не назначен</span>
@@ -335,8 +335,8 @@
               <td class="muted" data-label="Создана">
                 {{ formatDate(requestItem.created_at) }}
               </td>
-              <td class="table-actions-cell" data-label="Действия">
-                <div class="row requests-table__actions" style="gap: 6px; flex-wrap: wrap">
+              <td class="table-actions-cell" data-label="Действия" @click.stop>
+                <div class="requests-table__actions">
                   <button
                     v-if="auth.isStaff && canTakeRequest(requestItem)"
                     class="btn btn--sm btn--accent"
@@ -355,20 +355,47 @@
                   >
                     Редактировать
                   </button>
-                  <button
-                    v-if="canDeleteRequest(requestItem)"
-                    class="btn btn--sm btn--danger"
-                    @click.stop="deleteRequest(requestItem)"
+                  <div
+                    v-if="hasRowMenu(requestItem)"
+                    class="actions-menu"
                   >
-                    Удалить
-                  </button>
-                  <button
-                    v-if="auth.isStaff && requestItem.can_close"
-                    class="btn btn--sm btn--danger"
-                    @click.stop="closeRequest(requestItem)"
-                  >
-                    Закрыть
-                  </button>
+                    <button
+                      type="button"
+                      class="btn btn--sm btn--ghost actions-menu__trigger"
+                      :class="{ 'is-open': openActionsId === requestItem.id }"
+                      :aria-expanded="openActionsId === requestItem.id"
+                      aria-haspopup="menu"
+                      title="Ещё действия"
+                      @click.stop="toggleActionsMenu(requestItem.id)"
+                    >
+                      <span aria-hidden="true">⋯</span>
+                      <span class="sr-only">Ещё действия</span>
+                    </button>
+                    <div
+                      v-if="openActionsId === requestItem.id"
+                      class="actions-menu__dropdown"
+                      role="menu"
+                    >
+                      <button
+                        v-if="auth.isStaff && requestItem.can_close"
+                        type="button"
+                        class="actions-menu__item"
+                        role="menuitem"
+                        @click.stop="runRowAction(closeRequest, requestItem)"
+                      >
+                        Закрыть заявку
+                      </button>
+                      <button
+                        v-if="canDeleteRequest(requestItem)"
+                        type="button"
+                        class="actions-menu__item actions-menu__item--danger"
+                        role="menuitem"
+                        @click.stop="runRowAction(deleteRequest, requestItem)"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </td>
             </tr>

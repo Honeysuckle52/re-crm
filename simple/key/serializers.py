@@ -1569,8 +1569,10 @@ class RequestSerializer(serializers.ModelSerializer):
                                             read_only=True)
     client_email = serializers.CharField(source='client.email', read_only=True)
     client_phone = serializers.CharField(source='client.phone', read_only=True)
+    client_full_name = serializers.SerializerMethodField()
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
+    agent_full_name = serializers.SerializerMethodField()
     property_title = serializers.CharField(source='property.title',
                                            read_only=True)
     operation_type_name = serializers.CharField(source='operation_type.name',
@@ -1588,7 +1590,8 @@ class RequestSerializer(serializers.ModelSerializer):
         model = models.Request
         fields = [
             'id', 'client', 'client_username', 'client_email', 'client_phone',
-            'agent', 'agent_username',
+            'client_full_name',
+            'agent', 'agent_username', 'agent_full_name',
             'property', 'property_title',
             'operation_type', 'operation_type_name',
             'status', 'status_name', 'status_code',
@@ -1602,6 +1605,29 @@ class RequestSerializer(serializers.ModelSerializer):
 
     def get_can_close(self, obj) -> bool:
         return bool(obj.status_id and not obj.is_terminal)
+
+    @staticmethod
+    def _profile_full_name(profile) -> str:
+        if profile is None:
+            return ''
+        parts = [
+            getattr(profile, 'last_name', '') or '',
+            getattr(profile, 'first_name', '') or '',
+            getattr(profile, 'middle_name', '') or '',
+        ]
+        return ' '.join(part for part in parts if part).strip()
+
+    def get_client_full_name(self, obj) -> str:
+        name = self._profile_full_name(getattr(obj, 'client_profile', None))
+        if name:
+            return name
+        return obj.client.username if obj.client_id else ''
+
+    def get_agent_full_name(self, obj) -> str:
+        name = self._profile_full_name(getattr(obj, 'employee_profile', None))
+        if name:
+            return name
+        return obj.agent.username if obj.agent_id else ''
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
