@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from django.core.files.base import ContentFile
+from django.core.management import call_command
 from django.db import DEFAULT_DB_ALIAS, DatabaseError, connections
 from django.utils import timezone
 
@@ -30,6 +32,20 @@ OPTION_ENV_MAP = {
 }
 
 
+# Способы формирования резервной копии.
+BACKUP_METHOD_PG_DUMP = 'pg_dump'
+BACKUP_METHOD_DJANGO = 'django'
+
+# Приложения/модели, которые не нужно включать в Django-дамп: они
+# воссоздаются автоматически и мешают восстановлению через loaddata.
+DJANGO_DUMP_EXCLUDE = [
+    'contenttypes',
+    'auth.permission',
+    'admin.logentry',
+    'sessions.session',
+]
+
+
 class DatabaseBackupError(RuntimeError):
     """Ошибка подготовки или формирования резервной копии."""
 
@@ -42,6 +58,8 @@ class DatabaseBackupOverview:
     format_label: str
     tool_label: str
     available: bool
+    method: str = BACKUP_METHOD_DJANGO
+    restore_hint: str = ''
     unavailable_reason: str = ''
 
 
@@ -70,58 +88,54 @@ def _build_location_label(settings_dict: dict) -> str:
     return f'{host}:{port}' if port else host
 
 
-def _build_backup_filename(database_name: str) -> str:
+def _build_backup_filename(database_name: str, extension: str = 'dump') -> str:
     safe_name = re.sub(r'[^A-Za-z0-9_.-]+', '-', database_name or 'database')
     safe_name = safe_name.strip('-') or 'database'
     timestamp = timezone.localtime().strftime('%Y%m%d-%H%M%S')
-    return f'{safe_name}-full-backup-{timestamp}.dump'
+    return f'{safe_name}-full-backup-{timestamp}.{extension}'
 
 
 def get_database_backup_overview(alias: str = DEFAULT_DB_ALIAS) -> DatabaseBackupOverview:
     settings_dict = connections[alias].settings_dict
     database_name = str(settings_dict.get('NAME') or alias)
+    location_label = _build_location_label(settings_dict)
+
     if _is_postgresql_engine(settings_dict.get('ENGINE', '')):
         pg_dump_path = _resolve_pg_dump_path()
         if pg_dump_path:
             return DatabaseBackupOverview(
                 engine_label='PostgreSQL',
                 database_name=database_name,
-                location_label=_build_location_label(settings_dict),
+                location_label=location_label,
                 format_label='Полный снимок PostgreSQL (.dump)',
                 tool_label=Path(pg_dump_path).name,
                 available=True,
+                method=BACKUP_METHOD_PG_DUMP,
+                restore_hint='Сжатый файл .dump восстанавливается через pg_restore.',
             )
-        return DatabaseBackupOverview(
-            engine_label='PostgreSQL',
-            database_name=database_name,
-            location_label=_build_location_label(settings_dict),
-            format_label='Полный снимок PostgreSQL (.dump)',
-            tool_label='pg_dump',
-            available=False,
-            unavailable_reason=(
-                'Утилита pg_dump не найдена. Добавьте её в PATH '
-                'или задайте переменную окружения PG_DUMP_PATH.'
-            ),
-        )
+        engine_label = 'PostgreSQL'
+    else:
+        engine_label = settings_dict.get('ENGINE', 'Неизвестная СУБД')
 
+    # Запасной способ: сериализация средствами Django. Работает без
+    # внешних утилит для любой СУБД, поэтому резервное копирование
+    # доступно всегда, даже если pg_dump на сервере не установлен.
     return DatabaseBackupOverview(
-        engine_label=settings_dict.get('ENGINE', 'Неизвестная СУБД'),
+        engine_label=engine_label,
         database_name=database_name,
-        location_label=_build_location_label(settings_dict),
-        format_label='Недоступно',
-        tool_label='—',
-        available=False,
-        unavailable_reason='Полный резервный снимок сейчас поддерживается только для PostgreSQL.',
+        location_label=location_label,
+        format_label='Дамп данных Django (.json)',
+        tool_label='Django dumpdata',
+        available=True,
+        method=BACKUP_METHOD_DJANGO,
+        restore_hint='JSON-дамп восстанавливается командой python manage.py loaddata <файл>.',
     )
 
 
-def build_full_database_backup(alias: str = DEFAULT_DB_ALIAS) -> tuple[bytes, str]:
-    overview = get_database_backup_overview(alias)
-    if not overview.available:
-        raise DatabaseBackupError(
-            overview.unavailable_reason or 'Резервное копирование сейчас недоступно.',
-        )
-
+def _build_pg_dump_backup(
+    alias: str,
+    overview: DatabaseBackupOverview,
+) -> tuple[bytes, str]:
     settings_dict = connections[alias].settings_dict
     pg_dump_path = _resolve_pg_dump_path()
     if not pg_dump_path:
@@ -188,7 +202,49 @@ def build_full_database_backup(alias: str = DEFAULT_DB_ALIAS) -> tuple[bytes, st
             'pg_dump вернул пустой файл резервной копии.',
         )
 
-    return backup_bytes, _build_backup_filename(overview.database_name)
+    return backup_bytes, _build_backup_filename(overview.database_name, extension='dump')
+
+
+def _build_django_dump_backup(
+    alias: str,
+    overview: DatabaseBackupOverview,
+) -> tuple[bytes, str]:
+    buffer = io.StringIO()
+    try:
+        call_command(
+            'dumpdata',
+            format='json',
+            indent=2,
+            database=alias,
+            natural_foreign=True,
+            use_natural_foreign_keys=True,
+            exclude=DJANGO_DUMP_EXCLUDE,
+            stdout=buffer,
+        )
+    except Exception as exc:  # noqa: BLE001 - любые сбои сериализации сообщаем как ошибку бэкапа
+        raise DatabaseBackupError(
+            f'Не удалось сформировать резервную копию данных: {exc}',
+        ) from exc
+
+    payload = buffer.getvalue().encode('utf-8')
+    if not payload.strip():
+        raise DatabaseBackupError(
+            'Сформирован пустой файл резервной копии.',
+        )
+
+    return payload, _build_backup_filename(overview.database_name, extension='json')
+
+
+def build_full_database_backup(alias: str = DEFAULT_DB_ALIAS) -> tuple[bytes, str]:
+    overview = get_database_backup_overview(alias)
+    if not overview.available:
+        raise DatabaseBackupError(
+            overview.unavailable_reason or 'Резервное копирование сейчас недоступно.',
+        )
+
+    if overview.method == BACKUP_METHOD_PG_DUMP:
+        return _build_pg_dump_backup(alias, overview)
+    return _build_django_dump_backup(alias, overview)
 
 
 def create_database_backup_record(

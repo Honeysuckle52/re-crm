@@ -122,6 +122,8 @@ def _build_admin_backup_context(request):
         'backup_available': overview.available,
         'backup_unavailable_reason': overview.unavailable_reason,
         'backup_tool_label': overview.tool_label,
+        'backup_format_label': overview.format_label,
+        'backup_restore_hint': overview.restore_hint,
         'backup_history': backup_history,
     }
 
