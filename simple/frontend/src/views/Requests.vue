@@ -22,9 +22,9 @@
     <div v-if="auth.isStaff" class="panel panel--light">
       <div class="surface-head requests-head">
         <div class="surface-head__meta">
-          <h2 class="h3">Область просмотра</h2>
+          <h2 class="h3">Режим просмотра</h2>
           <div class="muted">
-            Переключайтесь между общей очередью, неразобранными и своими заявками.
+            Основной список показывает активные заявки. Завершённые вынесены в отдельный режим.
           </div>
         </div>
       </div>
@@ -49,7 +49,7 @@
           </h2>
           <div class="muted">
             {{ isEditingRequest
-              ? 'Измените параметры заявки и сохраните обновлённую версию карточки.'
+              ? 'Измените параметры заявки и сохраните обновлённую карточку.'
               : auth.isStaff
               ? 'Можно сразу назначить клиента, агента и привязать конкретный объект.'
               : 'Укажите параметры поиска и пожелания, после чего агент подхватит заявку в работу.' }}
@@ -62,7 +62,7 @@
           v-if="auth.isStaff"
           v-model="form.client"
           label="Клиент"
-          placeholder="Найти клиента по логину, почте или телефону"
+          placeholder="Найти клиента по ФИО"
           endpoint="/users/"
           :params="{ user_type: 'client' }"
           :map-option="mapClientOption"
@@ -72,19 +72,20 @@
           v-if="auth.isStaff"
           v-model="form.agent"
           label="Агент"
-          placeholder="Найти сотрудника по логину, почте или имени"
+          placeholder="Найти агента по ФИО"
           endpoint="/users/"
           :params="{ user_type: 'employee' }"
           :map-option="mapAgentOption"
         />
         <div class="field">
           <label>Операция</label>
-          <select class="select" v-model.number="form.operation_type" required>
+          <select v-model.number="form.operation_type" class="select" required>
             <option v-for="operation in operations" :key="operation.id" :value="operation.id">
               {{ operation.name }}
             </option>
           </select>
         </div>
+
         <div class="field request-form__property">
           <label>Конкретный объект</label>
           <div class="row" style="gap: 8px; flex-wrap: wrap">
@@ -99,6 +100,7 @@
             {{ form.property ? selectedPropertyLabel : 'Объект еще не выбран.' }}
           </div>
         </div>
+
         <div class="field">
           <label>Тип помещения</label>
           <select v-model="form.property_type" class="select">
@@ -111,28 +113,27 @@
             <option value="room">Комната</option>
           </select>
         </div>
-        <div v-if="form.property_type === 'commercial'" class="field">
-          <label>Площадь от</label>
-          <input v-model.number="form.min_area" class="input" type="number" />
-        </div>
-        <div v-if="form.property_type === 'commercial'" class="field">
-          <label>Площадь до</label>
-          <input v-model.number="form.max_area" class="input" type="number" />
-        </div>
-        <div class="field">
+
+        <div v-if="showRoomsField" class="field">
           <label>Комнат</label>
-          <input
-            v-model.number="form.rooms_count"
-            class="input"
-            type="number"
-            :disabled="isRequestRoomsDisabled"
-            :placeholder="isRequestRoomsDisabled ? 'Не применяется' : ''" />
+          <input v-model.number="form.rooms_count" class="input" type="number" min="0" />
         </div>
+
+        <div v-if="showAreaRangeField" class="field">
+          <label>{{ areaFromLabel }}</label>
+          <input v-model.number="form.min_area" class="input" type="number" min="0" />
+        </div>
+
+        <div v-if="showAreaRangeField" class="field">
+          <label>{{ areaToLabel }}</label>
+          <input v-model.number="form.max_area" class="input" type="number" min="0" />
+        </div>
+
         <div class="field request-form__budget">
           <label>Цена от / до</label>
           <div class="request-form__budget-row">
-            <input v-model.number="form.min_price" class="input" type="number" />
-            <input v-model.number="form.max_price" class="input" type="number" />
+            <input v-model.number="form.min_price" class="input" type="number" min="0" />
+            <input v-model.number="form.max_price" class="input" type="number" min="0" />
           </div>
         </div>
       </div>
@@ -144,7 +145,7 @@
 
       <div v-if="formError" class="error">{{ formError }}</div>
 
-      <div class="row" style="justify-content: flex-end">
+      <div class="row" style="justify-content: flex-end; gap: 10px; flex-wrap: wrap">
         <button
           v-if="isEditingRequest && canDeleteEditingRequest()"
           class="btn btn--danger"
@@ -167,13 +168,14 @@
         <div class="surface-head__meta">
           <h2 class="h3">Фильтры</h2>
           <div class="muted">
-            Отберите заявки по операции, статусу и дате создания.
+            Поиск по ФИО, операции, статусу и дате создания.
           </div>
         </div>
         <button class="btn btn--sm btn--ghost" type="button" @click="resetFilters">
           Сбросить
         </button>
       </div>
+
       <div class="grid grid--4 request-filters-grid">
         <div class="field request-filters-grid__search">
           <label>Поиск</label>
@@ -181,8 +183,10 @@
             v-model.trim="requestFilters.search"
             class="input"
             type="search"
-            placeholder="ФИО, логин, почта, телефон" />
+            placeholder="ФИО клиента, агента или название объекта"
+          />
         </div>
+
         <div class="field">
           <label>Операция</label>
           <select v-model="requestFilters.operation_type" class="select">
@@ -196,12 +200,13 @@
             </option>
           </select>
         </div>
+
         <div class="field">
           <label>Статус</label>
           <select v-model="requestFilters.status" class="select">
             <option value="">Все статусы</option>
             <option
-              v-for="status in statuses"
+              v-for="status in availableStatuses"
               :key="status.id"
               :value="String(status.id)"
             >
@@ -209,10 +214,12 @@
             </option>
           </select>
         </div>
+
         <div class="field">
           <label>Создана от</label>
           <input v-model="requestFilters.date_from" class="input" type="date" />
         </div>
+
         <div class="field">
           <label>Создана до</label>
           <input v-model="requestFilters.date_to" class="input" type="date" />
@@ -223,7 +230,7 @@
     <div class="panel panel--light">
       <div class="surface-head">
         <div class="surface-head__meta">
-          <h2 class="h3">Список заявок</h2>
+          <h2 class="h3">{{ listTitle }}</h2>
           <div class="muted">
             Показано {{ visibleRequests.length }} из {{ requestCount }} заявок в текущем режиме.
           </div>
@@ -249,7 +256,7 @@
       />
 
       <BulkActionBar
-        v-if="auth.isStaff"
+        v-if="auth.isStaff && !isCompletedScope"
         :count="selectedRequestCount"
         label="заявок"
         @clear="clearRequestSelection"
@@ -286,7 +293,7 @@
       <div v-else class="table-wrap table-wrap--cards">
         <table class="table requests-table table--responsive-cards">
           <colgroup>
-            <col v-if="auth.isStaff" class="requests-table__col requests-table__col--check" />
+            <col v-if="auth.isStaff && !isCompletedScope" class="requests-table__col requests-table__col--check" />
             <col v-if="auth.isStaff" class="requests-table__col requests-table__col--client" />
             <col class="requests-table__col requests-table__col--agent" />
             <col class="requests-table__col requests-table__col--property" />
@@ -298,11 +305,12 @@
           </colgroup>
           <thead>
             <tr>
-              <th v-if="auth.isStaff" class="table-check-cell">
+              <th v-if="auth.isStaff && !isCompletedScope" class="table-check-cell">
                 <input
                   type="checkbox"
                   :checked="allRequestsOnPageSelected"
-                  @change="toggleRequestsPageSelection($event.target.checked)" />
+                  @change="toggleRequestsPageSelection($event.target.checked)"
+                />
               </th>
               <th v-if="auth.isStaff">Клиент</th>
               <th>Агент</th>
@@ -325,12 +333,13 @@
               @keydown.enter="openRequest(requestItem.id)"
               @keydown.space.prevent="openRequest(requestItem.id)"
             >
-              <td v-if="auth.isStaff" class="table-check-cell" data-label="Выбор">
+              <td v-if="auth.isStaff && !isCompletedScope" class="table-check-cell" data-label="Выбор">
                 <input
                   type="checkbox"
                   :checked="isRequestSelected(requestItem)"
                   @click.stop
-                  @change="toggleRequestSelection(requestItem, $event.target.checked)" />
+                  @change="toggleRequestSelection(requestItem, $event.target.checked)"
+                />
               </td>
               <td v-if="auth.isStaff" data-label="Клиент">
                 <div class="user-name">{{ requestItem.client_full_name || requestItem.client_username }}</div>
@@ -364,26 +373,22 @@
               </td>
               <td class="table-actions-cell" data-label="Действия">
                 <div class="requests-table__actions">
-                  <button
-                    v-if="auth.isStaff && canTakeRequest(requestItem)"
-                    class="btn btn--sm btn--accent"
-                    :disabled="takeDisabled"
-                    :title="takeDisabled
-                      ? `Достигнут лимит активных заявок (${workload.activeRequestsLabel})`
-                      : 'Взять заявку в работу'"
-                    @click.stop="takeRequest(requestItem)"
-                  >
-                    Взять
-                  </button>
-                  <button
-                    v-if="canEditRequest(requestItem)"
-                    class="btn btn--sm"
-                    @click.stop="startEditRequest(requestItem)"
-                  >
-                    Редактировать
-                  </button>
+                  <div class="requests-table__primary-action">
+                    <button
+                      v-if="auth.isStaff && canTakeRequest(requestItem)"
+                      class="btn btn--sm btn--accent requests-table__take"
+                      :disabled="takeDisabled"
+                      :title="takeDisabled
+                        ? `Достигнут лимит активных заявок (${workload.activeRequestsLabel})`
+                        : 'Взять заявку в работу'"
+                      @click.stop="takeRequest(requestItem)"
+                    >
+                      Взять
+                    </button>
+                  </div>
+
                   <div
-                    v-if="canDeleteRequest(requestItem) || (auth.isStaff && requestItem.can_close)"
+                    v-if="hasRowMenu(requestItem)"
                     class="request-more"
                     :class="{ 'is-open': moreMenuId === requestItem.id }"
                   >
@@ -392,22 +397,22 @@
                       aria-label="Еще действия"
                       @click.stop="toggleMoreMenu(requestItem.id)"
                     >
-                      •••
+                      ...
                     </button>
                     <div class="request-more__menu" @click.stop>
+                      <button
+                        v-if="canEditRequest(requestItem)"
+                        class="request-more__item"
+                        @click="startEditRequest(requestItem); moreMenuId = null"
+                      >
+                        Редактировать
+                      </button>
                       <button
                         v-if="auth.isStaff && requestItem.can_close"
                         class="request-more__item"
                         @click="closeRequest(requestItem); moreMenuId = null"
                       >
                         Закрыть
-                      </button>
-                      <button
-                        v-if="canDeleteRequest(requestItem)"
-                        class="request-more__item request-more__item--danger"
-                        @click="startEditRequest(requestItem); moreMenuId = null"
-                      >
-                        Удалить в редакторе
                       </button>
                     </div>
                   </div>
@@ -442,6 +447,7 @@
       @close="propertyPickerOpen = false"
       @select="selectProperty"
     />
+
     <RequestCloseDialog
       v-if="closeDialog.open"
       :request-id="closeDialog.requestId"
@@ -531,11 +537,15 @@ const isEditingRequest = computed(() => editingRequestId.value !== null)
 const editingRequestItem = computed(() => (
   requests.value.find((item) => item.id === editingRequestId.value) || null
 ))
-const isRequestRoomsDisabled = computed(() => !propertyTypeUsesRooms(form.property_type))
+const showRoomsField = computed(() => propertyTypeUsesRooms(form.property_type))
+const showAreaRangeField = computed(() => ['commercial', 'land', 'house'].includes(form.property_type))
+const areaFromLabel = computed(() => (form.property_type === 'land' ? 'Площадь участка от' : 'Площадь от'))
+const areaToLabel = computed(() => (form.property_type === 'land' ? 'Площадь участка до' : 'Площадь до'))
 const requestFormSnapshot = computed(() => JSON.stringify({ ...form }))
 const isRequestFormDirty = computed(() => (
   showForm.value && requestFormSnapshot.value !== requestFormBaseline.value
 ))
+const isCompletedScope = computed(() => scope.value === 'completed')
 
 function defaultForm() {
   return {
@@ -587,17 +597,10 @@ const { confirmLeave: confirmRequestFormLeave } = useUnsavedChangesGuard({
 })
 
 const staffTabs = computed(() => [
-  { value: 'all', label: 'Все', count: requestStatsSnapshot.total },
-  {
-    value: 'unassigned',
-    label: 'Неразобранные',
-    count: requestStatsSnapshot.unassigned,
-  },
-  {
-    value: 'mine',
-    label: 'Мои',
-    count: requestStatsSnapshot.mine,
-  },
+  { value: 'all', label: 'Активные', count: requestStatsSnapshot.active },
+  { value: 'unassigned', label: 'Неразобранные', count: requestStatsSnapshot.unassigned },
+  { value: 'mine', label: 'Мои', count: requestStatsSnapshot.mine },
+  { value: 'completed', label: 'Завершённые', count: requestStatsSnapshot.closed },
 ])
 
 const visibleRequests = computed(() => requests.value)
@@ -611,23 +614,27 @@ const {
   clearSelection: clearRequestSelection,
 } = useBulkSelection(visibleRequests)
 
+const availableStatuses = computed(() => {
+  if (!statuses.value.length) return []
+  if (isCompletedScope.value) {
+    return statuses.value.filter((item) => terminalRequestStatusCodes.includes(item.code))
+  }
+  return statuses.value.filter((item) => !terminalRequestStatusCodes.includes(item.code))
+})
+
+const listTitle = computed(() => (
+  isCompletedScope.value ? 'Завершённые заявки' : 'Список заявок'
+))
+
 const emptyLabel = computed(() => {
-  if (!auth.isStaff) return 'Вы пока не подавали заявок.'
+  if (!auth.isStaff) return isCompletedScope.value ? 'Нет завершённых заявок.' : 'Вы пока не подавали заявок.'
+  if (scope.value === 'completed') return 'Нет завершённых заявок.'
   if (scope.value === 'unassigned') return 'Нет нераспределённых заявок.'
   if (scope.value === 'mine') return 'У вас нет активных заявок.'
-  return 'Заявок ещё не создано.'
+  return 'Активных заявок не найдено.'
 })
 
 const takeDisabled = computed(() => !auth.isManager && !workload.workload.can_take_request)
-
-function getInitials(name) {
-  if (!name) return '?'
-  const parts = name.split(' ')
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase()
-  }
-  return name.substring(0, 2).toUpperCase()
-}
 
 function formatBudget(requestItem) {
   const min = requestItem.min_price ? `${formatMoney(requestItem.min_price)} ₽` : '—'
@@ -654,8 +661,6 @@ function formatRequestValidationError(data) {
     min_area: 'Минимальная площадь',
     max_area: 'Максимальная площадь',
     rooms_count: 'Количество комнат',
-    floor_number: 'Этаж',
-    total_floors: 'Количество этажей',
     description: 'Пожелания',
   }
 
@@ -670,26 +675,28 @@ function formatRequestValidationError(data) {
 }
 
 function mapClientOption(user) {
-  const fullName = user.full_name || user.username
   return {
     id: user.id,
-    label: fullName,
-    hint: [user.email, user.phone].filter(Boolean).join(' · ') || 'Клиент',
+    label: user.full_name || user.username,
+    hint: '',
   }
 }
 
 function mapAgentOption(user) {
-  const fullName = user.full_name || user.username
   return {
     id: user.id,
-    label: fullName,
-    hint: [user.role_name, user.email].filter(Boolean).join(' · ') || 'Сотрудник',
+    label: user.full_name || user.username,
+    hint: '',
   }
+}
+
+function hasRowMenu(requestItem) {
+  return canEditRequest(requestItem) || (auth.isStaff && requestItem.can_close)
 }
 
 function selectProperty(property) {
   form.property = property.id
-  selectedPropertyLabel.value = `${property.title || `Объект №${property.id}`}${property.full_address ? ` · ${property.full_address}` : ''}`
+  selectedPropertyLabel.value = `${property.title || `Объект #${property.id}`}${property.full_address ? ` · ${property.full_address}` : ''}`
   propertyPickerOpen.value = false
 }
 
@@ -814,21 +821,11 @@ async function loadLookups() {
 
 function requestFilterParams({ includePaging = false } = {}) {
   const params = {}
-  if (requestFilters.search) {
-    params.search = requestFilters.search
-  }
-  if (requestFilters.operation_type) {
-    params.operation_type = Number(requestFilters.operation_type)
-  }
-  if (requestFilters.status) {
-    params.status = Number(requestFilters.status)
-  }
-  if (requestFilters.date_from) {
-    params.date_from = requestFilters.date_from
-  }
-  if (requestFilters.date_to) {
-    params.date_to = requestFilters.date_to
-  }
+  if (requestFilters.search) params.search = requestFilters.search
+  if (requestFilters.operation_type) params.operation_type = Number(requestFilters.operation_type)
+  if (requestFilters.status) params.status = Number(requestFilters.status)
+  if (requestFilters.date_from) params.date_from = requestFilters.date_from
+  if (requestFilters.date_to) params.date_to = requestFilters.date_to
   if (includePaging) {
     params.page = requestPage.value
     params.page_size = requestPageSize.value
@@ -840,9 +837,26 @@ function listParams() {
   const params = {
     ...requestFilterParams({ includePaging: true }),
   }
-  if (auth.isStaff && scope.value !== 'all') {
-    params.scope = scope.value
+
+  if (auth.isStaff) {
+    if (scope.value === 'completed') {
+      params.status_code = terminalRequestStatusCodes.join(',')
+    } else {
+      params.status_code = activeRequestStatusCodes.join(',')
+      if (scope.value !== 'all') {
+        params.scope = scope.value
+      }
+    }
+  } else if (isCompletedScope.value) {
+    params.status_code = terminalRequestStatusCodes.join(',')
+  } else {
+    params.status_code = activeRequestStatusCodes.join(',')
   }
+
+  if (requestFilters.status) {
+    delete params.status_code
+  }
+
   return params
 }
 
@@ -861,16 +875,22 @@ async function loadRequestCounts() {
         ...requestFilterParams(),
         status_code: activeRequestStatusCodes.join(','),
       }
+      const terminalParams = {
+        ...requestFilterParams(),
+        status_code: terminalRequestStatusCodes.join(','),
+      }
       delete activeParams.status
-      const [total, active, unassigned, mine] = await Promise.all([
+      delete terminalParams.status
+      const [total, active, closed, unassigned, mine] = await Promise.all([
         fetchRequestCount(totalParams),
         fetchRequestCount(activeParams),
-        fetchRequestCount({ ...totalParams, scope: 'unassigned' }),
-        fetchRequestCount({ ...totalParams, scope: 'mine' }),
+        fetchRequestCount(terminalParams),
+        fetchRequestCount({ ...activeParams, scope: 'unassigned' }),
+        fetchRequestCount({ ...activeParams, scope: 'mine' }),
       ])
       requestStatsSnapshot.total = total
       requestStatsSnapshot.active = active
-      requestStatsSnapshot.closed = Math.max(total - active, 0)
+      requestStatsSnapshot.closed = closed
       requestStatsSnapshot.unassigned = unassigned
       requestStatsSnapshot.mine = mine
       return
@@ -881,11 +901,11 @@ async function loadRequestCounts() {
       ...requestFilterParams(),
       status_code: activeRequestStatusCodes.join(','),
     }
-    delete activeParams.status
     const terminalParams = {
       ...requestFilterParams(),
       status_code: terminalRequestStatusCodes.join(','),
     }
+    delete activeParams.status
     delete terminalParams.status
     const [total, active, closed] = await Promise.all([
       fetchRequestCount(totalParams),
@@ -941,6 +961,10 @@ async function createRequest() {
     if (!propertyTypeUsesRooms(payload.property_type)) {
       payload.rooms_count = null
     }
+    if (!showAreaRangeField.value) {
+      payload.min_area = null
+      payload.max_area = null
+    }
     if (!auth.isStaff) {
       delete payload.client
       delete payload.agent
@@ -949,6 +973,8 @@ async function createRequest() {
       if (!payload.agent) delete payload.agent
       if (!payload.property) delete payload.property
       if (!payload.rooms_count) delete payload.rooms_count
+      if (!payload.min_area) delete payload.min_area
+      if (!payload.max_area) delete payload.max_area
       if (!payload.min_price) delete payload.min_price
       if (!payload.max_price) delete payload.max_price
       if (!payload.property_type) delete payload.property_type
@@ -989,8 +1015,7 @@ async function takeRequest(requestItem) {
   moreMenuId.value = null
   if (!auth.isManager && !workload.workload.can_take_request) {
     toasts.warn(
-      `Нельзя взять заявку: уже ${workload.workload.active_requests} в работе `
-        + `из ${workload.workload.max_active_requests}. Закройте текущую.`,
+      `Нельзя взять заявку: уже ${workload.workload.active_requests} в работе из ${workload.workload.max_active_requests}. Закройте текущую.`,
     )
     return
   }
@@ -1112,16 +1137,30 @@ async function reloadRequestsScreen() {
 
 watch(scope, async () => {
   requestPage.value = 1
-  await load()
+  clearRequestSelection()
+  moreMenuId.value = null
+  if (scope.value !== 'completed' && requestFilters.status) {
+    const selectedStatus = statuses.value.find((item) => String(item.id) === requestFilters.status)
+    if (selectedStatus && terminalRequestStatusCodes.includes(selectedStatus.code)) {
+      requestFilters.status = ''
+    }
+  }
+  if (scope.value === 'completed' && requestFilters.status) {
+    const selectedStatus = statuses.value.find((item) => String(item.id) === requestFilters.status)
+    if (selectedStatus && !terminalRequestStatusCodes.includes(selectedStatus.code)) {
+      requestFilters.status = ''
+    }
+  }
+  await Promise.all([load(), loadRequestCounts()])
 })
 
 watch(
   () => [
-  requestFilters.operation_type,
-  requestFilters.status,
-  requestFilters.date_from,
-  requestFilters.date_to,
-  requestFilters.search,
+    requestFilters.operation_type,
+    requestFilters.status,
+    requestFilters.date_from,
+    requestFilters.date_to,
+    requestFilters.search,
   ],
   async () => {
     requestPage.value = 1
@@ -1132,6 +1171,10 @@ watch(
 watch(() => form.property_type, (value) => {
   if (!propertyTypeUsesRooms(value)) {
     form.rooms_count = null
+  }
+  if (!['commercial', 'land', 'house'].includes(value)) {
+    form.min_area = null
+    form.max_area = null
   }
 })
 
@@ -1182,34 +1225,9 @@ onMounted(async () => {
   height: 16px;
 }
 
-.user-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.user-avatar {
-  display: none;
-}
-
-.user-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
 .user-name {
   font-weight: 600;
   color: var(--c-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.user-email {
-  font-size: 12px;
-  color: var(--c-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1297,7 +1315,7 @@ onMounted(async () => {
 }
 
 .requests-table__col--actions {
-  width: 140px;
+  width: 220px;
 }
 
 .requests-table td,
@@ -1308,15 +1326,28 @@ onMounted(async () => {
 .requests-table__actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 8px;
   flex-wrap: nowrap;
+  width: 100%;
   min-width: 0;
+}
+
+.requests-table__primary-action {
+  display: flex;
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.requests-table__take {
+  width: 100%;
 }
 
 .request-more {
   position: relative;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .request-more__trigger {
@@ -1370,10 +1401,6 @@ onMounted(async () => {
   color: #effffd;
 }
 
-.request-more__item--danger {
-  color: #ffb2a7;
-}
-
 .requests-table__row-link {
   cursor: pointer;
 }
@@ -1423,6 +1450,11 @@ onMounted(async () => {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .requests-table__primary-action {
+    flex: 1 1 100%;
+    min-width: 74px;
   }
 
   .request-form__budget-row {

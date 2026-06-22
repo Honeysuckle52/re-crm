@@ -27,7 +27,7 @@
 
     <div v-if="open" class="remote-lookup__menu">
       <div v-if="loading" class="remote-lookup__state">
-        Поиск…
+        Поиск...
       </div>
       <template v-else-if="options.length">
         <button
@@ -64,7 +64,7 @@ const props = defineProps({
   endpoint: { type: String, required: true },
   mapOption: { type: Function, required: true },
   params: { type: Object, default: () => ({}) },
-  placeholder: { type: String, default: 'Начните вводить…' },
+  placeholder: { type: String, default: 'Начните вводить...' },
   queryParam: { type: String, default: 'search' },
   pageSize: { type: Number, default: 8 },
   minChars: { type: Number, default: 0 },
@@ -76,7 +76,6 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'select'])
 const {
   modelValue,
-  label,
   placeholder,
   minChars,
   clearable,
@@ -106,7 +105,7 @@ const selectedHint = computed(() => {
 
 watch(
   () => props.modelValue,
-  (value) => {
+  async (value) => {
     if (value == null) {
       query.value = ''
       selectedOption.value = null
@@ -122,7 +121,10 @@ watch(
 
     if (selectedOption.value?.id === value) {
       query.value = selectedOption.value.label
+      return
     }
+
+    await hydrateSelectedOption(value)
   },
   { immediate: true },
 )
@@ -173,6 +175,31 @@ async function fetchOptions(search = '') {
     if (seq === requestSeq) {
       loading.value = false
     }
+  }
+}
+
+async function hydrateSelectedOption(value) {
+  if (props.disabled || value == null) return
+
+  try {
+    const { data } = await api.get(props.endpoint, {
+      params: {
+        page: 1,
+        page_size: props.pageSize,
+        ...props.params,
+        id: value,
+      },
+    })
+    const mapped = unpackPaginated(data).items.map(props.mapOption)
+    const matched = mapped.find((item) => item.id === value)
+    if (!matched) return
+    selectedOption.value = matched
+    query.value = matched.label
+    if (!options.value.some((item) => item.id === value)) {
+      options.value = [matched, ...options.value].slice(0, props.pageSize)
+    }
+  } catch {
+    // Ignore hydration errors; the field can still be populated by manual search.
   }
 }
 

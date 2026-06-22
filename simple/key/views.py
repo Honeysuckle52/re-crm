@@ -578,13 +578,16 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsEmployee]
     filter_backends = [filters.SearchFilter]
     search_fields = [
+        '=id',
         'username',
         'email',
         'phone',
         'client_profile__first_name',
         'client_profile__last_name',
+        'client_profile__middle_name',
         'employee_profile__first_name',
         'employee_profile__last_name',
+        'employee_profile__middle_name',
     ]
 
     def get_queryset(self):
@@ -602,6 +605,8 @@ class UserViewSet(viewsets.ModelViewSet):
         is_active = _parse_bool_param(params.get('is_active'))
         if is_active is not None:
             qs = qs.filter(is_active=is_active)
+        if params.get('id'):
+            qs = qs.filter(id=params.get('id'))
         return qs
 
     def get_permissions(self):

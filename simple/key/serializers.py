@@ -257,6 +257,7 @@ class UserSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, max_length=20,
     )
+    full_name = serializers.SerializerMethodField()
     user_type = serializers.CharField(read_only=True)
     role_name = serializers.CharField(source='role.name', read_only=True)
     role_code = serializers.CharField(source='role.code', read_only=True)
@@ -268,7 +269,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'phone',
+        fields = ['id', 'username', 'email', 'phone', 'full_name',
                   'user_type', 'user_type_display',
                   'role', 'role_name', 'role_code',
                   'is_active', 'is_staff', 'is_superuser',
@@ -280,6 +281,18 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_phone(self, value):
         return normalize_russian_phone(value)
+
+    def get_full_name(self, obj):
+        profile = getattr(obj, 'client_profile', None) or getattr(obj, 'employee_profile', None)
+        if profile is None:
+            return obj.username
+        parts = [
+            (profile.last_name or '').strip(),
+            (profile.first_name or '').strip(),
+            (profile.middle_name or '').strip(),
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        return full_name or obj.username
 
 
 class RegisterSerializer(serializers.ModelSerializer):
