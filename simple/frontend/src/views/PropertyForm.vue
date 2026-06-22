@@ -468,7 +468,7 @@
             <div class="surface-head__meta">
               <h3 class="h4">Описание</h3>
             </div>
-            <div class="surface-head__caption">Свободное описание объекта для карточки и работы менеджера.</div>
+            <div class="surface-head__caption">Свободное описание объекта для карточки и работы мен��джера.</div>
           </div>
 
           <div class="field">
@@ -1684,18 +1684,26 @@ async function submit() {
         building_material: form.building_details.building_material || null,
         elevators_count: form.building_details.elevators_count ?? 0,
       }),
-      property_details_data: isCommercialType.value ? null : stripDataKeys({
-        living_area: showResidentialAreaFields.value ? (form.property_details.living_area || null) : null,
-        kitchen_area: showResidentialAreaFields.value ? (form.property_details.kitchen_area || null) : null,
-        ceiling_height: showResidentialAreaFields.value ? (form.property_details.ceiling_height || null) : null,
-        balcony_count: showBalconyField.value ? (form.property_details.balcony_count ?? 0) : 0,
-        bathroom_count: showBathroomFields.value ? (form.property_details.bathroom_count ?? 1) : 0,
-        bathroom_type: showBathroomFields.value ? (form.property_details.bathroom_type || null) : null,
-        renovation_type: showRenovationField.value ? (form.property_details.renovation_type || null) : null,
-        bedrooms_count: showBedroomField.value ? (form.property_details.bedrooms_count ?? null) : null,
-        floors_count: isHouseType.value ? (form.property_details.floors_count ?? 1) : null,
-        land_area: showLandAreaField.value ? (form.property_details.land_area || null) : null,
-      }),
+      property_details_data: isCommercialType.value
+        // Коммерция хранит детали в commercial_property_details
+        ? null
+        : isGarageType.value
+          // Гараж хранит только тип ремонта
+          ? stripDataKeys({
+            renovation_type: form.property_details.renovation_type || null,
+          })
+          : stripDataKeys({
+            living_area: showResidentialAreaFields.value ? (form.property_details.living_area || null) : null,
+            kitchen_area: showResidentialAreaFields.value ? (form.property_details.kitchen_area || null) : null,
+            ceiling_height: showResidentialAreaFields.value ? (form.property_details.ceiling_height || null) : null,
+            balcony_count: showBalconyField.value ? (form.property_details.balcony_count ?? 0) : 0,
+            bathroom_count: showBathroomFields.value ? (form.property_details.bathroom_count ?? 1) : 0,
+            bathroom_type: showBathroomFields.value ? (form.property_details.bathroom_type || null) : null,
+            renovation_type: showRenovationField.value ? (form.property_details.renovation_type || null) : null,
+            bedrooms_count: showBedroomField.value ? (form.property_details.bedrooms_count ?? null) : null,
+            floors_count: isHouseType.value ? (form.property_details.floors_count ?? 1) : null,
+            land_area: showLandAreaField.value ? (form.property_details.land_area || null) : null,
+          }),
       commercial_property_details_data: isCommercialType.value ? stripDataKeys({
         commercial_type: form.commercial_property_details.commercial_type || null,
         usable_area: form.commercial_property_details.usable_area || null,
@@ -1789,6 +1797,10 @@ watch(() => form.premises_type, (value) => {
     form.building_details.building_material = null
     form.building_details.elevators_count = null
   }
+  // Жилые поля: квартира, дом, комната (и гараж сохраняет renovation_type)
+  if (!['apartment', 'house', 'room', 'garage'].includes(type)) {
+    form.property_details.renovation_type = null
+  }
   if (!['apartment', 'house', 'room'].includes(type)) {
     form.property_details.living_area = null
     form.property_details.kitchen_area = null
@@ -1796,7 +1808,6 @@ watch(() => form.premises_type, (value) => {
     form.property_details.balcony_count = null
     form.property_details.bathroom_count = null
     form.property_details.bathroom_type = null
-    form.property_details.renovation_type = null
     form.property_details.bedrooms_count = null
   }
   if (type === 'room') {

@@ -1304,8 +1304,16 @@ class PropertySerializer(serializers.ModelSerializer):
         if payload is None:
             return
         defaults = dict(payload)
-        defaults.setdefault('balcony_count', 0)
-        defaults.setdefault('bathroom_count', 1)
+        # Defaults для жилых полей применяем только когда они не гараж/земля/коммерция.
+        # Гараж присылает только renovation_type — не дополняем его ненужными значениями.
+        non_residential = property_obj.premises_type in (
+            models.Property.PROPERTY_TYPE_GARAGE,
+            models.Property.PROPERTY_TYPE_LAND,
+            models.Property.PROPERTY_TYPE_COMMERCIAL,
+        )
+        if not non_residential:
+            defaults.setdefault('balcony_count', 0)
+            defaults.setdefault('bathroom_count', 1)
         models.PropertyDetails.objects.update_or_create(
             property=property_obj,
             defaults=defaults,
@@ -1376,7 +1384,7 @@ class PropertySerializer(serializers.ModelSerializer):
     # Поля, которые не применимы для конкретного типа недвижимости.
     # Фронт уже их обнуляет, но сервер тоже должен их игнорировать/очищать.
     FIELD_RESTRICTIONS = {
-        # тип -> набор полей, которые должны быть None/пусты
+        # тип -> на��ор полей, которые должны быть None/пусты
         models.Property.PROPERTY_TYPE_COMMERCIAL: {
             'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
             'required': ('area_total',),
