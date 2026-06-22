@@ -800,7 +800,7 @@ watch(() => filters.premises_type, (value) => {
     filters.not_first_floor = false
     filters.not_last_floor = false
   }
-  // Материал стен — только жилые (квартира, дом, комната)
+  // Материал стен — только жилые (квартира, дом, к��мната)
   if (!['apartment', 'room', 'house'].includes(type)) {
     filters.building_material = ''
   }
@@ -876,8 +876,21 @@ watch(() => filters.premises_type, (value) => {
   top: 84px;
   padding: 0;
   max-height: calc(100vh - 104px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* panel базово ставит overflow: hidden, перебиваем принудительно */
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+/* Тонкий кастомный скроллбар */
+.properties-filter::-webkit-scrollbar {
+  width: 4px;
+}
+.properties-filter::-webkit-scrollbar-track {
+  background: transparent;
+}
+.properties-filter::-webkit-scrollbar-thumb {
+  background: var(--c-border);
+  border-radius: 2px;
 }
 
 .properties-filter__sticky {

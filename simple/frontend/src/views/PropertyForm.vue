@@ -66,7 +66,7 @@
           <div class="grid grid--2 property-form__grid">
             <div class="field">
               <label>Тип операции <span class="property-form__required">*</span></label>
-              <select ref="operationTypeFieldRef" class="select" v-model.number="form.operation_type" required>
+              <select ref="operationTypeFieldRef" class="select" v-model.number="form.operation_type">
                 <option v-for="item in dict.operations" :key="item.id" :value="item.id">
                   {{ item.name }}
                 </option>
@@ -76,7 +76,7 @@
 
             <div class="field">
               <label>Тип объекта <span class="property-form__required">*</span></label>
-              <select ref="premisesTypeFieldRef" class="select" v-model="form.premises_type" required>
+              <select ref="premisesTypeFieldRef" class="select" v-model="form.premises_type">
                 <option v-for="item in dict.propertyTypes" :key="item.id" :value="item.code">
                   {{ item.name }}
                 </option>
@@ -86,7 +86,7 @@
 
             <div v-if="auth.isStaff" class="field">
               <label>Статус</label>
-              <select class="select" v-model.number="form.status" required>
+              <select class="select" v-model.number="form.status">
                 <option v-for="item in dict.statuses" :key="item.id" :value="item.id">
                   {{ item.name }}
                 </option>
@@ -191,14 +191,13 @@
                 ref="titleFieldRef"
                 class="input"
                 v-model="form.title"
-                required
                 placeholder="Например: 2-комнатная на Ленина" />
               <div v-if="fieldErrors.title" class="property-form__field-error">{{ fieldErrors.title }}</div>
             </div>
 
             <div class="field">
               <label>Цена, ₽ <span class="property-form__required">*</span></label>
-              <input ref="priceFieldRef" class="input" type="number" step="1" min="0" max="9999999999" v-model.number="form.price" required />
+              <input ref="priceFieldRef" class="input" type="number" step="1" min="0" max="9999999999" v-model.number="form.price" />
               <div v-if="fieldErrors.price" class="property-form__field-error">{{ fieldErrors.price }}</div>
             </div>
 
