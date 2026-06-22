@@ -198,23 +198,25 @@
 
             <div class="field">
               <label>Цена, ₽ <span class="property-form__required">*</span></label>
-              <input ref="priceFieldRef" class="input" type="number" step="0.01" v-model.number="form.price" required />
+              <input ref="priceFieldRef" class="input" type="number" step="1" min="0" max="9999999999" v-model.number="form.price" required />
               <div v-if="fieldErrors.price" class="property-form__field-error">{{ fieldErrors.price }}</div>
             </div>
 
             <div class="field">
               <label>Общая площадь, м²</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.area_total" />
+              <input class="input" type="number" step="0.01" min="0.1" max="999999" v-model.number="form.area_total" />
+              <div v-if="fieldErrors.area_total" class="property-form__field-error">{{ fieldErrors.area_total }}</div>
             </div>
 
             <div v-if="showRoomsField" class="field">
               <label>Количество комнат</label>
-              <input class="input" type="number" v-model.number="form.rooms_count" />
+              <input class="input" type="number" min="1" max="100" v-model.number="form.rooms_count" />
             </div>
 
             <div v-if="showFloorField" class="field">
               <label>Этаж</label>
-              <input class="input" type="number" v-model.number="form.floor_number" />
+              <input class="input" type="number" min="-10" max="500" v-model.number="form.floor_number" />
+              <div v-if="fieldErrors.floor_number" class="property-form__field-error">{{ fieldErrors.floor_number }}</div>
             </div>
 
             <div class="field">
@@ -235,12 +237,14 @@
           <div class="grid grid--2 property-form__grid">
             <div class="field">
               <label>Год постройки</label>
-              <input class="input" type="number" v-model.number="form.building_details.year_built" />
+              <input class="input" type="number" min="1800" :max="currentYear" v-model.number="form.building_details.year_built" />
+              <div v-if="fieldErrors.year_built" class="property-form__field-error">{{ fieldErrors.year_built }}</div>
             </div>
 
             <div class="field">
               <label>Количество этажей в доме</label>
-              <input class="input" type="number" v-model.number="form.building_details.total_floors" />
+              <input class="input" type="number" min="1" max="500" v-model.number="form.building_details.total_floors" />
+              <div v-if="fieldErrors.total_floors" class="property-form__field-error">{{ fieldErrors.total_floors }}</div>
             </div>
 
             <div class="field">
@@ -255,7 +259,7 @@
 
             <div class="field">
               <label>Количество лифтов</label>
-              <input class="input" type="number" min="0" v-model.number="form.building_details.elevators_count" />
+              <input class="input" type="number" min="0" max="50" v-model.number="form.building_details.elevators_count" />
             </div>
           </div>
         </div>
@@ -271,27 +275,27 @@
           <div class="grid grid--2 property-form__grid">
             <div v-if="showResidentialAreaFields" class="field">
               <label>Жилая площадь, м²</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.property_details.living_area" />
+              <input class="input" type="number" step="0.01" min="0.1" max="99999" v-model.number="form.property_details.living_area" />
             </div>
 
             <div v-if="showResidentialAreaFields" class="field">
               <label>Площадь кухни, м²</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.property_details.kitchen_area" />
+              <input class="input" type="number" step="0.01" min="0.1" max="9999" v-model.number="form.property_details.kitchen_area" />
             </div>
 
             <div v-if="showResidentialAreaFields" class="field">
               <label>Высота потолков, м</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.property_details.ceiling_height" />
+              <input class="input" type="number" step="0.01" min="1.5" max="30" v-model.number="form.property_details.ceiling_height" />
             </div>
 
             <div v-if="showBalconyField" class="field">
               <label>Количество балконов</label>
-              <input class="input" type="number" min="0" v-model.number="form.property_details.balcony_count" />
+              <input class="input" type="number" min="0" max="20" v-model.number="form.property_details.balcony_count" />
             </div>
 
             <div v-if="showBathroomFields" class="field">
               <label>Количество санузлов</label>
-              <input class="input" type="number" min="0" v-model.number="form.property_details.bathroom_count" />
+              <input class="input" type="number" min="0" max="50" v-model.number="form.property_details.bathroom_count" />
             </div>
 
             <div v-if="showBathroomFields" class="field">
@@ -316,17 +320,17 @@
 
             <div v-if="showBedroomField" class="field">
               <label>Количество спален</label>
-              <input class="input" type="number" min="0" v-model.number="form.property_details.bedrooms_count" />
+              <input class="input" type="number" min="0" max="50" v-model.number="form.property_details.bedrooms_count" />
             </div>
 
             <div v-if="isHouseType" class="field">
               <label>Количество этажей в частном доме</label>
-              <input class="input" type="number" min="1" v-model.number="form.property_details.floors_count" />
+              <input class="input" type="number" min="1" max="50" v-model.number="form.property_details.floors_count" />
             </div>
 
             <div v-if="showLandAreaField" class="field">
               <label>Площадь участка, м²</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.property_details.land_area" />
+              <input class="input" type="number" step="0.01" min="0.1" max="9999999" v-model.number="form.property_details.land_area" />
             </div>
           </div>
         </div>
@@ -352,27 +356,27 @@
 
             <div class="field">
               <label>Полезная площадь, м²</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.usable_area" />
+              <input class="input" type="number" step="0.01" min="0.1" max="999999" v-model.number="form.commercial_property_details.usable_area" />
             </div>
 
             <div class="field">
               <label>Высота потолков, м</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.ceiling_height" />
+              <input class="input" type="number" step="0.01" min="1.5" max="50" v-model.number="form.commercial_property_details.ceiling_height" />
             </div>
 
             <div class="field">
               <label>Нагрузка на пол, кг/м²</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.floor_load" />
+              <input class="input" type="number" step="0.01" min="0" max="100000" v-model.number="form.commercial_property_details.floor_load" />
             </div>
 
             <div class="field">
               <label>Мощность электроснабжения, кВт</label>
-              <input class="input" type="number" step="0.01" v-model.number="form.commercial_property_details.electric_power_kw" />
+              <input class="input" type="number" step="0.01" min="0" max="100000" v-model.number="form.commercial_property_details.electric_power_kw" />
             </div>
 
             <div class="field">
               <label>Количество парковочных мест</label>
-              <input class="input" type="number" min="0" v-model.number="form.commercial_property_details.parking_spaces" />
+              <input class="input" type="number" min="0" max="10000" v-model.number="form.commercial_property_details.parking_spaces" />
             </div>
           </div>
 
@@ -421,7 +425,7 @@
           </div>
 
           <p class="muted property-form__text">
-            После создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
+            Пос��е создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
           </p>
 
           <div v-if="photos.length" class="grid grid--3 property-form__photo-grid">
@@ -490,7 +494,7 @@
                 <input class="input" v-model="newDocument.document_name" />
               </div>
               <div class="field">
-                <label>Ссылка на файл</label>
+                <label>Ссылк�� на файл</label>
                 <input class="input" v-model="newDocument.file_url" />
               </div>
             </div>
@@ -909,6 +913,7 @@ const touchedSteps = reactive({
 })
 let initSeq = 0
 
+const currentYear = new Date().getFullYear()
 const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
 const isCommercialType = computed(() => propertyTypeIsCommercial(normalizedPremisesType.value))
 const isHouseType = computed(() => normalizedPremisesType.value === 'house')
@@ -974,6 +979,16 @@ function normalizeTextValue(value) {
 }
 
 function hasConfirmedAddressSelection() {
+  // In edit mode: if user hasn't changed the address query, consider it confirmed
+  if (isEdit.value && !addressPicked.value) {
+    const queryTrimmed = normalizeTextValue(addressQuery.value)
+    const existingTrimmed = normalizeTextValue(existingAddress.value)
+    const confirmedTrimmed = normalizeTextValue(addressConfirmedValue.value)
+    // Address is valid if query matches the confirmed/existing value or user hasn't typed anything new
+    if (confirmedTrimmed && queryTrimmed === confirmedTrimmed) return true
+    if (existingTrimmed && queryTrimmed === existingTrimmed) return true
+    if (!queryTrimmed && existingTrimmed) return true
+  }
   const confirmedValue = normalizeTextValue(addressConfirmedValue.value)
   if (!confirmedValue) return false
   const currentValue = normalizeTextValue(addressQuery.value || form.address || existingAddress.value)
@@ -993,6 +1008,30 @@ function getFieldErrorsForStep(stepId) {
     if (!form.title?.trim()) errors.title = 'Заполните заголовок объекта.'
     if (form.price === null || form.price === undefined || form.price === '') {
       errors.price = 'Укажите цену объекта.'
+    } else if (Number(form.price) < 0) {
+      errors.price = 'Цена не может быть отрицательной.'
+    }
+    if (form.area_total !== null && form.area_total !== undefined && form.area_total !== '' && Number(form.area_total) <= 0) {
+      errors.area_total = 'Площадь должна быть больше нуля.'
+    }
+    // Only validate building details fields when the section is visible
+    if (showBuildingDetailsSection.value && form.building_details.year_built) {
+      const yr = Number(form.building_details.year_built)
+      if (yr < 1800 || yr > currentYear) {
+        errors.year_built = `Год постройки должен быть от 1800 до ${currentYear}.`
+      }
+    }
+    // Only validate floor field when it is shown (apartment / room only)
+    if (showFloorField.value && form.floor_number !== null && form.floor_number !== undefined && form.floor_number !== '') {
+      if (Number(form.floor_number) < -10 || Number(form.floor_number) > 500) {
+        errors.floor_number = 'Этаж должен быть в диапазоне от −10 до 500.'
+      }
+    }
+    // Validate total_floors only when building section is visible
+    if (showBuildingDetailsSection.value && form.building_details.total_floors !== null && form.building_details.total_floors !== undefined && form.building_details.total_floors !== '') {
+      if (Number(form.building_details.total_floors) < 1) {
+        errors.total_floors = 'Количество этажей должно быть не менее 1.'
+      }
     }
   }
   return errors
@@ -1456,9 +1495,13 @@ async function initializeForm() {
       priceHistory.value = unpackPaginated(priceResp.data).items
       viewings.value = unpackPaginated(viewingsResp.data).items
       syncPropertyBaseline()
+      // Restore any unsaved edits from sessionStorage (e.g. after accidental refresh)
+      restorePropertyEditDraft()
     } else {
       form.status = dict.statuses[0]?.id || null
       syncPropertyBaseline()
+      // Restore create-mode draft AFTER form defaults are ready so it is not wiped
+      restorePropertyCreateDraft()
     }
   } catch (e) {
     if (seq !== initSeq) return
@@ -1470,7 +1513,7 @@ async function initializeForm() {
   }
 }
 
-const { clearDraft: clearPropertyDraft } = useDraftPersistence({
+const { clearDraft: clearPropertyDraft, restoreDraft: restorePropertyCreateDraft } = useDraftPersistence({
   key: 'property-form:create',
   enabled: () => !isEdit.value,
   getData: buildPropertyDraftData,
@@ -1478,6 +1521,18 @@ const { clearDraft: clearPropertyDraft } = useDraftPersistence({
     propertyDraftRestored.value = true
     applyPropertyDraft(draft)
     toasts.info('Черновик объекта восстановлен')
+  },
+  isEmpty: isPropertyDraftEmpty,
+})
+
+const { clearDraft: clearPropertyEditDraft, restoreDraft: restorePropertyEditDraft } = useDraftPersistence({
+  key: () => isEdit.value ? `property-form:edit:${route.params.id}` : null,
+  enabled: () => isEdit.value,
+  getData: buildPropertyDraftData,
+  applyData: (draft) => {
+    propertyDraftRestored.value = true
+    applyPropertyDraft(draft)
+    toasts.info('Несохранённые изменения восстановлены')
   },
   isEmpty: isPropertyDraftEmpty,
 })
@@ -1602,20 +1657,35 @@ async function submit() {
       cadastral_number: form.cadastral_number || null,
       is_published: !!form.is_published,
       description: form.description,
-      building_details_data: stripDataKeys({
-        ...form.building_details,
+      building_details_data: isLandType.value || isGarageType.value ? null : stripDataKeys({
+        year_built: form.building_details.year_built || null,
+        total_floors: form.building_details.total_floors || null,
         building_material: form.building_details.building_material || null,
+        elevators_count: form.building_details.elevators_count ?? 0,
       }),
-      property_details_data: stripDataKeys({
-        ...form.property_details,
-        bathroom_type: form.property_details.bathroom_type || null,
-        renovation_type: form.property_details.renovation_type || null,
-        floors_count: isHouseType.value ? form.property_details.floors_count : null,
+      property_details_data: isCommercialType.value ? null : stripDataKeys({
+        living_area: showResidentialAreaFields.value ? (form.property_details.living_area || null) : null,
+        kitchen_area: showResidentialAreaFields.value ? (form.property_details.kitchen_area || null) : null,
+        ceiling_height: showResidentialAreaFields.value ? (form.property_details.ceiling_height || null) : null,
+        balcony_count: showBalconyField.value ? (form.property_details.balcony_count ?? 0) : 0,
+        bathroom_count: showBathroomFields.value ? (form.property_details.bathroom_count ?? 1) : 0,
+        bathroom_type: showBathroomFields.value ? (form.property_details.bathroom_type || null) : null,
+        renovation_type: showRenovationField.value ? (form.property_details.renovation_type || null) : null,
+        bedrooms_count: showBedroomField.value ? (form.property_details.bedrooms_count ?? null) : null,
+        floors_count: isHouseType.value ? (form.property_details.floors_count ?? 1) : null,
+        land_area: showLandAreaField.value ? (form.property_details.land_area || null) : null,
       }),
-      commercial_property_details_data: stripDataKeys({
-        ...form.commercial_property_details,
+      commercial_property_details_data: isCommercialType.value ? stripDataKeys({
         commercial_type: form.commercial_property_details.commercial_type || null,
-      }),
+        usable_area: form.commercial_property_details.usable_area || null,
+        ceiling_height: form.commercial_property_details.ceiling_height || null,
+        floor_load: form.commercial_property_details.floor_load ?? null,
+        electric_power_kw: form.commercial_property_details.electric_power_kw ?? null,
+        parking_spaces: form.commercial_property_details.parking_spaces ?? 0,
+        has_separate_entrance: !!form.commercial_property_details.has_separate_entrance,
+        has_display_windows: !!form.commercial_property_details.has_display_windows,
+        is_first_line: !!form.commercial_property_details.is_first_line,
+      }) : null,
       amenity_ids: [...form.amenity_ids],
     }
 
@@ -1629,7 +1699,7 @@ async function submit() {
       // Editing without touching the address field — omit address entirely,
       // backend will keep the existing one
     } else {
-      throw new Error('Выберите адрес из подсказок.')
+      throw new Error('Выбе��ите адрес из подсказок.')
     }
 
     const url = isEdit.value ? `/properties/${route.params.id}/` : '/properties/'
@@ -1638,6 +1708,7 @@ async function submit() {
 
     await uploadPhotos(data.id)
     clearPropertyDraft()
+    clearPropertyEditDraft()
     syncPropertyBaseline()
     router.push(`/properties/${data.id}`)
   } catch (e) {
@@ -1902,7 +1973,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   padding: 18px;
   border: 1px solid var(--c-border);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .property-form__grid {

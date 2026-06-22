@@ -22,20 +22,22 @@ export function useDraftPersistence({
   isEmpty = () => false,
   onRestored = null,
 } = {}) {
-  let restoredForSession = false
+  function resolveKey() {
+    return typeof key === 'function' ? key() : key
+  }
 
   function isEnabled() {
     return typeof enabled === 'function' ? !!enabled() : !!enabled
   }
 
   function restoreDraft() {
-    if (!key || !isEnabled()) return false
+    const resolvedKey = resolveKey()
+    if (!resolvedKey || !isEnabled()) return false
     const storage = getStorage()
     if (!storage) return false
-    const parsed = parseDraft(storage.getItem(key))
+    const parsed = parseDraft(storage.getItem(resolvedKey))
     if (!parsed) return false
     applyData(parsed)
-    restoredForSession = true
     if (typeof onRestored === 'function') {
       onRestored(parsed)
     }
@@ -43,36 +45,30 @@ export function useDraftPersistence({
   }
 
   function clearDraft() {
+    const resolvedKey = resolveKey()
     const storage = getStorage()
-    if (!storage || !key) return
-    storage.removeItem(key)
-    restoredForSession = false
+    if (!storage || !resolvedKey) return
+    storage.removeItem(resolvedKey)
   }
 
-  watch(
-    () => isEnabled(),
-    (active) => {
-      if (!active || restoredForSession) return
-      restoreDraft()
-    },
-    { immediate: true },
-  )
-
+  // Auto-save watcher: writes to sessionStorage whenever form data changes
   watch(
     () => {
-      if (!key || !isEnabled()) return ''
+      const resolvedKey = resolveKey()
+      if (!resolvedKey || !isEnabled()) return ''
       const data = getData()
       if (!data || isEmpty(data)) return ''
       return JSON.stringify(data)
     },
     (serialized) => {
+      const resolvedKey = resolveKey()
       const storage = getStorage()
-      if (!storage || !key) return
+      if (!storage || !resolvedKey) return
       if (!serialized) {
-        storage.removeItem(key)
+        storage.removeItem(resolvedKey)
         return
       }
-      storage.setItem(key, serialized)
+      storage.setItem(resolvedKey, serialized)
     },
   )
 
