@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from html import escape
 
-from django.db.models import Count, QuerySet, Sum
+from django.db.models import Count, Max, Q, QuerySet, Sum
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -93,6 +93,64 @@ TASKS_REPORT = ReportDefinition(
         ('-title', 'Название: Я-А'),
         ('priority', 'Приоритет: по возрастанию'),
         ('-priority', 'Приоритет: по убыванию'),
+    ),
+)
+
+PROPERTIES_REPORT = ReportDefinition(
+    code='properties',
+    title='Отчёт по объектам недвижимости',
+    filename_prefix='properties-report',
+    columns=(
+        ('id', 'ID'),
+        ('title', 'Название'),
+        ('property_type', 'Тип объекта'),
+        ('operation_type', 'Операция'),
+        ('status_name', 'Статус'),
+        ('address', 'Адрес'),
+        ('price', 'Цена'),
+        ('area_total', 'Площадь (м²)'),
+        ('rooms_count', 'Комнат'),
+        ('floor_number', 'Этаж'),
+        ('is_published', 'Опубликован'),
+        ('created_at', 'Дата добавления'),
+    ),
+    default_ordering='-created_at',
+    ordering_options=(
+        ('-created_at', 'Дата: сначала новые'),
+        ('created_at', 'Дата: сначала старые'),
+        ('-price', 'Цена: по убыванию'),
+        ('price', 'Цена: по возрастанию'),
+        ('-area_total', 'Площадь: по убыванию'),
+        ('area_total', 'Площадь: по возрастанию'),
+        ('title', 'Название: А-Я'),
+        ('-title', 'Название: Я-А'),
+    ),
+)
+
+REQUESTS_REPORT = ReportDefinition(
+    code='requests',
+    title='Отчёт по заявкам клиентов',
+    filename_prefix='requests-report',
+    columns=(
+        ('id', 'ID'),
+        ('client_username', 'Клиент'),
+        ('employee_username', 'Сотрудник'),
+        ('operation_type', 'Операция'),
+        ('property_type', 'Тип объекта'),
+        ('status_name', 'Статус'),
+        ('price_range', 'Бюджет'),
+        ('area_range', 'Площадь'),
+        ('rooms_count', 'Комнат'),
+        ('preferred_city', 'Город'),
+        ('created_at', 'Дата создания'),
+        ('closed_at', 'Дата закрытия'),
+    ),
+    default_ordering='-created_at',
+    ordering_options=(
+        ('-created_at', 'Дата: сначала новые'),
+        ('created_at', 'Дата: сначала старые'),
+        ('status__code', 'Статус: А-Я'),
+        ('-status__code', 'Статус: Я-А'),
     ),
 )
 
@@ -639,3 +697,315 @@ def build_viewing_payments_report(params, *, user) -> dict:
         'rows': rows,
         'ordering': ordering,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Отчёт по объектам недвижимости
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_properties_report(params, *, user) -> dict:
+    date_from = _parse_date_param(params, 'date_from')
+    date_to = _parse_date_param(params, 'date_to')
+    ordering = _resolve_ordering(params, PROPERTIES_REPORT)
+
+    qs = models.Property.objects.select_related(
+        'status', 'property_type_ref', 'operation_type', 'house__city',
+    )
+
+    property_type = (params.get('property_type') or '').strip()
+    status_id = (params.get('status') or '').strip()
+    operation_type_id = (params.get('operation_type') or '').strip()
+    is_published = (params.get('is_published') or '').strip()
+
+    if property_type:
+        qs = qs.filter(property_type_ref__code=property_type)
+    if status_id:
+        qs = qs.filter(status_id=status_id)
+    if operation_type_id:
+        qs = qs.filter(operation_type_id=operation_type_id)
+    if is_published == '1':
+        qs = qs.filter(is_published=True)
+    elif is_published == '0':
+        qs = qs.filter(is_published=False)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    # ordering по полям
+    if ordering in ('-created_at', 'created_at', '-price', 'price', '-area_total', 'area_total', 'title', '-title'):
+        qs = _ordered_queryset(qs, ordering)
+    else:
+        qs = qs.order_by('-created_at', '-id')
+
+    summary_raw = qs.aggregate(
+        total_count=Count('id'),
+        total_price=Sum('price'),
+        avg_price=Sum('price'),
+    )
+    published_count = qs.filter(is_published=True).count()
+    unpublished_count = qs.filter(is_published=False).count()
+
+    summary = {
+        'Всего объектов': summary_raw['total_count'] or 0,
+        'Опубликовано': published_count,
+        'Не опубликовано': unpublished_count,
+        'Общая стоимость': _format_money(summary_raw['total_price'] or 0),
+    }
+
+    rows = []
+    for prop in qs:
+        address_parts = []
+        if prop.house_id:
+            if prop.house.city_id:
+                address_parts.append(prop.house.city.name)
+            if prop.house.street:
+                address_parts.append(prop.house.street)
+            if prop.house.house_number:
+                address_parts.append(f'д. {prop.house.house_number}')
+        rows.append({
+            'id': prop.id,
+            'title': prop.title or '—',
+            'property_type': prop.property_type_ref.name if prop.property_type_ref_id else '—',
+            'operation_type': prop.operation_type.name if prop.operation_type_id else '—',
+            'status_name': prop.status.name if prop.status_id else '—',
+            'address': ', '.join(address_parts) if address_parts else '—',
+            'price': _format_money(prop.price),
+            'area_total': (
+                f'{prop.area_total:.1f}' if prop.area_total is not None else '—'
+            ),
+            'rooms_count': str(prop.rooms_count) if prop.rooms_count is not None else '—',
+            'floor_number': str(prop.floor_number) if prop.floor_number is not None else '—',
+            'is_published': 'Да' if prop.is_published else 'Нет',
+            'created_at': _format_date(prop.created_at),
+        })
+
+    return {
+        'definition': PROPERTIES_REPORT,
+        'title': _report_title(PROPERTIES_REPORT, user),
+        'summary': summary,
+        'rows': rows,
+        'ordering': ordering,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Отчёт по заявкам клиентов
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_requests_report(params, *, user) -> dict:
+    date_from = _parse_date_param(params, 'date_from')
+    date_to = _parse_date_param(params, 'date_to')
+    ordering_raw = (params.get('ordering') or '').strip()
+    valid_orderings = {code for code, _ in REQUESTS_REPORT.ordering_options}
+    ordering = ordering_raw if ordering_raw in valid_orderings else REQUESTS_REPORT.default_ordering
+
+    qs = models.Request.objects.select_related(
+        'client_profile__user',
+        'employee_profile__user',
+        'status',
+        'operation_type',
+        'property_type',
+        'preferred_city',
+    )
+
+    # Если пользователь — сотрудник без прав менеджера, показываем только его заявки
+    if user.is_employee and not user.is_admin_or_manager:
+        qs = qs.filter(employee_profile__user=user)
+
+    status_id = (params.get('status') or '').strip()
+    property_type = (params.get('property_type') or '').strip()
+    employee_id = (params.get('assignee') or '').strip()
+
+    if status_id:
+        qs = qs.filter(status_id=status_id)
+    if property_type:
+        qs = qs.filter(property_type__code=property_type)
+    if employee_id:
+        if employee_id == 'me':
+            qs = qs.filter(employee_profile__user=user)
+        else:
+            qs = qs.filter(employee_profile__user_id=employee_id)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    qs = qs.order_by(ordering, '-id')
+
+    total_count = qs.count()
+    active_count = qs.filter(status__code__in=models.Request.ACTIVE_STATUS_CODES).count()
+    completed_count = qs.filter(status__code__in=models.Request.SUCCESS_STATUS_CODES).count()
+    cancelled_count = qs.filter(
+        status__code__in=[c for c in models.Request.TERMINAL_STATUS_CODES
+                          if c not in models.Request.SUCCESS_STATUS_CODES]
+    ).count()
+
+    summary = {
+        'Всего заявок': total_count,
+        'Активных': active_count,
+        'Завершённых': completed_count,
+        'Отменённых / отклонённых': cancelled_count,
+    }
+
+    rows = []
+    for req in qs:
+        client_name = '—'
+        if req.client_profile_id and req.client_profile.user_id:
+            u = req.client_profile.user
+            name_parts = [u.last_name, u.first_name, getattr(u, 'middle_name', '')]
+            full = ' '.join(p for p in name_parts if p).strip()
+            client_name = full or u.username
+
+        employee_name = '—'
+        if req.employee_profile_id and req.employee_profile.user_id:
+            u = req.employee_profile.user
+            name_parts = [u.last_name, u.first_name, getattr(u, 'middle_name', '')]
+            full = ' '.join(p for p in name_parts if p).strip()
+            employee_name = full or u.username
+
+        price_parts = []
+        if req.min_price is not None:
+            price_parts.append(f'от {_format_money(req.min_price)}')
+        if req.max_price is not None:
+            price_parts.append(f'до {_format_money(req.max_price)}')
+
+        area_parts = []
+        if req.min_area is not None:
+            area_parts.append(f'от {req.min_area:.1f}')
+        if req.max_area is not None:
+            area_parts.append(f'до {req.max_area:.1f}')
+
+        rows.append({
+            'id': req.id,
+            'client_username': client_name,
+            'employee_username': employee_name,
+            'operation_type': req.operation_type.name if req.operation_type_id else '—',
+            'property_type': req.property_type.name if req.property_type_id else '—',
+            'status_name': req.status.name if req.status_id else '—',
+            'price_range': ' '.join(price_parts) if price_parts else '—',
+            'area_range': ' '.join(area_parts) + ' м²' if area_parts else '—',
+            'rooms_count': str(req.rooms_count) if req.rooms_count is not None else '—',
+            'preferred_city': req.preferred_city.name if req.preferred_city_id else '—',
+            'created_at': _format_date(req.created_at),
+            'closed_at': _format_date(req.closed_at),
+        })
+
+    return {
+        'definition': REQUESTS_REPORT,
+        'title': _report_title(REQUESTS_REPORT, user),
+        'summary': summary,
+        'rows': rows,
+        'ordering': ordering,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Топ-агентов: задачи и сделки
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_top_agents_tasks(params, *, limit: int = 5) -> list[dict]:
+    """
+    Возвращает список лучших сотрудников по выполненным задачам.
+    Каждая запись: {rank, full_name, username, done_count, total_count, rate}.
+    """
+    date_from = _parse_date_param(params, 'date_from')
+    date_to = _parse_date_param(params, 'date_to')
+
+    qs = models.Task.objects.filter(assignee__isnull=False)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    agent_totals = (
+        qs.values('assignee_id', 'assignee__username',
+                  'assignee__first_name', 'assignee__last_name')
+          .annotate(
+              total_count=Count('id'),
+              done_count=Count('id', filter=Q(status__code='done')),
+          )
+          .order_by('-done_count', '-total_count')
+    )
+
+    # Обрабатываем лимит (0 или None = все)
+    if limit and limit > 0:
+        agent_totals = agent_totals[:limit]
+
+    # Подгружаем отчество отдельно (middle_name может быть @property или DB-полем)
+    agent_ids = [row['assignee_id'] for row in agent_totals]
+    middle_names: dict[int, str] = {}
+    for u in models.User.objects.filter(pk__in=agent_ids).only('id', 'middle_name'):
+        middle_names[u.pk] = getattr(u, 'middle_name', '') or ''
+
+    result = []
+    for rank, row in enumerate(agent_totals, start=1):
+        total = row['total_count'] or 0
+        done = row['done_count'] or 0
+        rate = f'{(done / total * 100):.1f}%' if total else '0.0%'
+        name_parts = [
+            row.get('assignee__last_name') or '',
+            row.get('assignee__first_name') or '',
+            middle_names.get(row['assignee_id'], ''),
+        ]
+        full_name = ' '.join(p for p in name_parts if p).strip() or row['assignee__username']
+        result.append({
+            'rank': rank,
+            'full_name': full_name,
+            'username': row['assignee__username'],
+            'done_count': done,
+            'total_count': total,
+            'rate': rate,
+        })
+    return result
+
+
+def build_top_agents_deals(params, *, limit: int = 5) -> list[dict]:
+    """
+    Возвращает список лучших сотрудников по комиссии и количеству сделок.
+    Каждая запись: {rank, full_name, username, deals_count, total_commission}.
+    """
+    date_from = _parse_date_param(params, 'date_from')
+    date_to = _parse_date_param(params, 'date_to')
+
+    qs = models.Deal.objects.filter(
+        agent__isnull=False,
+        status__code='completed',
+    )
+    if date_from:
+        qs = qs.filter(deal_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(deal_date__lte=date_to)
+
+    agent_totals = (
+        qs.values(
+            'agent_id',
+            'agent__username',
+            'agent__first_name',
+            'agent__last_name',
+        )
+          .annotate(
+              deals_count=Count('id'),
+              total_commission=Sum('commission_amount'),
+          )
+          .order_by('-total_commission', '-deals_count')
+    )
+
+    if limit and limit > 0:
+        agent_totals = agent_totals[:limit]
+
+    result = []
+    for rank, row in enumerate(agent_totals, start=1):
+        name_parts = [
+            row.get('agent__last_name') or '',
+            row.get('agent__first_name') or '',
+        ]
+        full_name = ' '.join(p for p in name_parts if p).strip() or row['agent__username']
+        result.append({
+            'rank': rank,
+            'full_name': full_name,
+            'username': row['agent__username'],
+            'deals_count': row['deals_count'] or 0,
+            'total_commission': _format_money(row['total_commission'] or 0),
+        })
+    return result

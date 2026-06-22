@@ -87,7 +87,7 @@ def _admin_query_string(query_dict, **updates):
 
 def _build_admin_report_context(request):
     report_type = (request.GET.get('type') or 'deals').strip().lower()
-    if report_type not in {'deals', 'tasks'}:
+    if report_type not in {'deals', 'tasks', 'properties', 'requests'}:
         report_type = 'deals'
 
     params = request.GET.copy()
@@ -97,6 +97,14 @@ def _build_admin_report_context(request):
         payload = reports.build_tasks_report(params, user=request.user)
         status_options = models.TaskStatus.objects.all()
         ordering_options = reports.TASKS_REPORT.ordering_options
+    elif report_type == 'properties':
+        payload = reports.build_properties_report(params, user=request.user)
+        status_options = models.PropertyStatus.objects.all()
+        ordering_options = reports.PROPERTIES_REPORT.ordering_options
+    elif report_type == 'requests':
+        payload = reports.build_requests_report(params, user=request.user)
+        status_options = models.RequestStatus.objects.all()
+        ordering_options = reports.REQUESTS_REPORT.ordering_options
     else:
         payload = reports.build_deals_report(params, user=request.user)
         status_options = models.DealStatus.objects.all()
@@ -137,6 +145,7 @@ def _admin_reports_view(request):
             payload['rows'],
             export_format,
             ordering=payload['ordering'],
+            title=payload.get('title'),
             user=request.user,
         )
 
@@ -149,11 +158,28 @@ def _admin_reports_view(request):
         reset_query.pop(key, None)
     reset_query['type'] = report_type
 
+    # Топ-N агентов: применяем те же date_from/date_to, что и в основном отчёте
+    top_n_raw = (request.GET.get('top_n') or '5').strip()
+    try:
+        top_n = int(top_n_raw)
+        if top_n < 0:
+            top_n = 5
+    except (ValueError, TypeError):
+        top_n = 5
+
+    top_agents_tasks = reports.build_top_agents_tasks(request.GET, limit=top_n)
+    top_agents_deals = reports.build_top_agents_deals(request.GET, limit=top_n)
+
+    # Данные для фильтров по типу объекта и типу операции
+    property_types = models.PropertyType.objects.all().order_by('name')
+    operation_types = models.OperationType.objects.all().order_by('name')
+
     context = {
         **admin.site.each_context(request),
         'title': 'Отчёты',
         'report_type': report_type,
         'report_title': payload['definition'].title,
+        'report_generated_title': payload.get('title', payload['definition'].title),
         'columns': payload['definition'].columns,
         'rows': payload['rows'],
         'table_rows': [
@@ -166,10 +192,16 @@ def _admin_reports_view(request):
         'summary_items': list(payload['summary'].items()),
         'ordering_options': ordering_options,
         'status_options': status_options,
+        'property_types': property_types,
+        'operation_types': operation_types,
         'employees': models.User.objects.filter(
             user_type='employee',
-        ).order_by('username'),
+        ).order_by('last_name', 'first_name', 'username'),
         'task_types': models.Task.TASK_TYPE_CHOICES,
+        'top_agents_tasks': top_agents_tasks,
+        'top_agents_deals': top_agents_deals,
+        'top_n': top_n,
+        'top_n_options': [3, 5, 10, 0],  # 0 = все
         'filters': {
             'date_from': (request.GET.get('date_from') or '').strip(),
             'date_to': (request.GET.get('date_to') or '').strip(),
@@ -178,10 +210,16 @@ def _admin_reports_view(request):
             'agent': (request.GET.get('agent') or '').strip(),
             'assignee': (request.GET.get('assignee') or '').strip(),
             'task_type': (request.GET.get('task_type') or '').strip(),
+            'property_type': (request.GET.get('property_type') or '').strip(),
+            'operation_type': (request.GET.get('operation_type') or '').strip(),
+            'is_published': (request.GET.get('is_published') or '').strip(),
+            'top_n': str(top_n),
         },
         'switch_links': {
             'deals': _admin_query_string(base_query, type='deals'),
             'tasks': _admin_query_string(base_query, type='tasks'),
+            'properties': _admin_query_string(base_query, type='properties'),
+            'requests': _admin_query_string(base_query, type='requests'),
         },
         'reset_link': _admin_query_string(reset_query),
         'export_links': {

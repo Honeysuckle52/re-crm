@@ -9,172 +9,723 @@
 {% block content_title %}{% endblock %}
 {% block bodyclass %}{{ block.super }} crm-reports-page{% endblock %}
 
+{% block extrastyle %}{{ block.super }}
+<style>
+/* ── Переменные ─────────────────────────────────────────────────── */
+:root {
+  --rpt-r: 8px;
+  --rpt-border: #d0d5dd;
+  --rpt-bg: #f3f5f7;
+  --rpt-card: #fff;
+  --rpt-head: #f4f6f8;
+  --rpt-accent: #417690;
+  --rpt-accent-lt: #e8f0f7;
+  --rpt-text: #1a2333;
+  --rpt-muted: #667085;
+  --rpt-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+
+/* ── Страница ───────────────────────────────────────────────────── */
+.rpt-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0 2px;
+}
+
+/* ── Шапка страницы ─────────────────────────────────────────────── */
+.rpt-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.rpt-page-head h1 {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  margin: 0 0 4px;
+}
+.rpt-page-head p {
+  font-size: 12.5px;
+  color: var(--rpt-muted);
+  margin: 0;
+}
+
+/* ── Плашка «кто сформировал» ───────────────────────────────────── */
+.rpt-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--rpt-accent-lt);
+  border: 1px solid #c2d9ec;
+  border-radius: 6px;
+  padding: 7px 13px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--rpt-accent);
+  white-space: normal;
+  max-width: 420px;
+  line-height: 1.4;
+}
+.rpt-stamp svg { flex-shrink: 0; }
+
+/* ── Табы ───────────────────────────────────────────────────────── */
+.rpt-tabs {
+  display: flex;
+  border-bottom: 2px solid var(--rpt-border);
+  overflow-x: auto;
+  gap: 0;
+}
+.rpt-tabs a {
+  display: inline-block;
+  padding: 10px 22px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--rpt-muted);
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.rpt-tabs a:hover { color: var(--rpt-text); }
+.rpt-tabs a.active {
+  color: var(--rpt-accent);
+  border-bottom-color: var(--rpt-accent);
+  font-weight: 700;
+}
+
+/* ── Карточка ───────────────────────────────────────────────────── */
+.rpt-card {
+  background: var(--rpt-card);
+  border: 1px solid var(--rpt-border);
+  border-radius: var(--rpt-r);
+  box-shadow: var(--rpt-shadow);
+  overflow: hidden;
+}
+.rpt-card__head {
+  background: var(--rpt-head);
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--rpt-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rpt-card__head h3 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  margin: 0;
+}
+.rpt-card__body { padding: 16px 18px; }
+
+/* ── KPI / Итоги ────────────────────────────────────────────────── */
+.rpt-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.rpt-kpi {
+  background: var(--rpt-accent-lt);
+  border: 1px solid #c2d9ec;
+  border-radius: 6px;
+  padding: 10px 16px;
+  min-width: 130px;
+}
+.rpt-kpi__lbl {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--rpt-muted);
+  margin-bottom: 4px;
+}
+.rpt-kpi__val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--rpt-text);
+}
+
+/* ── Экспорт ────────────────────────────────────────────────────── */
+.rpt-export {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.rpt-export a,
+.rpt-export button {
+  display: inline-block;
+  padding: 5px 11px;
+  border: 1px solid var(--rpt-border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rpt-accent);
+  text-decoration: none;
+  background: #fff;
+  cursor: pointer;
+  transition: background .12s;
+  line-height: 1.4;
+}
+.rpt-export a:hover,
+.rpt-export button:hover { background: var(--rpt-accent-lt); }
+.rpt-export a.ghost { color: var(--rpt-muted); }
+
+/* ── Фильтры ────────────────────────────────────────────────────── */
+.rpt-fgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+  gap: 10px 14px;
+  align-items: end;
+}
+.rpt-fld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rpt-fld > span {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--rpt-muted);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.rpt-fld input[type="date"],
+.rpt-fld select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--rpt-border);
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--rpt-text);
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+}
+.rpt-fld input:focus,
+.rpt-fld select:focus {
+  outline: none;
+  border-color: var(--rpt-accent);
+  box-shadow: 0 0 0 2px var(--rpt-accent-lt);
+}
+.rpt-faction {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.rpt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 18px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  border: none;
+  transition: opacity .15s;
+  line-height: 1.4;
+}
+.rpt-btn:hover { opacity: .84; text-decoration: none; }
+.rpt-btn--primary { background: var(--rpt-accent); color: #fff; }
+.rpt-btn--ghost {
+  background: #fff;
+  color: var(--rpt-muted);
+  border: 1px solid var(--rpt-border);
+}
+
+/* ── Таблица данных ─────────────────────────────────────────────── */
+.rpt-tbl-wrap { overflow-x: auto; }
+.rpt-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: auto;
+}
+.rpt-tbl th,
+.rpt-tbl td {
+  padding: 7px 11px;
+  border: 1px solid #e0e5eb;
+  vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.rpt-tbl thead th {
+  background: var(--rpt-head);
+  font-weight: 700;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--rpt-text);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.rpt-tbl tbody tr:nth-child(even) td { background: #f9fbfc; }
+.rpt-tbl tbody tr:hover td { background: var(--rpt-accent-lt); }
+.rpt-tbl .rpt-empty-row td {
+  text-align: center;
+  color: var(--rpt-muted);
+  font-style: italic;
+  padding: 28px;
+}
+.rpt-rowcount {
+  font-size: 12px;
+  color: var(--rpt-muted);
+  padding: 5px 18px 0;
+}
+
+/* ── Топ-агентов ────────────────────────────────────────────────── */
+.rpt-top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 740px) { .rpt-top-grid { grid-template-columns: 1fr; } }
+.rpt-top-panel h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--rpt-accent);
+  display: inline-block;
+}
+.rpt-top-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.rpt-top-tbl th,
+.rpt-top-tbl td {
+  padding: 6px 9px;
+  border-bottom: 1px solid #eef0f3;
+  vertical-align: middle;
+}
+.rpt-top-tbl th {
+  background: var(--rpt-head);
+  font-weight: 700;
+  color: var(--rpt-muted);
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: .4px;
+}
+.rpt-top-tbl tbody tr:hover td { background: var(--rpt-accent-lt); }
+
+/* Медаль места */
+.rpt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 11px;
+  background: #e8ecf0;
+  color: var(--rpt-muted);
+}
+.rpt-badge--1 { background: #ffd700; color: #7a5a00; }
+.rpt-badge--2 { background: #c0c0c0; color: #3a3a3a; }
+.rpt-badge--3 { background: #cd7f32; color: #fff; }
+
+/* Прогресс-бар */
+.rpt-bar { display: flex; align-items: center; gap: 6px; }
+.rpt-bar__track {
+  flex: 1; height: 6px;
+  background: #e4e7ec;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rpt-bar__fill {
+  height: 100%;
+  background: var(--rpt-accent);
+  border-radius: 3px;
+}
+.rpt-bar__lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--rpt-text);
+  min-width: 36px;
+  text-align: right;
+}
+.rpt-top-empty {
+  text-align: center;
+  color: var(--rpt-muted);
+  font-style: italic;
+  font-size: 12.5px;
+  padding: 20px 0;
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div id="content-main" class="crm-report-shell">
-  <div class="crm-dash-title">
-    <h1 class="crm-dash-title__h">Отчёты системы</h1>
+<div id="content-main" class="rpt-shell">
+
+  {# ── Заголовок страницы ──────────────────────────────────────── #}
+  <div class="rpt-page-head">
+    <div>
+      <h1>Отчёты системы</h1>
+      <p>Серверная аналитика — не зависит от JWT-сессии основного интерфейса.</p>
+    </div>
+    <span class="rpt-stamp">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="8" r="4"/>
+        <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+      </svg>
+      {{ report_generated_title }}
+    </span>
   </div>
 
-  <section class="crm-report-hero">
-    <div class="crm-report-hero__copy">
-      <div class="crm-report-hero__eyebrow">Аналитика</div>
-      <h2>{{ report_title }}</h2>
-      <p>Серверная версия отчётов работает прямо в системной панели и не зависит от JWT-сессии основного интерфейса.</p>
+  {# ── Табы ────────────────────────────────────────────────────── #}
+  <nav class="rpt-tabs" role="tablist" aria-label="Тип отчёта">
+    <a href="{{ switch_links.deals }}"
+       class="{% if report_type == 'deals' %}active{% endif %}"
+       role="tab" aria-selected="{% if report_type == 'deals' %}true{% else %}false{% endif %}">
+      Сделки
+    </a>
+    <a href="{{ switch_links.tasks }}"
+       class="{% if report_type == 'tasks' %}active{% endif %}"
+       role="tab" aria-selected="{% if report_type == 'tasks' %}true{% else %}false{% endif %}">
+      Задачи
+    </a>
+    <a href="{{ switch_links.properties }}"
+       class="{% if report_type == 'properties' %}active{% endif %}"
+       role="tab" aria-selected="{% if report_type == 'properties' %}true{% else %}false{% endif %}">
+      Объекты
+    </a>
+    <a href="{{ switch_links.requests }}"
+       class="{% if report_type == 'requests' %}active{% endif %}"
+       role="tab" aria-selected="{% if report_type == 'requests' %}true{% else %}false{% endif %}">
+      Заявки
+    </a>
+  </nav>
+
+  {# ── Итоги ───────────────────────────────────────────────────── #}
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>Итоги выборки</h3>
+      <div class="rpt-export">
+        <a href="{{ export_links.xlsx }}">XLSX</a>
+        <a href="{{ export_links.csv }}">CSV</a>
+        <a href="{{ export_links.pdf }}">PDF</a>
+        <a href="{{ export_links.json }}">JSON</a>
+        <a href="{{ reset_link }}" class="ghost">Сбросить</a>
+      </div>
     </div>
-    <div class="crm-report-tabs" role="tablist" aria-label="Тип отчёта">
-      <a
-        href="{{ switch_links.deals }}"
-        class="crm-report-tabs__link{% if report_type == 'deals' %} is-active{% endif %}"
-      >
-        Сделки
-      </a>
-      <a
-        href="{{ switch_links.tasks }}"
-        class="crm-report-tabs__link{% if report_type == 'tasks' %} is-active{% endif %}"
-      >
-        Задачи
-      </a>
-    </div>
-  </section>
-
-  <section class="crm-report-panel">
-    <div class="crm-report-panel__head">
-      <h3>Фильтры</h3>
-      <div class="crm-report-panel__meta">Все поля выровнены по единой сетке. Выборка перестраивается сервером и доступна для экспорта в CSV, JSON, XLSX и PDF.</div>
-    </div>
-
-    <form method="get" class="crm-report-filters">
-      <input type="hidden" name="type" value="{{ report_type }}">
-
-      <div class="crm-report-filters__grid">
-        <label class="crm-report-field">
-          <span>Дата от</span>
-          <input type="date" name="date_from" value="{{ filters.date_from }}">
-        </label>
-        <label class="crm-report-field">
-          <span>Дата до</span>
-          <input type="date" name="date_to" value="{{ filters.date_to }}">
-        </label>
-        <label class="crm-report-field">
-          <span>Статус</span>
-          <select name="status">
-            <option value="">Все статусы</option>
-            {% for item in status_options %}
-              <option value="{{ item.id }}"{% if filters.status == item.id|stringformat:"s" %} selected{% endif %}>
-                {{ item.name }}
-              </option>
-            {% endfor %}
-          </select>
-        </label>
-
-        {% if report_type == 'deals' %}
-          <label class="crm-report-field">
-            <span>Агент</span>
-            <select name="agent">
-              <option value="">Все сотрудники</option>
-              <option value="me"{% if filters.agent == 'me' %} selected{% endif %}>Я</option>
-              {% for employee in employees %}
-                <option value="{{ employee.id }}"{% if filters.agent == employee.id|stringformat:"s" %} selected{% endif %}>
-                  {{ employee.username }}
-                </option>
-              {% endfor %}
-            </select>
-          </label>
-        {% else %}
-          <label class="crm-report-field">
-            <span>Тип задачи</span>
-            <select name="task_type">
-              <option value="">Все типы</option>
-              {% for code, label in task_types %}
-                <option value="{{ code }}"{% if filters.task_type == code %} selected{% endif %}>
-                  {{ label }}
-                </option>
-              {% endfor %}
-            </select>
-          </label>
-          <label class="crm-report-field">
-            <span>Исполнитель</span>
-            <select name="assignee">
-              <option value="">Все сотрудники</option>
-              <option value="me"{% if filters.assignee == 'me' %} selected{% endif %}>Я</option>
-              {% for employee in employees %}
-                <option value="{{ employee.id }}"{% if filters.assignee == employee.id|stringformat:"s" %} selected{% endif %}>
-                  {{ employee.username }}
-                </option>
-              {% endfor %}
-            </select>
-          </label>
-        {% endif %}
-
-        <label class="crm-report-field">
-          <span>Сортировка</span>
-          <select name="ordering">
-            {% for value, label in ordering_options %}
-              <option value="{{ value }}"{% if filters.ordering == value %} selected{% endif %}>
-                {{ label }}
-              </option>
-            {% endfor %}
-          </select>
-        </label>
-
-        <div class="crm-report-field crm-report-filters__actions">
-          <span>Действия</span>
-          <div class="crm-report-actions-row">
-            <a class="button" href="{{ reset_link }}">Сбросить</a>
-            <button type="submit" class="button default">Применить</button>
+    <div class="rpt-card__body">
+      <div class="rpt-kpis">
+        {% for label, value in summary_items %}
+          <div class="rpt-kpi">
+            <div class="rpt-kpi__lbl">{{ label }}</div>
+            <div class="rpt-kpi__val">{{ value }}</div>
           </div>
-        </div>
-      </div>
-    </form>
-  </section>
-
-  <section class="crm-report-panel">
-    <div class="crm-report-panel__head crm-report-panel__head--row">
-      <div>
-        <h3>{{ report_title }}</h3>
-        <div class="crm-report-panel__meta">Строк в текущей выборке: {{ rows|length }}</div>
-      </div>
-      <div class="crm-report-export">
-        <a class="button" href="{{ export_links.csv }}">CSV</a>
-        <a class="button" href="{{ export_links.json }}">JSON</a>
-        <a class="button" href="{{ export_links.xlsx }}">Excel</a>
-        <a class="button default" href="{{ export_links.pdf }}">PDF</a>
+        {% endfor %}
       </div>
     </div>
+  </div>
 
-    <div class="crm-report-kpis">
-      {% for label, value in summary_items %}
-        <article class="crm-report-kpi">
-          <div class="crm-report-kpi__label">{{ label }}</div>
-          <div class="crm-report-kpi__value">{{ value }}</div>
-        </article>
-      {% endfor %}
-    </div>
+  {# ── Фильтры ─────────────────────────────────────────────────── #}
+  <div class="rpt-card">
+    <div class="rpt-card__head"><h3>Фильтры</h3></div>
+    <div class="rpt-card__body">
+      <form method="get">
+        <input type="hidden" name="type" value="{{ report_type }}">
+        <div class="rpt-fgrid">
 
-    {% if rows %}
-      <div class="crm-report-table-wrap">
-        <table class="crm-report-table">
-          <thead>
-            <tr>
-              {% for key, label in columns %}
-                <th>{{ label }}</th>
+          {# Общие поля #}
+          <label class="rpt-fld">
+            <span>Дата от</span>
+            <input type="date" name="date_from" value="{{ filters.date_from }}">
+          </label>
+          <label class="rpt-fld">
+            <span>Дата до</span>
+            <input type="date" name="date_to" value="{{ filters.date_to }}">
+          </label>
+          <label class="rpt-fld">
+            <span>Статус</span>
+            <select name="status">
+              <option value="">Все статусы</option>
+              {% for item in status_options %}
+                <option value="{{ item.id }}"
+                  {% if filters.status == item.id|stringformat:"s" %}selected{% endif %}>
+                  {{ item.name }}
+                </option>
               {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in table_rows %}
+            </select>
+          </label>
+          <label class="rpt-fld">
+            <span>Сортировка</span>
+            <select name="ordering">
+              {% for val, lbl in ordering_options %}
+                <option value="{{ val }}"{% if filters.ordering == val %} selected{% endif %}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          {# ── Сделки: агент ── #}
+          {% if report_type == 'deals' %}
+            <label class="rpt-fld">
+              <span>Агент</span>
+              <select name="agent">
+                <option value="">Все сотрудники</option>
+                <option value="me"{% if filters.agent == 'me' %} selected{% endif %}>Я</option>
+                {% for emp in employees %}
+                  <option value="{{ emp.id }}"
+                    {% if filters.agent == emp.id|stringformat:"s" %}selected{% endif %}>
+                    {% if emp.last_name %}{{ emp.last_name }} {{ emp.first_name }}{% else %}{{ emp.username }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
+
+          {# ── Задачи: тип, исполнитель ── #}
+          {% if report_type == 'tasks' %}
+            <label class="rpt-fld">
+              <span>Тип задачи</span>
+              <select name="task_type">
+                <option value="">Все типы</option>
+                {% for code, lbl in task_types %}
+                  <option value="{{ code }}"{% if filters.task_type == code %} selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="rpt-fld">
+              <span>Исполнитель</span>
+              <select name="assignee">
+                <option value="">Все сотрудники</option>
+                <option value="me"{% if filters.assignee == 'me' %} selected{% endif %}>Я</option>
+                {% for emp in employees %}
+                  <option value="{{ emp.id }}"
+                    {% if filters.assignee == emp.id|stringformat:"s" %}selected{% endif %}>
+                    {% if emp.last_name %}{{ emp.last_name }} {{ emp.first_name }}{% else %}{{ emp.username }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
+
+          {# ── Объекты: тип объекта, операция, публикация ── #}
+          {% if report_type == 'properties' %}
+            <label class="rpt-fld">
+              <span>Тип объекта</span>
+              <select name="property_type">
+                <option value="">Все типы</option>
+                {% for pt in property_types %}
+                  <option value="{{ pt.code }}"{% if filters.property_type == pt.code %} selected{% endif %}>{{ pt.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="rpt-fld">
+              <span>Операция</span>
+              <select name="operation_type">
+                <option value="">Все операции</option>
+                {% for ot in operation_types %}
+                  <option value="{{ ot.id }}"
+                    {% if filters.operation_type == ot.id|stringformat:"s" %}selected{% endif %}>{{ ot.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="rpt-fld">
+              <span>Публикация</span>
+              <select name="is_published">
+                <option value="">Все</option>
+                <option value="1"{% if filters.is_published == '1' %} selected{% endif %}>Опубликовано</option>
+                <option value="0"{% if filters.is_published == '0' %} selected{% endif %}>Не опубликовано</option>
+              </select>
+            </label>
+          {% endif %}
+
+          {# ── Заявки: тип объекта, сотрудник ── #}
+          {% if report_type == 'requests' %}
+            <label class="rpt-fld">
+              <span>Тип объекта</span>
+              <select name="property_type">
+                <option value="">Все типы</option>
+                {% for pt in property_types %}
+                  <option value="{{ pt.code }}"{% if filters.property_type == pt.code %} selected{% endif %}>{{ pt.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="rpt-fld">
+              <span>Сотрудник</span>
+              <select name="assignee">
+                <option value="">Все сотрудники</option>
+                <option value="me"{% if filters.assignee == 'me' %} selected{% endif %}>Я</option>
+                {% for emp in employees %}
+                  <option value="{{ emp.id }}"
+                    {% if filters.assignee == emp.id|stringformat:"s" %}selected{% endif %}>
+                    {% if emp.last_name %}{{ emp.last_name }} {{ emp.first_name }}{% else %}{{ emp.username }}{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
+
+          {# Топ-N всегда видно #}
+          <label class="rpt-fld">
+            <span>Топ-агентов</span>
+            <select name="top_n">
+              {% for n in top_n_options %}
+                <option value="{{ n }}"{% if filters.top_n == n|stringformat:"s" %} selected{% endif %}>
+                  {% if n == 0 %}Все{% else %}Топ-{{ n }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+
+        </div>
+        <div class="rpt-faction">
+          <button type="submit" class="rpt-btn rpt-btn--primary">Применить</button>
+          <a href="{{ reset_link }}" class="rpt-btn rpt-btn--ghost">Сбросить</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ── Таблица данных ──────────────────────────────────────────── #}
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>{{ report_generated_title }}</h3>
+      <div class="rpt-export">
+        <a href="{{ export_links.xlsx }}">XLSX</a>
+        <a href="{{ export_links.csv }}">CSV</a>
+        <a href="{{ export_links.pdf }}">PDF</a>
+      </div>
+    </div>
+    <div class="rpt-rowcount">Строк в выборке: {{ rows|length }}</div>
+    <div class="rpt-tbl-wrap">
+      <table class="rpt-tbl">
+        <thead>
+          <tr>
+            {% for key, lbl in columns %}
+              <th scope="col">{{ lbl }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% if table_rows %}
+            {% for row_cells in table_rows %}
               <tr>
-                {% for cell in row %}
-                  <td data-label="{{ cell.label }}">{{ cell.value }}</td>
+                {% for cell in row_cells %}
+                  <td>{{ cell.value }}</td>
                 {% endfor %}
               </tr>
             {% endfor %}
-          </tbody>
-        </table>
+          {% else %}
+            <tr class="rpt-empty-row">
+              <td colspan="{{ columns|length }}">Нет данных по выбранным фильтрам.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# ── Рейтинг сотрудников ─────────────────────────────────────── #}
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>Рейтинг сотрудников
+        {% if top_n > 0 %}&nbsp;—&nbsp;Топ-{{ top_n }}{% else %}&nbsp;—&nbsp;все{% endif %}
+      </h3>
+      <span style="font-size:12px;color:var(--rpt-muted);">По периоду из фильтров выше</span>
+    </div>
+    <div class="rpt-card__body">
+      <div class="rpt-top-grid">
+
+        {# Задачи #}
+        <div class="rpt-top-panel">
+          <h4>По выполнению задач</h4>
+          {% if top_agents_tasks %}
+            <table class="rpt-top-tbl">
+              <thead>
+                <tr>
+                  <th style="width:32px;">#</th>
+                  <th>Сотрудник</th>
+                  <th style="width:64px;text-align:center;">Выпол.</th>
+                  <th style="width:54px;text-align:center;">Всего</th>
+                  <th style="width:120px;">Эффективность</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for a in top_agents_tasks %}
+                  <tr>
+                    <td>
+                      <span class="rpt-badge{% if a.rank <= 3 %} rpt-badge--{{ a.rank }}{% endif %}">{{ a.rank }}</span>
+                    </td>
+                    <td>
+                      <strong>{{ a.full_name }}</strong>
+                      {% if a.full_name != a.username %}
+                        <br><small style="color:var(--rpt-muted);">@{{ a.username }}</small>
+                      {% endif %}
+                    </td>
+                    <td style="text-align:center;font-weight:700;color:var(--rpt-accent);">{{ a.done_count }}</td>
+                    <td style="text-align:center;color:var(--rpt-muted);">{{ a.total_count }}</td>
+                    <td>
+                      <div class="rpt-bar">
+                        <div class="rpt-bar__track">
+                          <div class="rpt-bar__fill" style="width:{{ a.rate }}"></div>
+                        </div>
+                        <span class="rpt-bar__lbl">{{ a.rate }}</span>
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="rpt-top-empty">Нет данных за выбранный период.</p>
+          {% endif %}
+        </div>
+
+        {# Сделки #}
+        <div class="rpt-top-panel">
+          <h4>По комиссиям со сделок</h4>
+          {% if top_agents_deals %}
+            <table class="rpt-top-tbl">
+              <thead>
+                <tr>
+                  <th style="width:32px;">#</th>
+                  <th>Сотрудник</th>
+                  <th style="width:60px;text-align:center;">Сделок</th>
+                  <th>Комиссия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for a in top_agents_deals %}
+                  <tr>
+                    <td>
+                      <span class="rpt-badge{% if a.rank <= 3 %} rpt-badge--{{ a.rank }}{% endif %}">{{ a.rank }}</span>
+                    </td>
+                    <td>
+                      <strong>{{ a.full_name }}</strong>
+                      {% if a.full_name != a.username %}
+                        <br><small style="color:var(--rpt-muted);">@{{ a.username }}</small>
+                      {% endif %}
+                    </td>
+                    <td style="text-align:center;font-weight:700;color:var(--rpt-accent);">{{ a.deals_count }}</td>
+                    <td style="font-weight:700;color:var(--rpt-text);">{{ a.total_commission }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="rpt-top-empty">Нет завершённых сделок за выбранный период.</p>
+          {% endif %}
+        </div>
+
       </div>
-    {% else %}
-      <div class="crm-report-empty">По выбранным фильтрам данных нет.</div>
-    {% endif %}
-  </section>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
