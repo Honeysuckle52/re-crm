@@ -263,7 +263,7 @@ function formatMoney(v) {
   font-size: clamp(26px, 2.2vw, 28px);
   font-weight: 800;
   line-height: 1.1;
-  color: var(--c-accent-2, var(--c-accent));
+  color: #ffffff;
 }
 
 .property-card__title {

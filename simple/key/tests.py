@@ -2406,6 +2406,67 @@ class PropertyClientVisibilityTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('floor_number', response.data)
 
+    def test_land_update_ignores_hidden_residential_fields(self):
+        self.api.force_authenticate(user=self.manager)
+        property_type = models.PropertyType.objects.create(
+            code=models.Property.PROPERTY_TYPE_LAND,
+            name='Земельный участок',
+        )
+        land_property = models.Property.objects.create(
+            title='Участок для обновления',
+            operation_type=self.operation_type,
+            status=self.active_status,
+            house=self.address.house,
+            property_type_ref=property_type,
+            price=3_000_000,
+            area_total='1200.00',
+        )
+
+        response = self.api.put(
+            f'/api/properties/{land_property.pk}/',
+            {
+                'title': 'Участок для обновления',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PROPERTY_TYPE_LAND,
+                'address': self.address.pk,
+                'price': 3_250_000,
+                'area_total': '1200.00',
+                'rooms_count': None,
+                'floor_number': None,
+                'building_details_data': {
+                    'year_built': None,
+                    'total_floors': None,
+                    'building_material': None,
+                    'elevators_count': 0,
+                },
+                'property_details_data': {
+                    'living_area': None,
+                    'kitchen_area': None,
+                    'ceiling_height': None,
+                    'balcony_count': None,
+                    'bathroom_count': None,
+                    'bathroom_type': None,
+                    'renovation_type': None,
+                    'bedrooms_count': None,
+                    'floors_count': None,
+                    'land_area': '1200.00',
+                },
+                'commercial_property_details_data': {
+                    'commercial_type': None,
+                    'usable_area': None,
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        land_property.refresh_from_db()
+        self.assertEqual(land_property.price, 3_250_000)
+        self.assertIsNone(land_property.rooms_count)
+        self.assertIsNone(land_property.floor_number)
+        self.assertIsNone(land_property.total_floors)
+
 
 class AuditLogApiTests(TestCase):
     def setUp(self):

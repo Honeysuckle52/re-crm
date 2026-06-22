@@ -1035,8 +1035,8 @@ class PropertyDetailsWriteSerializer(serializers.Serializer):
     living_area = serializers.DecimalField(required=False, allow_null=True, max_digits=8, decimal_places=2)
     kitchen_area = serializers.DecimalField(required=False, allow_null=True, max_digits=8, decimal_places=2)
     ceiling_height = serializers.DecimalField(required=False, allow_null=True, max_digits=4, decimal_places=2)
-    balcony_count = serializers.IntegerField(required=False, min_value=0)
-    bathroom_count = serializers.IntegerField(required=False, min_value=0)
+    balcony_count = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    bathroom_count = serializers.IntegerField(required=False, allow_null=True, min_value=0)
     bathroom_type = serializers.PrimaryKeyRelatedField(
         queryset=models.BathroomType.objects.all(),
         required=False,
@@ -1099,6 +1099,84 @@ class PropertyTypeField(serializers.RelatedField):
 
 class PropertySerializer(serializers.ModelSerializer):
     """Сериализатор объекта недвижимости."""
+    PROPERTY_TYPE_SCHEMAS = {
+        models.Property.PROPERTY_TYPE_APARTMENT: {
+            'forbidden_top_level': ('total_floors',),
+            'property_details_fields': {
+                'living_area',
+                'kitchen_area',
+                'ceiling_height',
+                'balcony_count',
+                'bathroom_count',
+                'bathroom_type',
+                'renovation_type',
+                'bedrooms_count',
+            },
+            'commercial_details_fields': set(),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_HOUSE: {
+            'forbidden_top_level': ('floor_number',),
+            'property_details_fields': {
+                'living_area',
+                'kitchen_area',
+                'ceiling_height',
+                'balcony_count',
+                'bathroom_count',
+                'bathroom_type',
+                'renovation_type',
+                'bedrooms_count',
+                'floors_count',
+                'land_area',
+            },
+            'commercial_details_fields': set(),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_ROOM: {
+            'forbidden_top_level': ('total_floors',),
+            'property_details_fields': {
+                'living_area',
+                'kitchen_area',
+                'ceiling_height',
+                'bathroom_count',
+                'bathroom_type',
+                'renovation_type',
+                'bedrooms_count',
+            },
+            'commercial_details_fields': set(),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_LAND: {
+            'forbidden_top_level': ('rooms_count', 'floor_number', 'total_floors'),
+            'property_details_fields': {'land_area'},
+            'commercial_details_fields': set(),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_GARAGE: {
+            'forbidden_top_level': ('rooms_count', 'floor_number', 'total_floors'),
+            'property_details_fields': {'renovation_type'},
+            'commercial_details_fields': set(),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_COMMERCIAL: {
+            'forbidden_top_level': ('rooms_count', 'floor_number', 'total_floors'),
+            'property_details_fields': set(),
+            'commercial_details_fields': {
+                'commercial_type',
+                'usable_area',
+                'ceiling_height',
+                'floor_load',
+                'electric_power_kw',
+                'has_separate_entrance',
+                'has_display_windows',
+                'is_first_line',
+                'parking_spaces',
+            },
+            'required': ('area_total',),
+        },
+    }
+    _MISSING = object()
+
     operation_type_name = serializers.CharField(source='operation_type.name',
                                                 read_only=True)
     status_name = serializers.CharField(source='status.name', read_only=True)
@@ -1127,14 +1205,11 @@ class PropertySerializer(serializers.ModelSerializer):
     owner_username = serializers.SerializerMethodField()
     owner_email = serializers.SerializerMethodField()
     owner_phone = serializers.SerializerMethodField()
-    building_details_data = BuildingDetailsWriteSerializer(required=False, write_only=True)
-    property_details_data = PropertyDetailsWriteSerializer(required=False, write_only=True)
-    commercial_property_details_data = CommercialPropertyDetailsWriteSerializer(required=False, write_only=True)
+    building_details_data = BuildingDetailsWriteSerializer(required=False, allow_null=True, write_only=True)
+    property_details_data = PropertyDetailsWriteSerializer(required=False, allow_null=True, write_only=True)
+    commercial_property_details_data = CommercialPropertyDetailsWriteSerializer(required=False, allow_null=True, write_only=True)
     total_floors = serializers.IntegerField(required=False, allow_null=True, min_value=0)
-    premises_type = serializers.ChoiceField(
-        choices=models.Property.PREMISES_TYPE_CHOICES,
-        required=False,
-    )
+    premises_type = PropertyTypeField(source='property_type_ref', required=False, allow_null=True)
     is_published = serializers.BooleanField(required=False)
     price_per_sqm = serializers.FloatField(read_only=True)
     address_data = AddressNestedWriteSerializer(required=False, write_only=True)
@@ -1301,7 +1376,10 @@ class PropertySerializer(serializers.ModelSerializer):
         )
 
     def _upsert_property_details(self, property_obj, payload):
+        if payload is self._MISSING:
+            return
         if payload is None:
+            models.PropertyDetails.objects.filter(property=property_obj).delete()
             return
         defaults = dict(payload)
         # Defaults для жилых полей применяем только когда они не гараж/земля/коммерция.
@@ -1320,7 +1398,10 @@ class PropertySerializer(serializers.ModelSerializer):
         )
 
     def _upsert_commercial_details(self, property_obj, payload):
+        if payload is self._MISSING:
+            return
         if payload is None:
+            models.CommercialPropertyDetails.objects.filter(property=property_obj).delete()
             return
         defaults = dict(payload)
         defaults.setdefault('has_separate_entrance', False)
@@ -1383,53 +1464,67 @@ class PropertySerializer(serializers.ModelSerializer):
 
     # Поля, которые не применимы для конкретного типа недвижимости.
     # Фронт уже их обнуляет, но сервер тоже должен их игнорировать/очищать.
-    FIELD_RESTRICTIONS = {
-        # тип -> на��ор полей, которые должны быть None/пусты
-        models.Property.PROPERTY_TYPE_COMMERCIAL: {
-            'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
-            'required': ('area_total',),
-        },
-        models.Property.PROPERTY_TYPE_LAND: {
-            'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
-            'required': (),
-        },
-        models.Property.PROPERTY_TYPE_GARAGE: {
-            'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
-            'required': (),
-        },
-        models.Property.PROPERTY_TYPE_ROOM: {
-            'forbidden': ('total_floors',),
-            'required': (),
-        },
-        models.Property.PROPERTY_TYPE_HOUSE: {
-            'forbidden': ('floor_number',),
-            'required': (),
-        },
-    }
+    def _normalize_property_type_code(self, value):
+        if isinstance(value, models.PropertyType):
+            value = value.code
+        code = (value or '').strip() if isinstance(value, str) else value
+        if code in {'office', 'warehouse'}:
+            return models.Property.PROPERTY_TYPE_COMMERCIAL
+        return code
+
+    def _get_property_type_schema(self, premises_type):
+        return self.PROPERTY_TYPE_SCHEMAS.get(
+            self._normalize_property_type_code(premises_type),
+            {},
+        )
+
+    def _sanitize_nested_payload(self, payload, allowed_fields):
+        if payload is self._MISSING:
+            return self._MISSING
+        if payload in (None, ''):
+            return None
+        sanitized = {
+            key: value
+            for key, value in dict(payload).items()
+            if key in allowed_fields
+        }
+        return sanitized or None
+
+    def _sanitize_property_attrs(self, attrs, instance):
+        premises_type = self._normalize_property_type_code(
+            attrs.get('property_type_ref', getattr(instance, 'property_type_ref', None)),
+        )
+        schema = self._get_property_type_schema(premises_type)
+        for field in schema.get('forbidden_top_level', ()):
+            if field in attrs:
+                attrs[field] = None
+
+        attrs['property_details_data'] = self._sanitize_nested_payload(
+            attrs.get('property_details_data', self._MISSING),
+            schema.get('property_details_fields', set()),
+        )
+        attrs['commercial_property_details_data'] = self._sanitize_nested_payload(
+            attrs.get('commercial_property_details_data', self._MISSING),
+            schema.get('commercial_details_fields', set()),
+        )
+        if schema.get('commercial_details_fields') or premises_type in (
+            models.Property.PROPERTY_TYPE_LAND,
+            models.Property.PROPERTY_TYPE_GARAGE,
+        ):
+            attrs['building_details_data'] = None
+        return premises_type, schema
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = self.instance
-        premises_type = attrs.get(
-            'premises_type',
-            getattr(instance, 'premises_type', None),
-        )
-        area_total = attrs.get(
-            'area_total',
-            getattr(instance, 'area_total', None),
-        )
+        premises_type, schema = self._sanitize_property_attrs(attrs, instance)
 
         errors = {}
 
         # Автоматически очищаем запрещённые поля вместо ошибки,
         # чтобы фронт не мог случайно прислать мусор, и при этом
         # форма не ломалась, если поле скрыто.
-        restriction = self.FIELD_RESTRICTIONS.get(premises_type, {})
-        for field in restriction.get('forbidden', ()):
-            if field in attrs and attrs[field] not in (None, ''):
-                attrs[field] = None
-
-        for field in restriction.get('required', ()):
+        for field in schema.get('required', ()):
             val = attrs.get(field, getattr(instance, field, None))
             if val in (None, ''):
                 errors[field] = f'Для данного типа объекта поле "{field}" обязательно.'
@@ -1486,8 +1581,8 @@ class PropertySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         address_data = validated_data.pop('address_data', None)
         building_details_data = validated_data.pop('building_details_data', None)
-        property_details_data = validated_data.pop('property_details_data', None)
-        commercial_property_details_data = validated_data.pop('commercial_property_details_data', None)
+        property_details_data = validated_data.pop('property_details_data', self._MISSING)
+        commercial_property_details_data = validated_data.pop('commercial_property_details_data', self._MISSING)
         amenity_ids = validated_data.pop('amenity_ids', None)
         if address_data and not validated_data.get('house'):
             validated_data['house'] = self._resolve_address(address_data)
@@ -1507,8 +1602,8 @@ class PropertySerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         address_data = validated_data.pop('address_data', None)
         building_details_data = validated_data.pop('building_details_data', None)
-        property_details_data = validated_data.pop('property_details_data', None)
-        commercial_property_details_data = validated_data.pop('commercial_property_details_data', None)
+        property_details_data = validated_data.pop('property_details_data', self._MISSING)
+        commercial_property_details_data = validated_data.pop('commercial_property_details_data', self._MISSING)
         amenity_ids = validated_data.pop('amenity_ids', None)
         if address_data:
             validated_data['house'] = self._resolve_address(address_data)

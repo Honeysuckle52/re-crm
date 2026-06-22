@@ -43,12 +43,12 @@
         <strong class="pd-kpi-card__value">{{ property.area_total ? property.area_total + ' м²' : '—' }}</strong>
         <span class="pd-kpi-card__meta">общая площадь</span>
       </article>
-      <article class="pd-kpi-card">
+      <article v-if="showRoomsInfo" class="pd-kpi-card">
         <span class="pd-kpi-card__label">Комнат</span>
         <strong class="pd-kpi-card__value">{{ formatRoomsValue(property.premises_type, property.rooms_count) }}</strong>
         <span class="pd-kpi-card__meta">{{ premisesTypeLabel(property.premises_type) }}</span>
       </article>
-      <article class="pd-kpi-card">
+      <article v-if="showFloorInfo || showBuildingFacts" class="pd-kpi-card">
         <span class="pd-kpi-card__label">Этаж</span>
         <strong class="pd-kpi-card__value">{{ property.floor_number || '—' }}</strong>
         <span class="pd-kpi-card__meta">из {{ property.total_floors || property.building_details?.total_floors || '—' }}</span>
@@ -235,7 +235,7 @@
 
     <!-- ── Основная сетка: параметры + описание ─────────────── -->
     <div class="grid grid--2">
-      <!-- Параметры -->
+      <!-- ????????? -->
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div>
@@ -245,27 +245,24 @@
           <span class="pd-status-badge">{{ property.status_name }}</span>
         </div>
         <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Тип объекта"        :value="property.property_type_name || premisesTypeLabel(property.premises_type) || '—'" />
-          <InfoRow label="Кадастровый номер"  :value="property.cadastral_number || '—'" />
-          <InfoRow label="Стоимость"           :value="formatMoney(property.price) + ' ₽'" />
-          <InfoRow label="Стоимость за м²"    :value="property.price_per_sqm ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
-          <InfoRow label="Общая площадь"       :value="property.area_total ? property.area_total + ' м²' : '—'" />
-          <InfoRow label="Количество комнат"   :value="formatRoomsValue(property.premises_type, property.rooms_count)" />
-          <InfoRow label="Этаж / всего"        :value="(property.floor_number || '—') + ' / ' + (property.total_floors || '—')" />
-          <InfoRow label="Опубликован"         :value="property.is_published ? 'Да' : 'Нет'" />
+          <InfoRow label="Тип объекта" :value="property.property_type_name || premisesTypeLabel(property.premises_type) || '—'" />
+          <InfoRow label="Кадастровый номер" :value="property.cadastral_number || '—'" />
+          <InfoRow label="Стоимость" :value="formatMoney(property.price) + ' ₽'" />
+          <InfoRow label="Стоимость за м²" :value="property.price_per_sqm ? formatMoney(property.price_per_sqm) + ' ₽' : '—'" />
+          <InfoRow label="Общая площадь" :value="property.area_total ? property.area_total + ' м²' : '—'" />
+          <InfoRow v-if="showRoomsInfo" label="Количество комнат" :value="formatRoomsValue(property.premises_type, property.rooms_count)" />
+          <InfoRow v-if="showFloorInfo || showBuildingFacts" label="Этаж / всего" :value="(property.floor_number || '—') + ' / ' + ((property.total_floors || property.building_details?.total_floors) || '—')" />
+          <InfoRow label="Опубликован" :value="property.is_published ? 'Да' : 'Нет'" />
           <template v-if="auth.isAdminOrManager">
-            <InfoRow label="Дата создания"      :value="property.created_at ? formatDate(property.created_at) : '—'" />
-            <InfoRow label="Дата обновления"    :value="property.updated_at ? formatDate(property.updated_at) : '—'" />
-            <InfoRow label="Дата публикации"    :value="property.published_at ? formatDate(property.published_at) : '—'" />
-            <InfoRow label="Снят с публикации"  :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
-            <InfoRow label="Координаты"         :value="property.coordinates_lat && property.coordinates_lon
-                                                  ? property.coordinates_lat + ', ' + property.coordinates_lon
-                                                  : '—'" />
-            <InfoRow label="Владелец"           :value="property.owner_username || '—'" />
+            <InfoRow label="Дата создания" :value="property.created_at ? formatDate(property.created_at) : '—'" />
+            <InfoRow label="Дата обновления" :value="property.updated_at ? formatDate(property.updated_at) : '—'" />
+            <InfoRow label="Дата публикации" :value="property.published_at ? formatDate(property.published_at) : '—'" />
+            <InfoRow label="Снят с публикации" :value="property.unpublished_at ? formatDate(property.unpublished_at) : '—'" />
+            <InfoRow label="Координаты" :value="property.coordinates_lat && property.coordinates_lon ? property.coordinates_lat + ', ' + property.coordinates_lon : '—'" />
+            <InfoRow label="Владелец" :value="property.owner_username || '—'" />
           </template>
         </div>
 
-        <!-- История цен: кнопка -->
         <button v-if="priceHistory.length"
                 class="pd-price-history-btn"
                 @click="showPriceHistory = true">
@@ -277,7 +274,6 @@
         </button>
       </div>
 
-      <!-- Описание -->
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div class="surface-head__meta">Описание и теги</div>
@@ -288,7 +284,6 @@
           {{ property.description || 'Описание не заполнено.' }}
         </p>
 
-        <!-- Удобства в описании -->
         <template v-if="amenities.length">
           <div class="pd-amenities-label">Удобства и особенности</div>
           <div class="pd-amenities">
@@ -304,7 +299,6 @@
       </div>
     </div>
 
-    <!-- ── Дом + детали помещения ────────────────────────────── -->
     <div class="grid grid--2">
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
@@ -313,64 +307,56 @@
         </div>
         <h2 class="h3">Информация о здании</h2>
         <div class="stack" style="margin-top: 12px">
-          <InfoRow label="Адрес"             :value="property.full_address
-                                              || [
-                                                   property.house_data?.street?.city?.name ? 'г. ' + property.house_data.street.city.name : null,
-                                                   property.house_data?.street?.name ? (property.house_data.street.street_type || 'ул.') + ' ' + property.house_data.street.name : null,
-                                                   property.house_data?.house_number ? 'д. ' + property.house_data.house_number : null,
-                                                 ].filter(Boolean).join(', ')
-                                              || '—'" />
-          <InfoRow label="Город"             :value="property.house_data?.street?.city?.name || '—'" />
-          <InfoRow label="Регион"            :value="property.house_data?.street?.city?.region || '—'" />
-          <InfoRow label="Улица"             :value="property.house_data?.street?.name || '—'" />
-          <InfoRow label="Тип улицы"         :value="property.house_data?.street?.street_type || '—'" />
-          <InfoRow label="Дом"               :value="property.house_data?.house_number || '—'" />
-          <InfoRow label="Почтовый индекс"   :value="property.house_data?.postal_code || '—'" />
-          <InfoRow label="Год постройки"     :value="property.building_details?.year_built || '—'" />
-          <InfoRow label="Этажей в доме"     :value="property.building_details?.total_floors || '—'" />
-          <InfoRow label="Материал стен"     :value="property.building_details?.building_material_data?.name || '—'" />
-          <InfoRow label="Лифты"             :value="property.building_details?.elevators_count ?? '—'" />
+          <InfoRow label="Адрес" :value="property.full_address || [property.house_data?.street?.city?.name ? 'г. ' + property.house_data.street.city.name : null, property.house_data?.street?.name ? (property.house_data.street.street_type || 'ул.') + ' ' + property.house_data.street.name : null, property.house_data?.house_number ? 'д. ' + property.house_data.house_number : null].filter(Boolean).join(', ') || '—'" />
+          <InfoRow label="Город" :value="property.house_data?.street?.city?.name || '—'" />
+          <InfoRow label="Регион" :value="property.house_data?.street?.city?.region || '—'" />
+          <InfoRow label="Улица" :value="property.house_data?.street?.name || '—'" />
+          <InfoRow label="Тип улицы" :value="property.house_data?.street?.street_type || '—'" />
+          <InfoRow label="Дом" :value="property.house_data?.house_number || '—'" />
+          <InfoRow label="Почтовый индекс" :value="property.house_data?.postal_code || '—'" />
+          <InfoRow v-if="showBuildingFacts" label="Год постройки" :value="property.building_details?.year_built || '—'" />
+          <InfoRow v-if="showBuildingFacts" label="Этажей в доме" :value="property.building_details?.total_floors || '—'" />
+          <InfoRow v-if="showBuildingFacts" label="Материал стен" :value="property.building_details?.building_material_data?.name || '—'" />
+          <InfoRow v-if="showBuildingFacts" label="Лифты" :value="property.building_details?.elevators_count ?? '—'" />
         </div>
       </div>
 
       <div class="panel panel--light">
         <div class="surface-head property-surface-head">
           <div class="surface-head__meta">
-            {{ normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial' ? 'Коммерция' : 'Жилая часть' }}
+            {{ isCommercialProperty ? 'Коммерция' : showGarageInfo ? 'Гараж' : showLandInfo && !showResidentialInfo ? 'Участок' : 'Жилая часть' }}
           </div>
           <div class="surface-head__caption">Детали из связанных таблиц</div>
         </div>
         <h2 class="h3">
-          {{ normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial' ? 'Коммерческие параметры' : 'Жилые параметры' }}
+          {{ isCommercialProperty ? 'Коммерческие параметры' : showGarageInfo ? 'Параметры гаража' : showLandInfo && !showResidentialInfo ? 'Параметры участка' : 'Жилые параметры' }}
         </h2>
-        <div v-if="normalizePropertyType(property.property_type_code || property.premises_type) === 'commercial'"
-             class="stack" style="margin-top: 12px">
-          <InfoRow label="Тип коммерции"        :value="property.commercial_property_details?.commercial_type_data?.name || '—'" />
-          <InfoRow label="Полезная площадь"      :value="property.commercial_property_details?.usable_area ? property.commercial_property_details.usable_area + ' м²' : '—'" />
-          <InfoRow label="Высота потолков"       :value="property.commercial_property_details?.ceiling_height ? property.commercial_property_details.ceiling_height + ' м' : '—'" />
-          <InfoRow label="Нагрузка на пол"       :value="property.commercial_property_details?.floor_load ? property.commercial_property_details.floor_load + ' кг/м²' : '—'" />
+        <div v-if="isCommercialProperty" class="stack" style="margin-top: 12px">
+          <InfoRow label="Тип коммерции" :value="property.commercial_property_details?.commercial_type_data?.name || '—'" />
+          <InfoRow label="Полезная площадь" :value="property.commercial_property_details?.usable_area ? property.commercial_property_details.usable_area + ' м²' : '—'" />
+          <InfoRow label="Высота потолков" :value="property.commercial_property_details?.ceiling_height ? property.commercial_property_details.ceiling_height + ' м' : '—'" />
+          <InfoRow label="Нагрузка на пол" :value="property.commercial_property_details?.floor_load ? property.commercial_property_details.floor_load + ' кг/м²' : '—'" />
           <InfoRow label="Электрическая мощность" :value="property.commercial_property_details?.electric_power_kw ? property.commercial_property_details.electric_power_kw + ' кВт' : '—'" />
-          <InfoRow label="Отдельный вход"        :value="property.commercial_property_details?.has_separate_entrance ? 'Да' : 'Нет'" />
-          <InfoRow label="Витринные окна"        :value="property.commercial_property_details?.has_display_windows ? 'Да' : 'Нет'" />
-          <InfoRow label="Первая линия"          :value="property.commercial_property_details?.is_first_line ? 'Да' : 'Нет'" />
-          <InfoRow label="Парковочные места"     :value="property.commercial_property_details?.parking_spaces ?? '—'" />
+          <InfoRow label="Отдельный вход" :value="property.commercial_property_details?.has_separate_entrance ? 'Да' : 'Нет'" />
+          <InfoRow label="Витринные окна" :value="property.commercial_property_details?.has_display_windows ? 'Да' : 'Нет'" />
+          <InfoRow label="Первая линия" :value="property.commercial_property_details?.is_first_line ? 'Да' : 'Нет'" />
+          <InfoRow label="Парковочные места" :value="property.commercial_property_details?.parking_spaces ?? '—'" />
         </div>
         <div v-else class="stack" style="margin-top: 12px">
-          <InfoRow label="Жилая площадь"         :value="property.property_details?.living_area ? property.property_details.living_area + ' м²' : '—'" />
-          <InfoRow label="Площадь кухни"         :value="property.property_details?.kitchen_area ? property.property_details.kitchen_area + ' м²' : '—'" />
-          <InfoRow label="Высота потолков"       :value="property.property_details?.ceiling_height ? property.property_details.ceiling_height + ' м' : '—'" />
-          <InfoRow label="Балконы"               :value="property.property_details?.balcony_count ?? '—'" />
-          <InfoRow label="Санузлы"               :value="property.property_details?.bathroom_count ?? '—'" />
-          <InfoRow label="Тип санузла"           :value="property.property_details?.bathroom_type_data?.name || '—'" />
-          <InfoRow label="Тип ремонта"           :value="property.property_details?.renovation_type_data?.name || '—'" />
-          <InfoRow label="Спальни"               :value="property.property_details?.bedrooms_count ?? '—'" />
-          <InfoRow label="Этажей в помещении"    :value="property.property_details?.floors_count ?? '—'" />
-          <InfoRow label="Площадь участка"       :value="property.property_details?.land_area ? property.property_details.land_area + ' м²' : '—'" />
+          <InfoRow v-if="showResidentialInfo" label="Жилая площадь" :value="property.property_details?.living_area ? property.property_details.living_area + ' м²' : '—'" />
+          <InfoRow v-if="showResidentialInfo" label="Площадь кухни" :value="property.property_details?.kitchen_area ? property.property_details.kitchen_area + ' м²' : '—'" />
+          <InfoRow v-if="showResidentialInfo" label="Высота потолков" :value="property.property_details?.ceiling_height ? property.property_details.ceiling_height + ' м' : '—'" />
+          <InfoRow v-if="propertyTypeSchema.showBalcony" label="Балконы" :value="property.property_details?.balcony_count ?? '—'" />
+          <InfoRow v-if="propertyTypeSchema.showBathroom" label="Санузлы" :value="property.property_details?.bathroom_count ?? '—'" />
+          <InfoRow v-if="propertyTypeSchema.showBathroom" label="Тип санузла" :value="property.property_details?.bathroom_type_data?.name || '—'" />
+          <InfoRow v-if="propertyTypeSchema.showRenovation" label="Тип ремонта" :value="property.property_details?.renovation_type_data?.name || '—'" />
+          <InfoRow v-if="propertyTypeSchema.showBedrooms" label="Спальни" :value="property.property_details?.bedrooms_count ?? '—'" />
+          <InfoRow v-if="propertyTypeSchema.showPrivateHouseFloors" label="Этажей в помещении" :value="property.property_details?.floors_count ?? '—'" />
+          <InfoRow v-if="showLandInfo" label="Площадь участка" :value="property.property_details?.land_area ? property.property_details.land_area + ' м²' : '—'" />
         </div>
       </div>
     </div>
 
-    <!-- ── Просмотры клиента ──────────────────────────────────── -->
     <div v-if="clientViewings.length" class="panel panel--light">
       <div class="surface-head property-surface-head">
         <div>
@@ -540,7 +526,7 @@ import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney, formatDate } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
-import { formatRoomsValue, normalizePropertyType, propertyTypeLabel } from '@/utils/propertyTypes'
+import { formatRoomsValue, getPropertyTypeSchema, normalizePropertyType, propertyTypeLabel } from '@/utils/propertyTypes'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
@@ -594,6 +580,17 @@ const priceHistory = computed(() => property.value?.price_history || [])
 const priceLabel = computed(() => (
   property.value?.price ? `${formatMoney(property.value.price)} ₽` : '—'
 ))
+const propertyTypeCode = computed(() => normalizePropertyType(
+  property.value?.property_type_code || property.value?.premises_type,
+))
+const propertyTypeSchema = computed(() => getPropertyTypeSchema(propertyTypeCode.value))
+const isCommercialProperty = computed(() => propertyTypeSchema.value.showCommercialDetails)
+const showBuildingFacts = computed(() => propertyTypeSchema.value.showBuildingDetails)
+const showRoomsInfo = computed(() => propertyTypeSchema.value.showRooms)
+const showFloorInfo = computed(() => propertyTypeSchema.value.showFloor)
+const showResidentialInfo = computed(() => propertyTypeSchema.value.showResidentialDetails)
+const showGarageInfo = computed(() => propertyTypeSchema.value.showGarageRenovationOnly)
+const showLandInfo = computed(() => propertyTypeSchema.value.showLandArea)
 const allowedStatuses = computed(() => {
   const allowedIds = new Set(property.value?.allowed_status_ids || [])
   return statuses.value.filter((status) => allowedIds.has(status.id))

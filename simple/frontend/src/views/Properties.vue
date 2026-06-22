@@ -414,11 +414,9 @@ import { useConfirmStore } from '../store/confirm'
 import { extractError, useToastsStore } from '../store/toasts'
 import { DEFAULT_PAGE_SIZE, LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import {
+  getPropertyTypeSchema,
   normalizePropertyType,
-  propertyTypeHasFloor,
   propertyTypeIsCommercial,
-  propertyTypeUsesFloor,
-  propertyTypeUsesRooms,
 } from '@/utils/propertyTypes'
 
 const auth = useAuthStore()
@@ -502,26 +500,25 @@ const sectionOpenState = reactive({
 })
 
 const selectedPremisesType = computed(() => normalizePropertyType(filters.premises_type))
-const isApartmentOrRoom = computed(() => ['apartment', 'room'].includes(selectedPremisesType.value))
+const selectedPropertyTypeSchema = computed(() => getPropertyTypeSchema(selectedPremisesType.value))
 const isHouse = computed(() => selectedPremisesType.value === 'house')
 const isCommercial = computed(() => propertyTypeIsCommercial(selectedPremisesType.value))
 const isLand = computed(() => selectedPremisesType.value === 'land')
 const isGarage = computed(() => selectedPremisesType.value === 'garage')
-const isResidential = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
 // "О доме": материал стен, год постройки — только жилые (квартира, комната, дом)
 // Этажность дома — только дом
 // Коммерция и гараж не имеют раздела "О доме"
-const canUseBuildingMaterial = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
-const canUseYearBuilt = computed(() => ['apartment', 'house', 'room'].includes(selectedPremisesType.value))
-const canUseBathroomType = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
-const canUseRenovationType = computed(() => ['apartment', 'room', 'house', 'garage'].includes(selectedPremisesType.value))
-const canUseLandArea = computed(() => ['house', 'land'].includes(selectedPremisesType.value))
-const canUseRooms = computed(() => ['apartment', 'house', 'room'].includes(selectedPremisesType.value))
-const canUseFloor = computed(() => propertyTypeUsesFloor(selectedPremisesType.value))
+const canUseBuildingMaterial = computed(() => selectedPropertyTypeSchema.value.showBuildingMaterialFilter)
+const canUseYearBuilt = computed(() => selectedPropertyTypeSchema.value.showYearBuiltFilter)
+const canUseBathroomType = computed(() => selectedPropertyTypeSchema.value.showBathroomFilter)
+const canUseRenovationType = computed(() => selectedPropertyTypeSchema.value.showRenovationFilter)
+const canUseLandArea = computed(() => selectedPropertyTypeSchema.value.showLandFilters)
+const canUseRooms = computed(() => selectedPropertyTypeSchema.value.showRooms)
+const canUseFloor = computed(() => selectedPropertyTypeSchema.value.showFloor)
 // Раздел "О доме" — только для жилых (без коммерции, без гаража, без земли)
-const showHouseSection = computed(() => canUseBuildingMaterial.value || canUseYearBuilt.value || isHouse.value)
+const showHouseSection = computed(() => canUseBuildingMaterial.value || canUseYearBuilt.value || selectedPropertyTypeSchema.value.showTotalFloorsFilter)
 // Раздел "О помещении" — жилые + гараж (только ремонт для гаража)
-const showSpaceSection = computed(() => isApartmentOrRoom.value || isHouse.value || isGarage.value)
+const showSpaceSection = computed(() => selectedPropertyTypeSchema.value.showResidentialDetails || selectedPropertyTypeSchema.value.showGarageRenovationOnly)
 const showRoomsFilter = computed(() => canUseRooms.value)
 const filterSections = computed(() => ([
   { key: 'main', title: 'Основное', visible: true },
@@ -790,46 +787,39 @@ watch(() => route.name, async () => {
 
 watch(() => filters.premises_type, (value) => {
   const type = normalizePropertyType(value)
-  // Комнаты — только квартира, дом, комната
-  if (!['apartment', 'house', 'room'].includes(type)) {
+  const schema = getPropertyTypeSchema(type)
+
+  if (!schema.showRooms) {
     filters.rooms = ''
   }
-  // Этаж (номер) — только квартира и комната
-  if (!['apartment', 'room'].includes(type)) {
+  if (!schema.showFloor) {
     filters.floor_number = ''
     filters.not_first_floor = false
     filters.not_last_floor = false
   }
-  // Материал стен — только жилые (квартира, дом, к��мната)
-  if (!['apartment', 'room', 'house'].includes(type)) {
+  if (!schema.showBuildingMaterialFilter) {
     filters.building_material = ''
   }
-  // Год постройки — только жилые
-  if (!['apartment', 'house', 'room'].includes(type)) {
+  if (!schema.showYearBuiltFilter) {
     filters.year_built_from = ''
     filters.year_built_to = ''
   }
-  // Участок — дом и земля
-  if (!['house', 'land'].includes(type)) {
+  if (!schema.showLandFilters) {
     filters.min_land_area = null
     filters.max_land_area = null
   } else if (type === 'house') {
     filters.max_land_area = null
   }
-  // Санузел — квартира, дом, комната
-  if (!['apartment', 'room', 'house'].includes(type)) {
+  if (!schema.showBathroomFilter) {
     filters.bathroom_type = ''
   }
-  // Ремонт — квартира, дом, комната, гараж
-  if (!['apartment', 'room', 'house', 'garage'].includes(type)) {
+  if (!schema.showRenovationFilter) {
     filters.renovation_type = ''
   }
-  // Этажность дома — только дом
-  if (type !== 'house') {
+  if (!schema.showTotalFloorsFilter) {
     filters.total_floors = ''
   }
-  // Коммерческие поля — только commercial
-  if (!propertyTypeIsCommercial(type)) {
+  if (!schema.showCommercialFilters) {
     filters.commercial_type = ''
     filters.has_separate_entrance = false
     filters.is_first_line = false

@@ -149,31 +149,40 @@ def _task_operation_filter_q(operation_type_id) -> Q:
 
 
 def _apply_property_filters(qs, params):
+    premises_type = (params.get('premises_type') or '').strip()
+    type_allows_rooms = premises_type in {'', models.Property.PROPERTY_TYPE_APARTMENT, models.Property.PROPERTY_TYPE_HOUSE, models.Property.PROPERTY_TYPE_ROOM}
+    type_allows_floor = premises_type in {'', models.Property.PROPERTY_TYPE_APARTMENT, models.Property.PROPERTY_TYPE_ROOM}
+    type_allows_house_filters = premises_type in {'', models.Property.PROPERTY_TYPE_APARTMENT, models.Property.PROPERTY_TYPE_HOUSE, models.Property.PROPERTY_TYPE_ROOM}
+    type_allows_bathroom = type_allows_house_filters
+    type_allows_renovation = premises_type in {'', models.Property.PROPERTY_TYPE_APARTMENT, models.Property.PROPERTY_TYPE_HOUSE, models.Property.PROPERTY_TYPE_ROOM, models.Property.PROPERTY_TYPE_GARAGE}
+    type_allows_land = premises_type in {'', models.Property.PROPERTY_TYPE_HOUSE, models.Property.PROPERTY_TYPE_LAND}
+    type_allows_total_floors = premises_type in {'', models.Property.PROPERTY_TYPE_HOUSE}
+    type_allows_commercial = premises_type in {'', models.Property.PROPERTY_TYPE_COMMERCIAL}
+
     if params.get('operation_type'):
         qs = qs.filter(operation_type_id=params['operation_type'])
     if params.get('status'):
         qs = qs.filter(status_id=params['status'])
-    if params.get('rooms'):
+    if type_allows_rooms and params.get('rooms'):
         rooms = str(params['rooms']).strip()
         if rooms.endswith('+') and rooms[:-1].isdigit():
             qs = qs.filter(rooms_count__gte=int(rooms[:-1]))
         else:
             qs = qs.filter(rooms_count=rooms)
-    if params.get('floor_number'):
+    if type_allows_floor and params.get('floor_number'):
         qs = qs.filter(floor_number=params['floor_number'])
-    if params.get('total_floors'):
+    if type_allows_total_floors and params.get('total_floors'):
         total_floors = str(params['total_floors']).strip()
         if total_floors.endswith('+') and total_floors[:-1].isdigit():
             qs = qs.filter(house__building_details__total_floors__gte=int(total_floors[:-1]))
         else:
             qs = qs.filter(house__building_details__total_floors=total_floors)
-    if params.get('floor_number__gt'):
+    if type_allows_floor and params.get('floor_number__gt'):
         qs = qs.filter(floor_number__gt=params['floor_number__gt'])
     if params.get('min_area'):
         qs = qs.filter(area_total__gte=params['min_area'])
     if params.get('max_area'):
         qs = qs.filter(area_total__lte=params['max_area'])
-    premises_type = (params.get('premises_type') or '').strip()
     if premises_type:
         qs = qs.filter(property_type_ref__code=premises_type)
     owner = (params.get('owner') or '').strip()
@@ -183,31 +192,31 @@ def _apply_property_filters(qs, params):
         qs = qs.filter(price__gte=params['min_price'])
     if params.get('max_price'):
         qs = qs.filter(price__lte=params['max_price'])
-    if params.get('renovation_type'):
+    if type_allows_renovation and params.get('renovation_type'):
         qs = qs.filter(details__renovation_type_id=params['renovation_type'])
-    if params.get('bathroom_type'):
+    if type_allows_bathroom and params.get('bathroom_type'):
         qs = qs.filter(details__bathroom_type_id=params['bathroom_type'])
-    if params.get('building_material'):
+    if type_allows_house_filters and params.get('building_material'):
         qs = qs.filter(house__building_details__building_material_id=params['building_material'])
-    if params.get('commercial_type'):
+    if type_allows_commercial and params.get('commercial_type'):
         qs = qs.filter(commercial_details__commercial_type_id=params['commercial_type'])
-    if _parse_bool_param(params.get('has_separate_entrance')) is True:
+    if type_allows_commercial and _parse_bool_param(params.get('has_separate_entrance')) is True:
         qs = qs.filter(commercial_details__has_separate_entrance=True)
-    if _parse_bool_param(params.get('is_first_line')) is True:
+    if type_allows_commercial and _parse_bool_param(params.get('is_first_line')) is True:
         qs = qs.filter(commercial_details__is_first_line=True)
-    if _parse_bool_param(params.get('has_display_windows')) is True:
+    if type_allows_commercial and _parse_bool_param(params.get('has_display_windows')) is True:
         qs = qs.filter(commercial_details__has_display_windows=True)
-    if params.get('min_parking_spaces'):
+    if type_allows_commercial and params.get('min_parking_spaces'):
         qs = qs.filter(commercial_details__parking_spaces__gte=params['min_parking_spaces'])
-    if params.get('min_land_area'):
+    if type_allows_land and params.get('min_land_area'):
         qs = qs.filter(details__land_area__gte=params['min_land_area'])
-    if params.get('max_land_area'):
+    if type_allows_land and params.get('max_land_area'):
         qs = qs.filter(details__land_area__lte=params['max_land_area'])
-    if params.get('year_built_from'):
+    if type_allows_house_filters and params.get('year_built_from'):
         qs = qs.filter(house__building_details__year_built__gte=params['year_built_from'])
-    if params.get('year_built_to'):
+    if type_allows_house_filters and params.get('year_built_to'):
         qs = qs.filter(house__building_details__year_built__lte=params['year_built_to'])
-    if _parse_bool_param(params.get('not_last_floor')) is True:
+    if type_allows_floor and _parse_bool_param(params.get('not_last_floor')) is True:
         qs = qs.filter(
             Q(floor_number__lt=F('house__building_details__total_floors')),
         )
@@ -959,35 +968,41 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         changed_fields = sorted(serializer.validated_data.keys())
-        before_snapshot = audit_service.snapshot_fields(
-            serializer.instance,
-            changed_fields,
-        )
         old_price = serializer.instance.price
         property_obj = serializer.save()
-        new_price = property_obj.price
-        if 'price' in changed_fields and old_price != new_price:
-            models.PropertyPriceHistory.objects.create(
-                property=property_obj,
-                old_price=old_price,
-                new_price=new_price,
-                changed_by=self.request.user,
+        try:
+            before_snapshot = audit_service.snapshot_fields(
+                serializer.instance,
+                changed_fields,
             )
-        field_changes = audit_service.diff_field_snapshots(
-            before_snapshot,
-            audit_service.snapshot_fields(property_obj, changed_fields),
-        )
-        audit_service.log_event(
-            entity=property_obj,
-            action_code='updated',
-            action_label='Редактирование объекта',
-            actor=self.request.user,
-            message='Карточка объекта обновлена.',
-            metadata={
-                'changed_fields': changed_fields,
-                'field_changes': field_changes,
-            },
-        )
+            new_price = property_obj.price
+            if 'price' in changed_fields and old_price != new_price:
+                models.PropertyPriceHistory.objects.create(
+                    property=property_obj,
+                    old_price=old_price,
+                    new_price=new_price,
+                    changed_by=self.request.user,
+                )
+            field_changes = audit_service.diff_field_snapshots(
+                before_snapshot,
+                audit_service.snapshot_fields(property_obj, changed_fields),
+            )
+            audit_service.log_event(
+                entity=property_obj,
+                action_code='updated',
+                action_label='Редактирование объекта',
+                actor=self.request.user,
+                message='Карточка объекта обновлена.',
+                metadata={
+                    'changed_fields': changed_fields,
+                    'field_changes': field_changes,
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).exception(
+                'Property post-update hooks failed for property pk=%s',
+                property_obj.pk,
+            )
 
     def perform_destroy(self, instance):
         audit_service.log_event(

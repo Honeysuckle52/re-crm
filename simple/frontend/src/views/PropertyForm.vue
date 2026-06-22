@@ -142,34 +142,6 @@
             </div>
           </div>
 
-          <div v-if="displayCoords.lat !== null || displayCoords.lon !== null" class="grid grid--2 property-form__grid property-form__coords-row">
-            <div class="field">
-              <label class="property-form__coords-label">
-                Широта
-                <span class="tag property-form__coords-tag">DaData</span>
-              </label>
-              <input
-                class="input property-form__coords-input"
-                type="text"
-                :value="displayCoords.lat ?? '—'"
-                readonly
-                tabindex="-1"
-              />
-            </div>
-            <div class="field">
-              <label class="property-form__coords-label">
-                Долгота
-                <span class="tag property-form__coords-tag">DaData</span>
-              </label>
-              <input
-                class="input property-form__coords-input"
-                type="text"
-                :value="displayCoords.lon ?? '—'"
-                readonly
-                tabindex="-1"
-              />
-            </div>
-          </div>
         </div>
       </section>
 
@@ -752,12 +724,9 @@ import { useAuthStore } from '../store/auth'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import { formatDate } from '@/utils/formatters'
 import {
+  getPropertyTypeSchema,
   normalizePropertyType,
-  propertyTypeHasFloor,
-  propertyTypeHasLand,
   propertyTypeIsCommercial,
-  propertyTypeUsesFloor,
-  propertyTypeUsesRooms,
 } from '@/utils/propertyTypes'
 
 const route = useRoute()
@@ -919,53 +888,38 @@ let isInitializingForm = false
 
 const currentYear = new Date().getFullYear()
 const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
+const propertyTypeSchema = computed(() => getPropertyTypeSchema(normalizedPremisesType.value))
 const isCommercialType = computed(() => propertyTypeIsCommercial(normalizedPremisesType.value))
 const isHouseType = computed(() => normalizedPremisesType.value === 'house')
-const isApartmentType = computed(() => normalizedPremisesType.value === 'apartment')
-const isRoomType = computed(() => normalizedPremisesType.value === 'room')
 const isLandType = computed(() => normalizedPremisesType.value === 'land')
 const isGarageType = computed(() => normalizedPremisesType.value === 'garage')
 // "О доме": скрываем для земли, гаража и коммерции (у коммерции свой блок)
-const showBuildingDetailsSection = computed(() => !isLandType.value && !isGarageType.value && !isCommercialType.value)
+const showBuildingDetailsSection = computed(() => propertyTypeSchema.value.showBuildingDetails)
 // Комнаты: только квартира, дом, комната
-const showRoomsField = computed(() => propertyTypeUsesRooms(normalizedPremisesType.value))
+const showRoomsField = computed(() => propertyTypeSchema.value.showRooms)
 // Этаж (номер): только квартира и комната
-const showFloorField = computed(() => propertyTypeUsesFloor(normalizedPremisesType.value))
+const showFloorField = computed(() => propertyTypeSchema.value.showFloor)
 // Площадь участка: дом и земля
-const showLandAreaField = computed(() => propertyTypeHasLand(normalizedPremisesType.value))
+const showLandAreaField = computed(() => propertyTypeSchema.value.showLandArea)
 // Балкон: только квартира и дом
-const showBalconyField = computed(() => isApartmentType.value || isHouseType.value)
+const showBalconyField = computed(() => propertyTypeSchema.value.showBalcony)
 // Жилая площадь + кухня + высота потолков: квартира, дом, комната
-const showResidentialAreaFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+const showResidentialAreaFields = computed(() => propertyTypeSchema.value.showResidentialArea)
 // Санузел: квартира, дом, комната
-const showBathroomFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+const showBathroomFields = computed(() => propertyTypeSchema.value.showBathroom)
 // Ремонт: квартира, дом, комната, гараж
-const showRenovationField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value || isGarageType.value)
+const showRenovationField = computed(() => propertyTypeSchema.value.showRenovation)
 // Спальни: квартира, дом, комната
-const showBedroomField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+const showBedroomField = computed(() => propertyTypeSchema.value.showBedrooms)
 // Блок "О помещении" (жилое): не для коммерции, не для земли, не для гаража (гараж видит только ремонт)
-const showResidentialDetailsSection = computed(() => !isCommercialType.value && !isLandType.value)
+const showResidentialDetailsSection = computed(() => propertyTypeSchema.value.showResidentialDetails)
 // Гараж отображает только тип ремонта в разделе "О помещении"
-const showGarageRenovationOnly = computed(() => isGarageType.value)
+const showGarageRenovationOnly = computed(() => propertyTypeSchema.value.showGarageRenovationOnly)
 const currentStepMeta = computed(() => steps.find((step) => step.id === currentStep.value) || steps[0])
 const propertyOwners = computed(() => propertyData.value?.owners || [])
 const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
 
 // Coordinates: prefer freshly picked from DaData, fall back to saved on existing object
-const displayCoords = computed(() => {
-  if (addressPicked.value) {
-    return {
-      lat: addressPicked.value.geo_lat ?? null,
-      lon: addressPicked.value.geo_lon ?? null,
-    }
-  }
-  if (isEdit.value && propertyData.value) {
-    const lat = propertyData.value.coordinates_lat ?? propertyData.value.address_data?.geo_lat ?? null
-    const lon = propertyData.value.coordinates_lon ?? propertyData.value.address_data?.geo_lon ?? null
-    return { lat, lon }
-  }
-  return { lat: null, lon: null }
-})
 const isPropertyDirty = computed(() => propertyDirtySnapshot.value !== propertyBaseline.value)
 const currentStepErrors = computed(() => touchedSteps[currentStep.value] ? getStepErrors(currentStep.value) : [])
 const fieldErrors = computed(() => getFieldErrorsForStep(currentStep.value))
@@ -1431,6 +1385,112 @@ function stripDataKeys(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([key]) => !key.endsWith('_data')))
 }
 
+function resetPropertyTypeSpecificFields(type) {
+  const schema = getPropertyTypeSchema(type)
+
+  if (!schema.showRooms) {
+    form.rooms_count = null
+  }
+  if (!schema.showFloor) {
+    form.floor_number = null
+  }
+  if (!schema.showBuildingDetails) {
+    form.building_details.year_built = null
+    form.building_details.total_floors = null
+    form.building_details.building_material = null
+    form.building_details.elevators_count = null
+  }
+  if (!schema.showResidentialArea) {
+    form.property_details.living_area = null
+    form.property_details.kitchen_area = null
+    form.property_details.ceiling_height = null
+  }
+  if (!schema.showBalcony) {
+    form.property_details.balcony_count = null
+  }
+  if (!schema.showBathroom) {
+    form.property_details.bathroom_count = null
+    form.property_details.bathroom_type = null
+  }
+  if (!schema.showRenovation) {
+    form.property_details.renovation_type = null
+  }
+  if (!schema.showBedrooms) {
+    form.property_details.bedrooms_count = null
+  }
+  if (!schema.showPrivateHouseFloors) {
+    form.property_details.floors_count = null
+  }
+  if (!schema.showLandArea) {
+    form.property_details.land_area = null
+  }
+  if (!schema.showCommercialDetails) {
+    form.commercial_property_details.commercial_type = null
+    form.commercial_property_details.usable_area = null
+    form.commercial_property_details.ceiling_height = null
+    form.commercial_property_details.floor_load = null
+    form.commercial_property_details.electric_power_kw = null
+    form.commercial_property_details.parking_spaces = null
+    form.commercial_property_details.has_separate_entrance = false
+    form.commercial_property_details.has_display_windows = false
+    form.commercial_property_details.is_first_line = false
+  }
+}
+
+function buildPropertyPayload() {
+  const schema = getPropertyTypeSchema(form.premises_type)
+
+  return {
+    title: form.title,
+    operation_type: form.operation_type,
+    status: form.status,
+    premises_type: form.premises_type,
+    price: form.price,
+    area_total: form.area_total,
+    rooms_count: schema.showRooms ? form.rooms_count : null,
+    floor_number: schema.showFloor ? form.floor_number : null,
+    cadastral_number: form.cadastral_number || null,
+    is_published: !!form.is_published,
+    description: form.description,
+    building_details_data: schema.showBuildingDetails ? stripDataKeys({
+      year_built: form.building_details.year_built || null,
+      total_floors: form.building_details.total_floors || null,
+      building_material: form.building_details.building_material || null,
+      elevators_count: form.building_details.elevators_count ?? 0,
+    }) : null,
+    property_details_data: schema.showCommercialDetails
+      ? null
+      : schema.showGarageRenovationOnly
+        ? stripDataKeys({
+          renovation_type: form.property_details.renovation_type || null,
+        })
+        : stripDataKeys({
+          living_area: schema.showResidentialArea ? (form.property_details.living_area || null) : null,
+          kitchen_area: schema.showResidentialArea ? (form.property_details.kitchen_area || null) : null,
+          ceiling_height: schema.showResidentialArea ? (form.property_details.ceiling_height || null) : null,
+          balcony_count: schema.showBalcony ? (form.property_details.balcony_count ?? 0) : null,
+          bathroom_count: schema.showBathroom ? (form.property_details.bathroom_count ?? 1) : null,
+          bathroom_type: schema.showBathroom ? (form.property_details.bathroom_type || null) : null,
+          renovation_type: schema.showRenovation ? (form.property_details.renovation_type || null) : null,
+          bedrooms_count: schema.showBedrooms ? (form.property_details.bedrooms_count ?? null) : null,
+          floors_count: schema.showPrivateHouseFloors ? (form.property_details.floors_count ?? 1) : null,
+          land_area: schema.showLandArea ? (form.property_details.land_area || null) : null,
+        }),
+    commercial_property_details_data: schema.showCommercialDetails ? stripDataKeys({
+      commercial_type: form.commercial_property_details.commercial_type || null,
+      usable_area: form.commercial_property_details.usable_area || null,
+      ceiling_height: form.commercial_property_details.ceiling_height || null,
+      floor_load: form.commercial_property_details.floor_load ?? null,
+      electric_power_kw: form.commercial_property_details.electric_power_kw ?? null,
+      parking_spaces: form.commercial_property_details.parking_spaces ?? null,
+      has_separate_entrance: !!form.commercial_property_details.has_separate_entrance,
+      has_display_windows: !!form.commercial_property_details.has_display_windows,
+      is_first_line: !!form.commercial_property_details.is_first_line,
+    }) : null,
+    amenity_ids: [...form.amenity_ids],
+  }
+}
+
 async function initializeForm() {
   const seq = ++initSeq
   loading.value = true
@@ -1659,6 +1719,12 @@ function parseServerErrors(data) {
   return { message, step: firstStep, fields }
 }
 
+function isHtmlErrorResponse(data) {
+  if (typeof data !== 'string') return false
+  const normalized = data.trim().toLowerCase()
+  return normalized.startsWith('<!doctype html') || normalized.startsWith('<html')
+}
+
 async function submit() {
   loading.value = true
   error.value = ''
@@ -1666,58 +1732,7 @@ async function submit() {
   errorDetails.step = null
   errorDetails.fields = []
   try {
-    const payload = {
-      title: form.title,
-      operation_type: form.operation_type,
-      status: form.status,
-      premises_type: form.premises_type,
-      price: form.price,
-      area_total: form.area_total,
-      rooms_count: showRoomsField.value ? form.rooms_count : null,
-      floor_number: showFloorField.value ? form.floor_number : null,
-      cadastral_number: form.cadastral_number || null,
-      is_published: !!form.is_published,
-      description: form.description,
-      building_details_data: isLandType.value || isGarageType.value ? null : stripDataKeys({
-        year_built: form.building_details.year_built || null,
-        total_floors: form.building_details.total_floors || null,
-        building_material: form.building_details.building_material || null,
-        elevators_count: form.building_details.elevators_count ?? 0,
-      }),
-      property_details_data: isCommercialType.value
-        // Коммерция хранит детали в commercial_property_details
-        ? null
-        : isGarageType.value
-          // Гараж хранит только тип ремонта
-          ? stripDataKeys({
-            renovation_type: form.property_details.renovation_type || null,
-          })
-          : stripDataKeys({
-            living_area: showResidentialAreaFields.value ? (form.property_details.living_area || null) : null,
-            kitchen_area: showResidentialAreaFields.value ? (form.property_details.kitchen_area || null) : null,
-            ceiling_height: showResidentialAreaFields.value ? (form.property_details.ceiling_height || null) : null,
-            balcony_count: showBalconyField.value ? (form.property_details.balcony_count ?? 0) : 0,
-            bathroom_count: showBathroomFields.value ? (form.property_details.bathroom_count ?? 1) : 0,
-            bathroom_type: showBathroomFields.value ? (form.property_details.bathroom_type || null) : null,
-            renovation_type: showRenovationField.value ? (form.property_details.renovation_type || null) : null,
-            bedrooms_count: showBedroomField.value ? (form.property_details.bedrooms_count ?? null) : null,
-            floors_count: isHouseType.value ? (form.property_details.floors_count ?? 1) : null,
-            land_area: showLandAreaField.value ? (form.property_details.land_area || null) : null,
-          }),
-      commercial_property_details_data: isCommercialType.value ? stripDataKeys({
-        commercial_type: form.commercial_property_details.commercial_type || null,
-        usable_area: form.commercial_property_details.usable_area || null,
-        ceiling_height: form.commercial_property_details.ceiling_height || null,
-        floor_load: form.commercial_property_details.floor_load ?? null,
-        electric_power_kw: form.commercial_property_details.electric_power_kw ?? null,
-        parking_spaces: form.commercial_property_details.parking_spaces ?? 0,
-        has_separate_entrance: !!form.commercial_property_details.has_separate_entrance,
-        has_display_windows: !!form.commercial_property_details.has_display_windows,
-        is_first_line: !!form.commercial_property_details.is_first_line,
-      }) : null,
-      amenity_ids: [...form.amenity_ids],
-    }
-
+    const payload = buildPropertyPayload()
     if (addressPicked.value) {
       // User selected a new address from DaData suggestions
       payload.address_data = addressPicked.value
@@ -1742,6 +1757,13 @@ async function submit() {
     router.push(`/properties/${data.id}`)
   } catch (e) {
     const data = e.response?.data
+    if (isHtmlErrorResponse(data)) {
+      error.value = 'Не удалось сохранить объект. Сервер вернул внутреннюю ошибку.'
+      errorDetails.message = error.value
+      errorDetails.step = currentStep.value
+      errorDetails.fields = []
+      return
+    }
     if (typeof data === 'object' && data) {
       const parsed = parseServerErrors(data)
       errorDetails.message = parsed.message
@@ -1753,7 +1775,7 @@ async function submit() {
         currentStep.value = parsed.step
       }
     } else {
-      error.value = e.message || extractError(e, 'Не удалось сохранить объект.')
+      error.value = extractError(e, 'Не удалось сохранить объект. Попробуйте ещё раз.')
       errorDetails.message = error.value
     }
   } finally {
@@ -1775,96 +1797,10 @@ watch(addressQuery, (value) => {
 })
 
 watch(() => form.premises_type, (value) => {
-  // Не очищаем поля при первичной загрузке данных в форму редактирования
   if (isInitializingForm) return
   const type = normalizePropertyType(value)
   if (!type) return
-  if (!propertyTypeUsesRooms(type)) {
-    form.rooms_count = null
-  }
-  if (!propertyTypeUsesFloor(type)) {
-    form.floor_number = null
-  }
-  if (type !== 'house') {
-    form.property_details.floors_count = null
-  }
-  if (!propertyTypeHasLand(type)) {
-    form.property_details.land_area = null
-  }
-  if (['land', 'garage'].includes(type)) {
-    form.building_details.year_built = null
-    form.building_details.total_floors = null
-    form.building_details.building_material = null
-    form.building_details.elevators_count = null
-  }
-  // Жилые поля: квартира, дом, комната (и гараж сохраняет renovation_type)
-  if (!['apartment', 'house', 'room', 'garage'].includes(type)) {
-    form.property_details.renovation_type = null
-  }
-  if (!['apartment', 'house', 'room'].includes(type)) {
-    form.property_details.living_area = null
-    form.property_details.kitchen_area = null
-    form.property_details.ceiling_height = null
-    form.property_details.balcony_count = null
-    form.property_details.bathroom_count = null
-    form.property_details.bathroom_type = null
-    form.property_details.bedrooms_count = null
-  }
-  if (type === 'room') {
-    form.property_details.balcony_count = null
-    form.property_details.floors_count = null
-    form.property_details.land_area = null
-  }
-  if (type === 'garage') {
-    form.rooms_count = null
-    form.floor_number = null
-    form.property_details.living_area = null
-    form.property_details.kitchen_area = null
-    form.property_details.ceiling_height = null
-    form.property_details.balcony_count = null
-    form.property_details.bathroom_count = null
-    form.property_details.bathroom_type = null
-    form.property_details.bedrooms_count = null
-    form.property_details.floors_count = null
-    form.property_details.land_area = null
-  }
-  if (type === 'land') {
-    form.rooms_count = null
-    form.floor_number = null
-    form.property_details.living_area = null
-    form.property_details.kitchen_area = null
-    form.property_details.ceiling_height = null
-    form.property_details.balcony_count = null
-    form.property_details.bathroom_count = null
-    form.property_details.bathroom_type = null
-    form.property_details.renovation_type = null
-    form.property_details.bedrooms_count = null
-    form.property_details.floors_count = null
-  }
-  if (propertyTypeIsCommercial(type)) {
-    form.rooms_count = null
-    form.floor_number = null
-    form.property_details.floors_count = null
-    form.property_details.land_area = null
-    form.property_details.living_area = null
-    form.property_details.kitchen_area = null
-    form.property_details.ceiling_height = null
-    form.property_details.bathroom_count = null
-    form.property_details.bathroom_type = null
-    form.property_details.renovation_type = null
-    form.property_details.bedrooms_count = null
-    form.property_details.balcony_count = null
-  } else {
-    form.commercial_property_details.commercial_type = null
-    form.commercial_property_details.usable_area = null
-    form.commercial_property_details.ceiling_height = null
-    form.commercial_property_details.floor_load = null
-    form.commercial_property_details.electric_power_kw = null
-    form.commercial_property_details.parking_spaces = null
-    form.commercial_property_details.has_separate_entrance = false
-    form.commercial_property_details.has_display_windows = false
-    form.commercial_property_details.is_first_line = false
-  }
+  resetPropertyTypeSpecificFields(type)
 })
 
 onBeforeUnmount(() => {
