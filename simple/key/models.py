@@ -451,7 +451,7 @@ class TaskStatus(models.Model):
     class Meta:
         db_table = 'task_statuses'
         verbose_name = 'Статус задачи'
-        verbose_name_plural = 'Статусы задач'
+        verbose_name_plural = 'Статус�� задач'
         ordering = ['order']
 
     def __str__(self):
@@ -633,7 +633,9 @@ class UserRole(models.Model):
         if value in (None, ''):
             return default
         try:
-            return int(value)
+            result = int(value)
+            # Лимиты не могут быть меньше 1 — ноль и отрицательные значения недопустимы.
+            return result if result >= 1 else default
         except (TypeError, ValueError):
             return default
 

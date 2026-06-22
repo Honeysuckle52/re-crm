@@ -734,6 +734,15 @@ class UserViewSet(viewsets.ModelViewSet):
             self._ensure_profile_for_user_type(target, requested_user_type)
         return Response(serializers.UserSerializer(target).data)
 
+    def perform_destroy(self, instance):
+        """Запрещает администратору удалять собственную учётную запись."""
+        if instance.pk == self.request.user.pk:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                'Нельзя удалить собственную учётную запись.'
+            )
+        super().perform_destroy(instance)
+
     @action(detail=False, methods=['get'], url_path='me/workload',
             permission_classes=[IsAuthenticated])
     def my_workload(self, request):

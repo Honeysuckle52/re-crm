@@ -175,9 +175,28 @@ class TaskStatusSerializer(serializers.ModelSerializer):
 
 
 class UserRoleSerializer(serializers.ModelSerializer):
+    max_active_tasks = serializers.IntegerField(
+        min_value=1,
+        default=models.UserRole.DEFAULT_MAX_ACTIVE_TASKS,
+        help_text='Минимальное значение — 1.',
+    )
+    max_in_progress_tasks = serializers.IntegerField(
+        min_value=1,
+        default=models.UserRole.DEFAULT_MAX_IN_PROGRESS_TASKS,
+        help_text='Минимальное значение — 1.',
+    )
+    max_active_requests = serializers.IntegerField(
+        min_value=1,
+        default=models.UserRole.DEFAULT_MAX_ACTIVE_REQUESTS,
+        help_text='Минимальное значение — 1.',
+    )
+
     class Meta:
         model = models.UserRole
-        fields = ['id', 'code', 'name', 'description']
+        fields = [
+            'id', 'code', 'name', 'description',
+            'max_active_tasks', 'max_in_progress_tasks', 'max_active_requests',
+        ]
 
 
 class CodeNameLookupSerializer(serializers.ModelSerializer):
