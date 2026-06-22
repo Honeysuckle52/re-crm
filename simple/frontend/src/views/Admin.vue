@@ -99,19 +99,19 @@
         <h2 class="h2">Сотрудники агентства</h2>
         <router-link to="/clients" class="btn btn--sm">Все →</router-link>
       </div>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Логин</th>
-            <th>Почта</th>
-            <th>Должность</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Почта</th>
+              <th>ФИО</th>
+              <th>Должность</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
           <tr v-for="u in employees.slice(0, 8)" :key="u.id">
-            <td><b>{{ u.username }}</b></td>
             <td>{{ u.email || '—' }}</td>
+            <td><b>{{ u.full_name || '—' }}</b></td>
             <td>{{ u.role_name || '—' }}</td>
             <td style="text-align: right">
               <button class="btn btn--sm" @click="openAssign(u)">
@@ -136,12 +136,12 @@
           <select class="select" v-model.number="assignUserId">
             <option :value="null" disabled>— выберите пользователя —</option>
             <option v-for="u in users" :key="u.id" :value="u.id">
-              {{ u.username }} — {{ u.email || 'без почты' }}
+              {{ u.full_name || u.email || `Пользователь #${u.id}` }}
             </option>
           </select>
         </div>
         <div v-else class="muted">
-          Пользователь <b>{{ assignUser.username }}</b>.
+          Пользователь <b>{{ assignUser.full_name || assignUser.email || `#${assignUser.id}` }}</b>.
         </div>
         <div class="field">
           <label>Тип учётной записи</label>

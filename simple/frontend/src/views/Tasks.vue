@@ -881,7 +881,9 @@ const {
 } = useBulkSelection(filtered)
 
 function displayName(user) {
-  return user.full_name && user.full_name !== '—' ? user.full_name : user.username
+  return user.full_name && user.full_name !== '—'
+    ? user.full_name
+    : (user.email || `Пользователь #${user.id}`)
 }
 
 function mapAssigneeOption(user) {

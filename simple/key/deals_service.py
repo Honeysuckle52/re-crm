@@ -32,7 +32,7 @@ def _resolve_property_for_request(request_obj: models.Request) -> Optional[model
     """Определяет объект сделки по заявке."""
     confirmed = (
         request_obj.matches
-        .filter(is_confirmed=True, is_rejected=False)
+        .filter(status__code='confirmed')
         .select_related('property')
         .order_by('-confirmed_at', '-created_at')
         .first()

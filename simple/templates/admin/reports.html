@@ -148,6 +148,32 @@
   font-weight: 700;
   color: var(--rpt-text);
 }
+.rpt-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.rpt-insight {
+  border: 1px solid #dbe4ee;
+  background: #f9fbfd;
+  border-radius: 6px;
+  padding: 11px 13px;
+}
+.rpt-insight__lbl {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--rpt-muted);
+  margin-bottom: 5px;
+}
+.rpt-insight__val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  line-height: 1.45;
+  word-break: break-word;
+}
 
 /* ── Экспорт ────────────────────────────────────────────────────── */
 .rpt-export {
@@ -247,7 +273,7 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 12.5px;
-  table-layout: auto;
+  table-layout: fixed;
 }
 .rpt-tbl th,
 .rpt-tbl td {
@@ -256,6 +282,8 @@
   vertical-align: top;
   word-break: break-word;
   overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.45;
 }
 .rpt-tbl thead th {
   background: var(--rpt-head);
@@ -264,10 +292,11 @@
   text-transform: uppercase;
   letter-spacing: .3px;
   color: var(--rpt-text);
-  white-space: nowrap;
+  white-space: normal;
   position: sticky;
   top: 0;
   z-index: 2;
+  text-align: left;
 }
 .rpt-tbl tbody tr:nth-child(even) td { background: #f9fbfc; }
 .rpt-tbl tbody tr:hover td { background: var(--rpt-accent-lt); }
@@ -309,6 +338,9 @@
   padding: 6px 9px;
   border-bottom: 1px solid #eef0f3;
   vertical-align: middle;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 .rpt-top-tbl th {
   background: var(--rpt-head);
@@ -432,6 +464,24 @@
       </div>
     </div>
   </div>
+
+  {% if insight_items %}
+    <div class="rpt-card">
+      <div class="rpt-card__head">
+        <h3>Аналитические выводы</h3>
+      </div>
+      <div class="rpt-card__body">
+        <div class="rpt-insights">
+          {% for label, value in insight_items %}
+            <div class="rpt-insight">
+              <div class="rpt-insight__lbl">{{ label }}</div>
+              <div class="rpt-insight__val">{{ value }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
 
   {# ── Фильтры ─────────────────────────────────────────────────── #}
   <div class="rpt-card">

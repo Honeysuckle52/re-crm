@@ -14,6 +14,19 @@ router.register('request-statuses', views.RequestStatusViewSet)
 router.register('deal-statuses', views.DealStatusViewSet)
 router.register('task-statuses', views.TaskStatusViewSet)
 router.register('user-roles', views.UserRoleViewSet)
+router.register('property-types', views.PropertyTypeViewSet)
+router.register('building-materials', views.BuildingMaterialViewSet)
+router.register('bathroom-types', views.BathroomTypeViewSet)
+router.register('renovation-types', views.RenovationTypeViewSet)
+router.register('commercial-property-types', views.CommercialPropertyTypeViewSet)
+router.register('amenities', views.AmenityViewSet)
+router.register('viewing-statuses', views.ViewingStatusViewSet)
+router.register('task-priorities', views.TaskPriorityViewSet)
+router.register('task-types', views.TaskTypeViewSet)
+router.register('client-kinds', views.ClientKindViewSet)
+router.register('contact-methods', views.ContactMethodViewSet)
+router.register('contract-statuses', views.ContractStatusViewSet)
+router.register('user-types', views.UserTypeViewSet)
 
 # Адреса
 router.register('cities', views.CityViewSet)
@@ -57,6 +70,11 @@ urlpatterns = [
     # Сводка для дашборда
     path('dashboard/stats/', views.DashboardStatsView.as_view(),
          name='dashboard_stats'),
+
+    # Отчёты
+    path('reports/deals/', views.DealsReportView.as_view(), name='reports_deals'),
+    path('reports/tasks/', views.TasksReportView.as_view(), name='reports_tasks'),
+    path('reports/viewing-payments/', views.ViewingPaymentsReportView.as_view(), name='reports_viewing_payments'),
 
     path('', include(router.urls)),
 ]

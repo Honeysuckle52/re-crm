@@ -20,7 +20,7 @@
 
       <div class="row" style="gap: 10px; flex-wrap: wrap; margin-bottom: 12px">
         <input class="input" v-model="search"
-               placeholder="Поиск по логину, почте или телефону" style="flex: 1; min-width: 240px" />
+               placeholder="Поиск по почте или телефону" style="flex: 1; min-width: 240px" />
         <select class="select" v-model="typeFilter" style="max-width: 200px">
           <option value="">Все</option>
           <option value="client">Клиенты</option>
@@ -64,8 +64,8 @@
         <table class="table table--responsive-cards">
           <thead>
             <tr>
-              <th>Логин</th>
               <th>Почта</th>
+              <th>ФИО</th>
               <th>Телефон</th>
               <th>Тип</th>
               <th>Должность</th>
@@ -75,8 +75,8 @@
           </thead>
           <tbody>
             <tr v-for="u in users" :key="u.id">
-              <td data-label="Логин"><b>{{ u.username }}</b></td>
               <td>{{ u.email || '—' }}</td>
+              <td data-label="ФИО"><b>{{ u.full_name || '—' }}</b></td>
               <td>{{ u.phone || '—' }}</td>
               <td>
                 <span class="tag" :class="u.user_type === 'employee' ? 'tag--panel' : 'tag--accent'">
@@ -115,7 +115,7 @@
           <button class="btn btn--sm" @click="assignOpen = false">×</button>
         </div>
         <p class="muted">
-          Пользователь <b>{{ assignUser?.username }}</b>.
+          Пользователь <b>{{ assignUser?.full_name || assignUser?.email || `#${assignUser?.id}` }}</b>.
           Установите тип учётной записи и должность.
         </p>
         <div class="field">

@@ -1829,16 +1829,16 @@ class RequestViewSet(viewsets.ModelViewSet):
             update_fields = []
             if match.is_rejected:
                 match.is_rejected = False
-                update_fields.append('is_rejected')
+                update_fields.append('status')
             if not match.is_offered:
                 match.is_offered = True
-                update_fields.append('is_offered')
+                update_fields.append('status')
             if was_rejected and was_confirmed:
                 match.is_confirmed = False
                 match.confirmed_at = None
                 match.confirmed_by = None
                 update_fields.extend(
-                    ['is_confirmed', 'confirmed_at', 'confirmed_by'],
+                    ['status', 'confirmed_at', 'confirmed_by'],
                 )
             if request.data.get('agent_note') is not None:
                 match.agent_note = request.data['agent_note']

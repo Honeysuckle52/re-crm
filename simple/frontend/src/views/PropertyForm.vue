@@ -1105,16 +1105,16 @@ function formatCoordinate(value) {
 function mapClientProfileOption(profile) {
   return {
     id: profile.id,
-    label: [profile.last_name, profile.first_name, profile.middle_name].filter(Boolean).join(' ') || profile.username || `Клиент #${profile.id}`,
-    hint: profile.username || profile.user?.username || profile.user?.email || '',
+    label: [profile.last_name, profile.first_name, profile.middle_name].filter(Boolean).join(' ') || profile.user?.email || `Клиент #${profile.id}`,
+    hint: profile.user?.email || '',
   }
 }
 
 function mapEmployeeProfileOption(profile) {
   return {
     id: profile.id,
-    label: [profile.last_name, profile.first_name, profile.middle_name].filter(Boolean).join(' ') || profile.username || `Сотрудник #${profile.id}`,
-    hint: profile.username || profile.user?.username || profile.user?.email || '',
+    label: [profile.last_name, profile.first_name, profile.middle_name].filter(Boolean).join(' ') || profile.user?.email || `Сотрудник #${profile.id}`,
+    hint: profile.user?.email || '',
   }
 }
 

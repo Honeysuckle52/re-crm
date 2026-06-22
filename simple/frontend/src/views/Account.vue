@@ -21,9 +21,6 @@
     <div class="grid grid--2">
       <div class="panel panel--light stack">
         <h2 class="h3">Основные данные</h2>
-        <InfoRow v-if="!auth.isClient"
-                 label="Логин"
-                 :value="auth.user?.username" />
         <InfoRow label="Электронная почта"  :value="auth.user?.email" />
         <InfoRow label="Телефон"            :value="auth.user?.phone || '—'" />
         <InfoRow v-if="!auth.isClient"

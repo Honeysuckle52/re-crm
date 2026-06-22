@@ -136,14 +136,10 @@
 
         <div v-if="error" class="error">{{ error }}</div>
 
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
+        <div class="row" style="gap: 8px; justify-content: space-between">
           <button class="btn btn--ghost" type="button" @click="step = 1"
                   :disabled="loading">
             ← Назад
-          </button>
-          <button class="btn" type="button" @click="submitWithoutExtras"
-                  :disabled="loading">
-            {{ loading ? '…' : 'Пропустить и зарегистрироваться' }}
           </button>
           <button class="btn btn--accent" type="submit" :disabled="loading">
             {{ loading ? 'Создание…' : 'Зарегистрироваться' }}
@@ -374,11 +370,15 @@ async function doRegister (extended) {
     verificationToken.value = result.verification_token || ''
     verificationCode.value = ''
     step.value = 3
-    error.value = ''
+    if (result.email_sent === false) {
+      error.value = 'Не удалось доставить письмо с кодом. Нажмите «Отправить код ещё раз» или свяжитесь с поддержкой.'
+    } else {
+      error.value = ''
+    }
   } catch (e) {
     const data = e.response?.data || {}
-    error.value = flattenErrors(data)
-      || 'Не удалось создать учётную запись'
+    const msg = flattenErrors(data) || 'Не удалось создать учётную запись'
+    error.value = msg
     if (data.email || data.password || data.phone || data.first_name || data.last_name) {
       step.value = 1
     }
@@ -388,7 +388,6 @@ async function doRegister (extended) {
 }
 
 function submit () { return doRegister(true) }
-function submitWithoutExtras () { return doRegister(false) }
 
 function formatVerificationCode () {
   verificationCode.value = digitsOnly(verificationCode.value).slice(0, 6)
@@ -423,7 +422,7 @@ async function resendCode () {
     await auth.resendEmailCode(verificationToken.value)
     error.value = 'Новый код отправлен на почту.'
   } catch (e) {
-    error.value = flattenErrors(e.response?.data) || 'Не удалось отправить код повторно.'
+    error.value = flattenErrors(e.response?.data) || 'Не удалось отправить код ��овторно.'
   } finally {
     resendLoading.value = false
   }

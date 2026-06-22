@@ -80,7 +80,7 @@
             <option value="">Все сотрудники</option>
             <option value="me">Я</option>
             <option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">
-              {{ employee.username }}
+              {{ employee.full_name || employee.email || `Сотрудник #${employee.id}` }}
             </option>
           </select>
         </div>
@@ -127,7 +127,7 @@
             <option value="">Все сотрудники</option>
             <option value="me">Я</option>
             <option v-for="employee in employees" :key="employee.id" :value="String(employee.id)">
-              {{ employee.username }}
+              {{ employee.full_name || employee.email || `Сотрудник #${employee.id}` }}
             </option>
           </select>
         </div>

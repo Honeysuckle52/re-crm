@@ -152,6 +152,97 @@ def _ensure_contact_task(
     return task, True
 
 
+def _showing_task_title(request_obj: models.Request) -> str:
+    if request_obj.property_id and request_obj.property:
+        return f'Организовать показ объекта по заявке №{request_obj.pk}'
+    return f'Организовать показ по заявке №{request_obj.pk}'
+
+
+def _showing_task_description(request_obj: models.Request) -> str:
+    client_name = getattr(request_obj.client, 'username', 'клиентом')
+    property_title = (
+        request_obj.property.title
+        if request_obj.property_id and request_obj.property
+        else 'выбранного объекта'
+    )
+    lines = [
+        f'Клиент {client_name} заинтересован в просмотре объекта по заявке №{request_obj.pk}.',
+        f'Нужно согласовать и назначить реальный показ объекта: {property_title}.',
+    ]
+    if request_obj.description:
+        lines.append(f'Комментарий клиента: {request_obj.description}')
+    return '\n'.join(lines)
+
+
+def _property_search_task_title(request_obj: models.Request) -> str:
+    return f'Подобрать объекты по заявке №{request_obj.pk}'
+
+
+def _property_search_task_description(request_obj: models.Request) -> str:
+    client_name = getattr(request_obj.client, 'username', 'клиентом')
+    lines = [
+        f'Подберите релевантные варианты для клиента {client_name} по заявке №{request_obj.pk}.',
+    ]
+    if request_obj.description:
+        lines.append(f'Пожелания клиента: {request_obj.description}')
+    return '\n'.join(lines)
+
+
+def _ensure_followup_task(
+    request_obj: models.Request,
+    *,
+    agent: models.User,
+) -> tuple[models.Task | None, bool]:
+    desired_type = (
+        models.Task.TASK_TYPE_SHOWING
+        if request_obj.property_id
+        else models.Task.TASK_TYPE_PROPERTY_SEARCH
+    )
+    existing = (
+        request_obj.tasks
+        .filter(task_type=desired_type, assignee=agent)
+        .order_by('-created_at')
+        .first()
+    )
+    if existing is not None:
+        return existing, False
+
+    status_new = _task_status_by_code('new')
+    if status_new is None:
+        raise ValidationError(
+            {'detail': 'Справочник статусов задач не заполнен: отсутствует код "new".'}
+        )
+
+    if desired_type == models.Task.TASK_TYPE_SHOWING:
+        task = models.Task.objects.create(
+            title=_showing_task_title(request_obj),
+            description=_showing_task_description(request_obj),
+            priority='high',
+            task_type=desired_type,
+            status=status_new,
+            assignee=agent,
+            created_by=agent,
+            client=request_obj.client,
+            property=request_obj.property,
+            request=request_obj,
+            due_date=timezone.now() + timedelta(days=1),
+        )
+    else:
+        task = models.Task.objects.create(
+            title=_property_search_task_title(request_obj),
+            description=_property_search_task_description(request_obj),
+            priority='high',
+            task_type=desired_type,
+            status=status_new,
+            assignee=agent,
+            created_by=agent,
+            client=request_obj.client,
+            request=request_obj,
+            due_date=timezone.now() + timedelta(days=2),
+        )
+    return task, True
+
+
 @transaction.atomic
 def sync_request_assignment(
     request_obj: models.Request,
@@ -185,6 +276,17 @@ def sync_request_assignment(
             req.pk,
             req.agent_id,
         )
+    followup_task = None
+    followup_task_created = False
+    if req.property_id or not req.property_id:
+        try:
+            followup_task, followup_task_created = _ensure_followup_task(req, agent=req.agent)
+        except Exception:
+            logger.exception(
+                'Failed to create followup task for request pk=%s and agent pk=%s',
+                req.pk,
+                req.agent_id,
+            )
     queued_email = None
     if assignment_changed:
         try:
@@ -220,6 +322,24 @@ def sync_request_assignment(
             ),
             metadata={
                 'task_type': contact_task.task_type,
+                'request_id': req.pk,
+                'auto_created': True,
+            },
+            property_obj=req.property,
+            request_obj=req,
+        )
+    if followup_task_created and followup_task is not None:
+        audit_service.log_event(
+            entity=followup_task,
+            action_code='created',
+            action_label='Создание задачи',
+            actor=actor or req.agent,
+            message=(
+                f'Автоматически создана задача {followup_task.get_task_type_display().lower()} '
+                f'по заявке №{req.pk}.'
+            ),
+            metadata={
+                'task_type': followup_task.task_type,
                 'request_id': req.pk,
                 'auto_created': True,
             },
@@ -443,7 +563,14 @@ def close_request(
     if outcome in models.Request.SUCCESS_STATUS_CODES:
         deal = create_deal_from_request(req, actor=actor)
 
-    queued_email = enqueue_request_closed(request=req, actor=actor, deal=deal)
+    try:
+        queued_email = enqueue_request_closed(request=req, actor=actor, deal=deal)
+    except Exception:
+        logger.exception(
+            'Failed to enqueue request_closed email for request pk=%s',
+            req.pk,
+        )
+        queued_email = None
     audit_service.log_event(
         entity=req,
         action_code='closed',

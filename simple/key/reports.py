@@ -211,6 +211,14 @@ def _format_task_result(value) -> str:
     return value.get('summary') or '—'
 
 
+def _format_decimal(value, *, suffix: str = '') -> str:
+    if value in (None, ''):
+        return '—'
+    amount = Decimal(str(value))
+    text = f'{amount:,.2f}'.replace(',', ' ').rstrip('0').rstrip('.')
+    return f'{text}{suffix}'
+
+
 def _resolve_ordering(params, definition: ReportDefinition) -> str:
     raw = (params.get('ordering') or '').strip()
     allowed = {code for code, _ in definition.ordering_options}
@@ -230,25 +238,182 @@ def _report_filename(definition: ReportDefinition, fmt: str) -> str:
     return f'{definition.filename_prefix}-{suffix}.{fmt}'
 
 
-def _report_user_label(user) -> str:
-    parts = [
-        getattr(user, 'last_name', ''),
-        getattr(user, 'first_name', ''),
-        getattr(user, 'middle_name', ''),
-    ]
-    full_name = ' '.join(part for part in parts if part).strip()
-    if full_name:
-        return full_name
+def _user_display_name(user) -> str:
+    if user is None:
+        return 'Пользователь'
+    employee_profile = getattr(user, 'employee_profile', None)
+    if employee_profile is not None:
+        parts = [
+            (employee_profile.last_name or '').strip(),
+            (employee_profile.first_name or '').strip(),
+            (getattr(employee_profile, 'middle_name', None) or '').strip(),
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        if full_name:
+            return full_name
+    client_profile = getattr(user, 'client_profile', None)
+    if client_profile is not None:
+        company_name = (
+            getattr(getattr(client_profile, 'company_details', None), 'company_name', '') or ''
+        ).strip()
+        if company_name:
+            return company_name
+        parts = [
+            (client_profile.last_name or '').strip(),
+            (client_profile.first_name or '').strip(),
+            (client_profile.middle_name or '').strip(),
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        if full_name:
+            return full_name
     return getattr(user, 'username', None) or getattr(user, 'email', None) or 'Пользователь'
 
 
 def _report_title(definition: ReportDefinition, user) -> str:
     stamp = timezone.localtime(timezone.now()).strftime('%d.%m.%Y %H:%M')
-    return f'{definition.title} · {_report_user_label(user)} · {stamp}'
+    return (
+        f'{definition.title}. Сформировал: {_user_display_name(user)}. '
+        f'Дата формирования: {stamp}.'
+    )
+
+
+def _top_n_value(params, *, default: int = 5) -> int:
+    raw = (params.get('top_n') or '').strip()
+    if not raw:
+        return default
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _summary_pairs(summary: dict) -> list[tuple[str, str]]:
     return [(label, str(value)) for label, value in summary.items()]
+
+
+def _snapshot_range(params):
+    return _parse_date_param(params, 'date_from'), _parse_date_param(params, 'date_to')
+
+
+def _snapshot_queryset(entity_type: str, *, date_from=None, date_to=None):
+    qs = models.ReportMetricSnapshot.objects.filter(entity_type=entity_type)
+    if date_from:
+        qs = qs.filter(snapshot_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(snapshot_date__lte=date_to)
+    return qs
+
+
+def _performance_queryset(*, date_from=None, date_to=None):
+    qs = models.AgentPerformanceSnapshot.objects.select_related('user__employee_profile')
+    if date_from:
+        qs = qs.filter(snapshot_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(snapshot_date__lte=date_to)
+    return qs
+
+
+def build_report_insights(report_type: str, params, *, user) -> list[tuple[str, str]]:
+    date_from, date_to = _snapshot_range(params)
+    items: list[tuple[str, str]] = []
+
+    if report_type == 'tasks':
+        perf_qs = _performance_queryset(date_from=date_from, date_to=date_to)
+        leader = (
+            perf_qs.values(
+                'user__username',
+                'user__employee_profile__first_name',
+                'user__employee_profile__last_name',
+            )
+            .annotate(
+                tasks_done=Sum('tasks_done'),
+                tasks_total=Sum('tasks_total'),
+            )
+            .order_by('-tasks_done', '-tasks_total')
+            .first()
+        )
+        if leader:
+            full_name = ' '.join(
+                part for part in [
+                    leader.get('user__employee_profile__last_name') or '',
+                    leader.get('user__employee_profile__first_name') or '',
+                ]
+                if part
+            ).strip() or leader['user__username']
+            rate = (
+                f"{(leader['tasks_done'] / leader['tasks_total'] * 100):.1f}%"
+                if leader['tasks_total']
+                else '0.0%'
+            )
+            items.extend([
+                ('Лучший сотрудник', full_name),
+                ('Выполнено задач лидером', str(leader['tasks_done'] or 0)),
+                ('Эффективность лидера', rate),
+            ])
+
+    if report_type == 'deals':
+        perf_qs = _performance_queryset(date_from=date_from, date_to=date_to)
+        leader = (
+            perf_qs.values(
+                'user__username',
+                'user__employee_profile__first_name',
+                'user__employee_profile__last_name',
+            )
+            .annotate(
+                total_commission=Sum('total_commission'),
+                completed_deals=Sum('completed_deals_count'),
+            )
+            .order_by('-total_commission', '-completed_deals')
+            .first()
+        )
+        if leader:
+            full_name = ' '.join(
+                part for part in [
+                    leader.get('user__employee_profile__last_name') or '',
+                    leader.get('user__employee_profile__first_name') or '',
+                ]
+                if part
+            ).strip() or leader['user__username']
+            items.extend([
+                ('Лидер по комиссии', full_name),
+                ('Комиссия лидера', _format_money(leader['total_commission'] or 0)),
+                ('Завершённых сделок у лидера', str(leader['completed_deals'] or 0)),
+            ])
+
+    if report_type == 'properties':
+        qs = _snapshot_queryset(models.ReportMetricSnapshot.ENTITY_PROPERTY, date_from=date_from, date_to=date_to)
+        top_type = (
+            qs.exclude(property_type_code='')
+            .values('property_type_code')
+            .annotate(total_count=Sum('total_count'))
+            .order_by('-total_count')
+            .first()
+        )
+        if top_type:
+            property_type = models.PropertyType.objects.filter(code=top_type['property_type_code']).first()
+            items.extend([
+                ('Самый частый тип объекта', property_type.name if property_type else top_type['property_type_code']),
+                ('Объектов этого типа', str(top_type['total_count'] or 0)),
+            ])
+
+    if report_type == 'requests':
+        qs = _snapshot_queryset(models.ReportMetricSnapshot.ENTITY_REQUEST, date_from=date_from, date_to=date_to)
+        by_type = (
+            qs.exclude(property_type_code='')
+            .values('property_type_code')
+            .annotate(total_count=Sum('total_count'))
+            .order_by('-total_count')
+            .first()
+        )
+        if by_type:
+            property_type = models.PropertyType.objects.filter(code=by_type['property_type_code']).first()
+            items.extend([
+                ('Самый востребованный тип', property_type.name if property_type else by_type['property_type_code']),
+                ('Количество заявок по типу', str(by_type['total_count'] or 0)),
+            ])
+
+    return items
 
 
 def _export_csv(
@@ -307,7 +472,14 @@ def _export_json(
     return response
 
 
-def _export_xls(definition: ReportDefinition, summary: dict, rows: list[dict]) -> HttpResponse:
+def _export_xls(
+    definition: ReportDefinition,
+    summary: dict,
+    rows: list[dict],
+    *,
+    title: str | None = None,
+) -> HttpResponse:
+    report_title = title or definition.title
     response = HttpResponse(
         content_type='application/vnd.ms-excel; charset=utf-8',
     )
@@ -315,7 +487,7 @@ def _export_xls(definition: ReportDefinition, summary: dict, rows: list[dict]) -
     response.write('\ufeff')
     parts = [
         '<html><head><meta charset="utf-8"></head><body>',
-        f'<h2>{escape(definition.title)}</h2>',
+        f'<h2>{escape(report_title)}</h2>',
         '<table border="1" cellspacing="0" cellpadding="4">',
         '<tr><th>Показатель</th><th>Значение</th></tr>',
     ]
@@ -504,7 +676,7 @@ def export_report(
             user=user,
         )
     if normalized == 'xls':
-        return _export_xls(definition, summary, rows)
+        return _export_xls(definition, summary, rows, title=title)
     if normalized == 'pdf':
         return _export_pdf(definition, summary, rows, title=title)
     raise ValidationError({'export': ['Поддерживаются только csv, json, xlsx, xls и pdf.']})
@@ -531,6 +703,7 @@ def build_deals_report(params, *, user) -> dict:
     date_from = _parse_date_param(params, 'date_from')
     date_to = _parse_date_param(params, 'date_to')
     ordering = _resolve_ordering(params, DEALS_REPORT)
+    top_n = _top_n_value(params)
 
     qs = models.Deal.objects.select_related(
         'status', 'agent', 'client', 'property',
@@ -555,8 +728,10 @@ def build_deals_report(params, *, user) -> dict:
         total_sum=Sum('price_final'),
         total_commission=Sum('commission_amount'),
     )
+    completed_count = qs.filter(status__code='completed').count()
     summary = {
         'Всего сделок': summary_raw['total_count'] or 0,
+        'Завершённых сделок': completed_count,
         'Сумма сделок': _format_money(summary_raw['total_sum'] or 0),
         'Комиссия': _format_money(summary_raw['total_commission'] or 0),
     }
@@ -565,8 +740,8 @@ def build_deals_report(params, *, user) -> dict:
         'deal_number': deal.deal_number,
         'deal_date': _format_date(deal.deal_date),
         'status_name': deal.status.name if deal.status_id else '—',
-        'agent_username': deal.agent.username if deal.agent_id else '—',
-        'client_username': deal.client.username if deal.client_id else '—',
+        'agent_username': _user_display_name(deal.agent) if deal.agent_id else '—',
+        'client_username': _user_display_name(deal.client) if deal.client_id else '—',
         'property_title': deal.property.title if deal.property_id else '—',
         'price_final': _format_money(deal.price_final),
         'commission_amount': _format_money(deal.commission_amount),
@@ -577,8 +752,12 @@ def build_deals_report(params, *, user) -> dict:
         'definition': DEALS_REPORT,
         'title': _report_title(DEALS_REPORT, user),
         'summary': summary,
+        'insights': build_report_insights('deals', params, user=user),
         'rows': rows,
         'ordering': ordering,
+        'top_n': top_n,
+        'top_agents_tasks': build_top_agents_tasks(params, limit=top_n),
+        'top_agents_deals': build_top_agents_deals(params, limit=top_n),
     }
 
 
@@ -586,6 +765,7 @@ def build_tasks_report(params, *, user) -> dict:
     date_from = _parse_date_param(params, 'date_from')
     date_to = _parse_date_param(params, 'date_to')
     ordering = _resolve_ordering(params, TASKS_REPORT)
+    top_n = _top_n_value(params)
 
     qs = models.Task.objects.select_related(
         'status', 'assignee', 'client', 'request',
@@ -623,8 +803,8 @@ def build_tasks_report(params, *, user) -> dict:
         'title': task.title,
         'task_type_display': task.task_type_display,
         'status_name': task.status.name if task.status_id else '—',
-        'assignee_username': task.assignee.username if task.assignee_id else '—',
-        'client_username': task.client.username if task.client_id else '—',
+        'assignee_username': _user_display_name(task.assignee) if task.assignee_id else '—',
+        'client_username': _user_display_name(task.client) if task.client_id else '—',
         'request_label': f'#{task.request_id}' if task.request_id else '—',
         'due_date': _format_date(task.due_date),
         'completed_at': _format_date(task.completed_at),
@@ -635,8 +815,12 @@ def build_tasks_report(params, *, user) -> dict:
         'definition': TASKS_REPORT,
         'title': _report_title(TASKS_REPORT, user),
         'summary': summary,
+        'insights': build_report_insights('tasks', params, user=user),
         'rows': rows,
         'ordering': ordering,
+        'top_n': top_n,
+        'top_agents_tasks': build_top_agents_tasks(params, limit=top_n),
+        'top_agents_deals': build_top_agents_deals(params, limit=top_n),
     }
 
 
@@ -707,6 +891,7 @@ def build_properties_report(params, *, user) -> dict:
     date_from = _parse_date_param(params, 'date_from')
     date_to = _parse_date_param(params, 'date_to')
     ordering = _resolve_ordering(params, PROPERTIES_REPORT)
+    top_n = _top_n_value(params)
 
     qs = models.Property.objects.select_related(
         'status', 'property_type_ref', 'operation_type', 'house__street__city',
@@ -744,9 +929,11 @@ def build_properties_report(params, *, user) -> dict:
     )
     published_count = qs.filter(is_published=True).count()
     unpublished_count = qs.filter(is_published=False).count()
+    active_count = qs.filter(status__code='active').count()
 
     summary = {
         'Всего объектов': summary_raw['total_count'] or 0,
+        'Активных объектов': active_count,
         'Опубликовано': published_count,
         'Не опубликовано': unpublished_count,
         'Общая стоимость': _format_money(summary_raw['total_price'] or 0),
@@ -770,7 +957,7 @@ def build_properties_report(params, *, user) -> dict:
             'address': address,
             'price': _format_money(prop.price),
             'area_total': (
-                f'{prop.area_total:.1f}' if prop.area_total is not None else '—'
+                _format_decimal(prop.area_total, suffix=' м²') if prop.area_total is not None else '—'
             ),
             'rooms_count': str(prop.rooms_count) if prop.rooms_count is not None else '—',
             'floor_number': str(prop.floor_number) if prop.floor_number is not None else '—',
@@ -782,8 +969,12 @@ def build_properties_report(params, *, user) -> dict:
         'definition': PROPERTIES_REPORT,
         'title': _report_title(PROPERTIES_REPORT, user),
         'summary': summary,
+        'insights': build_report_insights('properties', params, user=user),
         'rows': rows,
         'ordering': ordering,
+        'top_n': top_n,
+        'top_agents_tasks': build_top_agents_tasks(params, limit=top_n),
+        'top_agents_deals': build_top_agents_deals(params, limit=top_n),
     }
 
 
@@ -797,6 +988,7 @@ def build_requests_report(params, *, user) -> dict:
     ordering_raw = (params.get('ordering') or '').strip()
     valid_orderings = {code for code, _ in REQUESTS_REPORT.ordering_options}
     ordering = ordering_raw if ordering_raw in valid_orderings else REQUESTS_REPORT.default_ordering
+    top_n = _top_n_value(params)
 
     qs = models.Request.objects.select_related(
         'client_profile__user',
@@ -807,7 +999,6 @@ def build_requests_report(params, *, user) -> dict:
         'preferred_city',
     )
 
-    # Если пользователь — сотрудник без прав менеджера, показываем только его заявки
     if user.is_employee and not user.is_admin_or_manager:
         qs = qs.filter(employee_profile__user=user)
 
@@ -848,19 +1039,16 @@ def build_requests_report(params, *, user) -> dict:
 
     rows = []
     for req in qs:
-        client_name = '—'
-        if req.client_profile_id and req.client_profile.user_id:
-            u = req.client_profile.user
-            name_parts = [u.last_name, u.first_name, getattr(u, 'middle_name', '')]
-            full = ' '.join(p for p in name_parts if p).strip()
-            client_name = full or u.username
-
-        employee_name = '—'
-        if req.employee_profile_id and req.employee_profile.user_id:
-            u = req.employee_profile.user
-            name_parts = [u.last_name, u.first_name, getattr(u, 'middle_name', '')]
-            full = ' '.join(p for p in name_parts if p).strip()
-            employee_name = full or u.username
+        client_name = (
+            _user_display_name(req.client_profile.user)
+            if req.client_profile_id and req.client_profile.user_id
+            else '—'
+        )
+        employee_name = (
+            _user_display_name(req.employee_profile.user)
+            if req.employee_profile_id and req.employee_profile.user_id
+            else '—'
+        )
 
         price_parts = []
         if req.min_price is not None:
@@ -893,8 +1081,12 @@ def build_requests_report(params, *, user) -> dict:
         'definition': REQUESTS_REPORT,
         'title': _report_title(REQUESTS_REPORT, user),
         'summary': summary,
+        'insights': build_report_insights('requests', params, user=user),
         'rows': rows,
         'ordering': ordering,
+        'top_n': top_n,
+        'top_agents_tasks': build_top_agents_tasks(params, limit=top_n),
+        'top_agents_deals': build_top_agents_deals(params, limit=top_n),
     }
 
 
@@ -910,31 +1102,24 @@ def build_top_agents_tasks(params, *, limit: int = 5) -> list[dict]:
     date_from = _parse_date_param(params, 'date_from')
     date_to = _parse_date_param(params, 'date_to')
 
-    qs = models.Task.objects.filter(assignee__isnull=False)
-    if date_from:
-        qs = qs.filter(created_at__date__gte=date_from)
-    if date_to:
-        qs = qs.filter(created_at__date__lte=date_to)
-
     agent_totals = (
-        qs.values('assignee_id', 'assignee__username',
-                  'assignee__first_name', 'assignee__last_name')
-          .annotate(
-              total_count=Count('id'),
-              done_count=Count('id', filter=Q(status__code='done')),
-          )
-          .order_by('-done_count', '-total_count')
+        _performance_queryset(date_from=date_from, date_to=date_to)
+        .values(
+            'user_id',
+            'user__username',
+            'user__employee_profile__first_name',
+            'user__employee_profile__last_name',
+        )
+        .annotate(
+            total_count=Sum('tasks_total'),
+            done_count=Sum('tasks_done'),
+        )
+        .order_by('-done_count', '-total_count')
     )
 
     # Обрабатываем лимит (0 или None = все)
     if limit and limit > 0:
         agent_totals = agent_totals[:limit]
-
-    # Подгружаем отчество отдельно (middle_name может быть @property или DB-полем)
-    agent_ids = [row['assignee_id'] for row in agent_totals]
-    middle_names: dict[int, str] = {}
-    for u in models.User.objects.filter(pk__in=agent_ids).only('id', 'middle_name'):
-        middle_names[u.pk] = getattr(u, 'middle_name', '') or ''
 
     result = []
     for rank, row in enumerate(agent_totals, start=1):
@@ -942,15 +1127,14 @@ def build_top_agents_tasks(params, *, limit: int = 5) -> list[dict]:
         done = row['done_count'] or 0
         rate = f'{(done / total * 100):.1f}%' if total else '0.0%'
         name_parts = [
-            row.get('assignee__last_name') or '',
-            row.get('assignee__first_name') or '',
-            middle_names.get(row['assignee_id'], ''),
+            row.get('user__employee_profile__last_name') or '',
+            row.get('user__employee_profile__first_name') or '',
         ]
-        full_name = ' '.join(p for p in name_parts if p).strip() or row['assignee__username']
+        full_name = ' '.join(p for p in name_parts if p).strip() or row['user__username']
         result.append({
             'rank': rank,
             'full_name': full_name,
-            'username': row['assignee__username'],
+            'username': row['user__username'],
             'done_count': done,
             'total_count': total,
             'rate': rate,
@@ -966,27 +1150,19 @@ def build_top_agents_deals(params, *, limit: int = 5) -> list[dict]:
     date_from = _parse_date_param(params, 'date_from')
     date_to = _parse_date_param(params, 'date_to')
 
-    qs = models.Deal.objects.filter(
-        agent__isnull=False,
-        status__code='completed',
-    )
-    if date_from:
-        qs = qs.filter(deal_date__gte=date_from)
-    if date_to:
-        qs = qs.filter(deal_date__lte=date_to)
-
     agent_totals = (
-        qs.values(
-            'agent_id',
-            'agent__username',
-            'agent__first_name',
-            'agent__last_name',
+        _performance_queryset(date_from=date_from, date_to=date_to)
+        .values(
+            'user_id',
+            'user__username',
+            'user__employee_profile__first_name',
+            'user__employee_profile__last_name',
         )
-          .annotate(
-              deals_count=Count('id'),
-              total_commission=Sum('commission_amount'),
-          )
-          .order_by('-total_commission', '-deals_count')
+        .annotate(
+            deals_count=Sum('completed_deals_count'),
+            total_commission=Sum('total_commission'),
+        )
+        .order_by('-total_commission', '-deals_count')
     )
 
     if limit and limit > 0:
@@ -995,14 +1171,14 @@ def build_top_agents_deals(params, *, limit: int = 5) -> list[dict]:
     result = []
     for rank, row in enumerate(agent_totals, start=1):
         name_parts = [
-            row.get('agent__last_name') or '',
-            row.get('agent__first_name') or '',
+            row.get('user__employee_profile__last_name') or '',
+            row.get('user__employee_profile__first_name') or '',
         ]
-        full_name = ' '.join(p for p in name_parts if p).strip() or row['agent__username']
+        full_name = ' '.join(p for p in name_parts if p).strip() or row['user__username']
         result.append({
             'rank': rank,
             'full_name': full_name,
-            'username': row['agent__username'],
+            'username': row['user__username'],
             'deals_count': row['deals_count'] or 0,
             'total_commission': _format_money(row['total_commission'] or 0),
         })

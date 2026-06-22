@@ -21,7 +21,7 @@ from reportlab.pdfbase import pdfmetrics
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIClient
 
-from . import deals_service, documents, mailing, models, task_actions
+from . import deals_service, documents, mailing, models, reports, task_actions
 from .xlsx_utils import WorkbookSheet, build_xlsx_bytes, load_xlsx_rows
 
 
@@ -1500,6 +1500,13 @@ class ReportApiTests(TestCase):
             user_type='employee',
             role=models.UserRole.objects.create(code='manager', name='Manager'),
         )
+        self.moderator = models.User.objects.create_user(
+            username='report-moderator',
+            email='report-moderator@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=models.UserRole.objects.create(code='moderator', name='Moderator'),
+        )
         self.employee = models.User.objects.create_user(
             username='report-agent',
             email='report-agent@example.com',
@@ -1608,6 +1615,17 @@ class ReportApiTests(TestCase):
             {self.employee.username, self.other_employee.username},
         )
 
+    def test_moderator_can_access_reports(self):
+        self.api.force_authenticate(user=self.moderator)
+
+        deals_response = self.api.get('/api/reports/deals/')
+        tasks_response = self.api.get('/api/reports/tasks/')
+
+        self.assertEqual(deals_response.status_code, 200)
+        self.assertEqual(tasks_response.status_code, 200)
+        self.assertEqual(deals_response.data['report_code'], 'deals')
+        self.assertEqual(tasks_response.data['report_code'], 'tasks')
+
     def test_agent_cannot_access_reports(self):
         self.api.force_authenticate(user=self.employee)
 
@@ -1686,6 +1704,73 @@ class ReportApiTests(TestCase):
 
         self.assertEqual(deals_response.status_code, 403)
         self.assertEqual(tasks_response.status_code, 403)
+
+    def test_completed_deal_auto_closes_active_tasks_and_creates_snapshots(self):
+        completed_status = models.DealStatus.objects.create(
+            code='completed',
+            name='Completed',
+        )
+        in_progress_status = models.TaskStatus.objects.create(
+            code='in_progress',
+            name='In progress',
+            order=15,
+        )
+        deal = models.Deal.objects.create(
+            deal_number='REP-003',
+            property=self.property,
+            agent=self.employee,
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.deal_status,
+            price_final=8_000_000,
+            commission_percent=4,
+            deal_date=timezone.localdate(),
+        )
+        task = models.Task.objects.create(
+            title='Follow up signed deal',
+            task_type='call',
+            status=in_progress_status,
+            assignee=self.employee,
+            created_by=self.manager,
+            deal=deal,
+        )
+
+        deal.status = completed_status
+        deal.save(update_fields=['status'])
+        models.rebuild_report_snapshots(
+            deal_dates=[timezone.localdate()],
+            task_dates=[timezone.localdate()],
+        )
+
+        task.refresh_from_db()
+        self.assertTrue(task.is_auto_closed)
+        self.assertEqual(task.status.code, 'done')
+        self.assertIsNotNone(task.completed_at)
+        self.assertTrue(
+            models.ReportMetricSnapshot.objects.filter(
+                entity_type=models.ReportMetricSnapshot.ENTITY_DEAL,
+                snapshot_date=timezone.localdate(),
+            ).exists()
+        )
+        self.assertTrue(
+            models.AgentPerformanceSnapshot.objects.filter(
+                user=self.employee,
+                snapshot_date=timezone.localdate(),
+            ).exists()
+        )
+
+    def test_reports_payload_contains_analytics_insights(self):
+        self.api.force_authenticate(user=self.manager)
+        models.rebuild_report_snapshots(
+            deal_dates=[timezone.localdate()],
+            task_dates=[timezone.localdate()],
+        )
+
+        response = self.api.get('/api/reports/tasks/')
+
+        self.assertEqual(response.status_code, 200)
+        report_payload = reports.build_tasks_report({}, user=self.manager)
+        self.assertTrue(report_payload['insights'])
 
 
 class DataExchangeApiTests(TestCase):
@@ -2161,6 +2246,16 @@ class PropertyClientVisibilityTests(TestCase):
             user_type='employee',
             role=self.manager_role,
         )
+        self.moderator = models.User.objects.create_user(
+            username='property-moderator',
+            email='property-moderator@example.com',
+            password='Secret123!',
+            user_type='employee',
+            role=models.UserRole.objects.create(
+                code='moderator',
+                name='Модератор',
+            ),
+        )
 
     def test_client_create_property_sets_owner_and_pending_status(self):
         self.api.force_authenticate(user=self.client_user)
@@ -2335,6 +2430,23 @@ class PropertyClientVisibilityTests(TestCase):
         self.assertEqual(response.status_code, 200)
         property_obj.refresh_from_db()
         self.assertEqual(property_obj.status.code, 'archived')
+
+    def test_moderator_can_approve_pending_property(self):
+        property_obj = models.Property.objects.create(
+            title='Moderator approve property',
+            operation_type=self.operation_type,
+            status=self.pending_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+        )
+        self.api.force_authenticate(user=self.moderator)
+
+        response = self.api.post(f'/api/properties/{property_obj.pk}/approve/')
+
+        self.assertEqual(response.status_code, 200)
+        property_obj.refresh_from_db()
+        self.assertEqual(property_obj.status.code, 'active')
 
     def test_warehouse_rejects_rooms_and_floors(self):
         self.api.force_authenticate(user=self.manager)

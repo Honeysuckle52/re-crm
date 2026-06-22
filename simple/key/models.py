@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """ORM-модели приложения ``key`` (3NF-версия)."""
 from decimal import Decimal
+import re
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from django.db import models, transaction
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from .storage import database_backup_storage
@@ -228,6 +230,32 @@ def _rewrite_legacy_update_fields(instance, kwargs):
         rewritten.append(concrete_name if concrete_name in concrete_names else field_name)
 
     kwargs['update_fields'] = list(dict.fromkeys(rewritten))
+
+
+def _snapshot_date(value):
+    if not value:
+        return None
+    if hasattr(value, 'hour'):
+        if timezone.is_aware(value):
+            value = timezone.localtime(value)
+        return value.date()
+    return value
+
+
+def _snapshot_dates(*values):
+    dates = []
+    for value in values:
+        current = _snapshot_date(value)
+        if current and current not in dates:
+            dates.append(current)
+    return dates
+
+
+def _username_from_email(email: str | None) -> str:
+    normalized = (email or '').strip().lower()
+    local_part = normalized.split('@', 1)[0] if '@' in normalized else normalized
+    candidate = re.sub(r'[^a-z0-9._-]+', '.', local_part).strip('._-')
+    return candidate[:50] or 'user'
 
 
 class CodeNameLookup(models.Model):
@@ -810,12 +838,16 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return AliasQuerySet(self.model, using=self._db, hints=self._hints)
 
-    def create_user(self, username, email, password=None, **extra):
-        if not username:
-            raise ValueError('Логин обязателен')
+    def create_user(self, username=None, email=None, password=None, **extra):
         if not email:
             raise ValueError('Электронная почта обязательна')
         email = self.normalize_email(email)
+        username = (username or '').strip() or _username_from_email(email)
+        base_username = username
+        suffix = 1
+        while self.model.objects.filter(username=username).exists():
+            suffix += 1
+            username = f'{base_username[: max(1, 50 - len(str(suffix)) - 1)]}-{suffix}'
         user = self.model(username=username, email=email, **extra)
         user.set_password(password)
         user.save(using=self._db)
@@ -902,6 +934,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         _ensure_lookup_default(self, 'user_type_ref', UserType)
         if self.email:
             self.email = User.objects.normalize_email(self.email)
+            self.username = _username_from_email(self.email)
         if self.phone == '':
             self.phone = None
         if self.user_type == 'client' and (self.is_staff or self.is_superuser):
@@ -937,6 +970,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def save(self, *args, **kwargs):
         _ensure_lookup_default(self, 'user_type_ref', UserType)
+        if self.email:
+            generated_username = _username_from_email(self.email)
+            if not self.pk or not self.username or self.username != generated_username:
+                candidate = generated_username
+                base_username = candidate
+                suffix = 1
+                qs = type(self).objects.exclude(pk=self.pk) if self.pk else type(self).objects.all()
+                while qs.filter(username=candidate).exists():
+                    suffix += 1
+                    candidate = f'{base_username[: max(1, 50 - len(str(suffix)) - 1)]}-{suffix}'
+                self.username = candidate
         _rewrite_legacy_update_fields(self, kwargs)
         return super().save(*args, **kwargs)
 
@@ -1615,6 +1659,9 @@ class Property(models.Model):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        previous = None
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values('created_at').first()
         update_fields = kwargs.get('update_fields')
         if update_fields:
             update_fields = list(update_fields)
@@ -1671,6 +1718,11 @@ class Property(models.Model):
                     pending_source.synced_at,
                 ]):
                     pending_source.save()
+        snapshot_dates = _snapshot_dates(
+            self.created_at,
+            previous['created_at'] if previous else None,
+        )
+        transaction.on_commit(lambda: rebuild_report_snapshots(property_dates=snapshot_dates))
 
     @property
     def building_details(self):
@@ -2486,9 +2538,18 @@ class Request(models.Model):
         return self.status_code in self.TERMINAL_STATUS_CODES
 
     def save(self, *args, **kwargs):
+        previous = None
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values('created_at').first()
         _ensure_lookup_default(self, 'status', RequestStatus)
         _rewrite_legacy_update_fields(self, kwargs)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        snapshot_dates = _snapshot_dates(
+            self.created_at,
+            previous['created_at'] if previous else None,
+        )
+        transaction.on_commit(lambda: rebuild_report_snapshots(request_dates=snapshot_dates))
+        return result
 
 
 class RequestPropertyMatch(models.Model):
@@ -2560,6 +2621,39 @@ class RequestPropertyMatch(models.Model):
             return self.status.code
         return 'draft'
 
+    @_property
+    def is_offered(self) -> bool:
+        return self.state_code in {'offered', 'confirmed'}
+
+    @is_offered.setter
+    def is_offered(self, value):
+        if value:
+            self.status = _resolve_lookup_instance(RequestMatchStatus, 'offered')
+        elif self.state_code == 'offered':
+            self.status = _resolve_lookup_instance(RequestMatchStatus, 'draft')
+
+    @_property
+    def is_confirmed(self) -> bool:
+        return self.state_code == 'confirmed'
+
+    @is_confirmed.setter
+    def is_confirmed(self, value):
+        if value:
+            self.status = _resolve_lookup_instance(RequestMatchStatus, 'confirmed')
+        elif self.state_code == 'confirmed':
+            self.status = _resolve_lookup_instance(RequestMatchStatus, 'offered')
+
+    @_property
+    def is_rejected(self) -> bool:
+        return self.state_code == 'rejected'
+
+    @is_rejected.setter
+    def is_rejected(self, value):
+        if value:
+            self.status = _resolve_lookup_instance(RequestMatchStatus, 'rejected')
+        elif self.state_code == 'rejected':
+            self.status = _resolve_lookup_instance(RequestMatchStatus, 'offered')
+
     def clean(self):
         super().clean()
         _ensure_lookup_default(self, 'status', RequestMatchStatus)
@@ -2570,6 +2664,18 @@ class RequestPropertyMatch(models.Model):
             errors['confirmed_by'] = 'Подтвердить вариант может только сотрудник.'
         if errors:
             raise ValidationError(errors)
+
+    def __init__(self, *args, **kwargs):
+        legacy_is_offered = kwargs.pop('is_offered', None)
+        legacy_is_confirmed = kwargs.pop('is_confirmed', None)
+        legacy_is_rejected = kwargs.pop('is_rejected', None)
+        super().__init__(*args, **kwargs)
+        if legacy_is_confirmed:
+            self.is_confirmed = True
+        elif legacy_is_rejected:
+            self.is_rejected = True
+        elif legacy_is_offered:
+            self.is_offered = True
 
     def save(self, *args, **kwargs):
         _ensure_lookup_default(self, 'status', RequestMatchStatus)
@@ -2757,6 +2863,9 @@ class Deal(models.Model):
         return self.contract_status_ref.name
 
     def save(self, *args, **kwargs):
+        previous = None
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values('deal_date', 'status__code').first()
         _ensure_lookup_default(self, 'contract_status_ref', ContractStatus)
         _rewrite_legacy_update_fields(self, kwargs)
         if self.client_id is None and self.request_id:
@@ -2774,7 +2883,20 @@ class Deal(models.Model):
                 * Decimal(str(self.commission_percent))
                 / Decimal('100')
             ).quantize(Decimal('0.01'))
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        became_completed = (
+            self.status_id is not None
+            and self.status.code == 'completed'
+            and (previous is None or previous.get('status__code') != 'completed')
+        )
+        if became_completed:
+            _auto_close_tasks_for_completed_deal(self)
+        snapshot_dates = _snapshot_dates(
+            self.deal_date,
+            previous['deal_date'] if previous else None,
+        )
+        transaction.on_commit(lambda: rebuild_report_snapshots(deal_dates=snapshot_dates, task_dates=snapshot_dates if became_completed else []))
+        return result
 
 
 class DealParticipant(models.Model):
@@ -3010,10 +3132,345 @@ class Task(models.Model):
         return self.task_type_ref.name
 
     def save(self, *args, **kwargs):
+        previous = None
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values('created_at').first()
         _ensure_lookup_default(self, 'priority_ref', TaskPriority)
         _ensure_lookup_default(self, 'task_type_ref', TaskType)
         _rewrite_legacy_update_fields(self, kwargs)
-        return super().save(*args, **kwargs)
+        result = super().save(*args, **kwargs)
+        snapshot_dates = _snapshot_dates(
+            self.created_at,
+            previous['created_at'] if previous else None,
+        )
+        transaction.on_commit(lambda: rebuild_report_snapshots(task_dates=snapshot_dates))
+        return result
+
+
+class ReportMetricSnapshot(models.Model):
+    """Дневной агрегат по ключевым сущностям для ускорения отчётности."""
+
+    ENTITY_PROPERTY = 'property'
+    ENTITY_REQUEST = 'request'
+    ENTITY_TASK = 'task'
+    ENTITY_DEAL = 'deal'
+    ENTITY_CHOICES = (
+        (ENTITY_PROPERTY, 'Объекты'),
+        (ENTITY_REQUEST, 'Заявки'),
+        (ENTITY_TASK, 'Задачи'),
+        (ENTITY_DEAL, 'Сделки'),
+    )
+
+    snapshot_date = models.DateField(db_index=True, verbose_name='Дата среза')
+    entity_type = models.CharField(max_length=24, choices=ENTITY_CHOICES, db_index=True, verbose_name='Тип сущности')
+    status_code = models.CharField(max_length=50, blank=True, default='', db_index=True, verbose_name='Код статуса')
+    property_type_code = models.CharField(max_length=50, blank=True, default='', db_index=True, verbose_name='Код типа объекта')
+    operation_type_code = models.CharField(max_length=50, blank=True, default='', db_index=True, verbose_name='Код операции')
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        related_name='report_metric_snapshots',
+        verbose_name='Сотрудник',
+    )
+    is_published = models.BooleanField(blank=True, null=True, verbose_name='Опубликован')
+    total_count = models.PositiveIntegerField(default=0, verbose_name='Количество')
+    amount_total = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal('0.00'), verbose_name='Сумма')
+    commission_total = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal('0.00'), verbose_name='Комиссия')
+    area_total = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal('0.00'), verbose_name='Площадь')
+    completed_count = models.PositiveIntegerField(default=0, verbose_name='Завершено')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
+
+    class Meta:
+        db_table = 'report_metric_snapshots'
+        verbose_name = 'Срез метрик отчётов'
+        verbose_name_plural = 'Срезы метрик отчётов'
+        ordering = ['-snapshot_date', 'entity_type', 'status_code', 'property_type_code', 'operation_type_code']
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'snapshot_date',
+                    'entity_type',
+                    'status_code',
+                    'property_type_code',
+                    'operation_type_code',
+                    'user',
+                    'is_published',
+                ],
+                name='report_metric_snapshot_unique_dims',
+            ),
+            models.CheckConstraint(condition=Q(total_count__gte=0), name='report_metric_snapshot_total_count_non_negative'),
+            models.CheckConstraint(condition=Q(completed_count__gte=0), name='report_metric_snapshot_completed_count_non_negative'),
+            models.CheckConstraint(condition=Q(amount_total__gte=0), name='report_metric_snapshot_amount_total_non_negative'),
+            models.CheckConstraint(condition=Q(commission_total__gte=0), name='report_metric_snapshot_commission_total_non_negative'),
+            models.CheckConstraint(condition=Q(area_total__gte=0), name='report_metric_snapshot_area_total_non_negative'),
+        ]
+
+    def __str__(self):
+        return f'{self.snapshot_date} · {self.get_entity_type_display()}'
+
+    @classmethod
+    def rebuild_for_entity_dates(cls, entity_type: str, snapshot_dates: list):
+        dates = [current for current in snapshot_dates if current]
+        if not dates:
+            return
+        cls.objects.filter(entity_type=entity_type, snapshot_date__in=dates).delete()
+        builders = {
+            cls.ENTITY_PROPERTY: cls._property_rows,
+            cls.ENTITY_REQUEST: cls._request_rows,
+            cls.ENTITY_TASK: cls._task_rows,
+            cls.ENTITY_DEAL: cls._deal_rows,
+        }
+        builder = builders.get(entity_type)
+        if builder is None:
+            return
+        rows = builder(dates)
+        if rows:
+            cls.objects.bulk_create([cls(**row) for row in rows], batch_size=200)
+
+    @classmethod
+    def _property_rows(cls, dates):
+        aggregates = (
+            Property.objects.filter(created_at__date__in=dates)
+            .values(
+                'created_at__date',
+                'status__code',
+                'property_type_ref__code',
+                'operation_type__code',
+                'is_published',
+            )
+            .annotate(
+                total_count=Count('id'),
+                amount_total=Sum('price'),
+                area_total=Sum('area_total'),
+            )
+        )
+        return [
+            {
+                'snapshot_date': row['created_at__date'],
+                'entity_type': cls.ENTITY_PROPERTY,
+                'status_code': row['status__code'] or '',
+                'property_type_code': row['property_type_ref__code'] or '',
+                'operation_type_code': row['operation_type__code'] or '',
+                'is_published': row['is_published'],
+                'total_count': row['total_count'] or 0,
+                'amount_total': row['amount_total'] or Decimal('0.00'),
+                'area_total': row['area_total'] or Decimal('0.00'),
+            }
+            for row in aggregates
+        ]
+
+    @classmethod
+    def _request_rows(cls, dates):
+        aggregates = (
+            Request.objects.filter(created_at__date__in=dates)
+            .values(
+                'created_at__date',
+                'status__code',
+                'property_type__code',
+                'operation_type__code',
+                'employee_profile__user_id',
+            )
+            .annotate(
+                total_count=Count('id'),
+                completed_count=Count('id', filter=Q(status__code__in=Request.SUCCESS_STATUS_CODES)),
+            )
+        )
+        return [
+            {
+                'snapshot_date': row['created_at__date'],
+                'entity_type': cls.ENTITY_REQUEST,
+                'status_code': row['status__code'] or '',
+                'property_type_code': row['property_type__code'] or '',
+                'operation_type_code': row['operation_type__code'] or '',
+                'user_id': row['employee_profile__user_id'],
+                'total_count': row['total_count'] or 0,
+                'completed_count': row['completed_count'] or 0,
+            }
+            for row in aggregates
+        ]
+
+    @classmethod
+    def _task_rows(cls, dates):
+        aggregates = (
+            Task.objects.filter(created_at__date__in=dates)
+            .values(
+                'created_at__date',
+                'status__code',
+                'task_type_ref__code',
+                'assignee_id',
+            )
+            .annotate(
+                total_count=Count('id'),
+                completed_count=Count('id', filter=Q(status__code='done')),
+            )
+        )
+        return [
+            {
+                'snapshot_date': row['created_at__date'],
+                'entity_type': cls.ENTITY_TASK,
+                'status_code': row['status__code'] or '',
+                'property_type_code': row['task_type_ref__code'] or '',
+                'user_id': row['assignee_id'],
+                'total_count': row['total_count'] or 0,
+                'completed_count': row['completed_count'] or 0,
+            }
+            for row in aggregates
+        ]
+
+    @classmethod
+    def _deal_rows(cls, dates):
+        aggregates = (
+            Deal.objects.filter(deal_date__in=dates)
+            .values(
+                'deal_date',
+                'status__code',
+                'property__property_type_ref__code',
+                'operation_type__code',
+                'agent_id',
+            )
+            .annotate(
+                total_count=Count('id'),
+                amount_total=Sum('price_final'),
+                commission_total=Sum('commission_amount'),
+                completed_count=Count('id', filter=Q(status__code='completed')),
+            )
+        )
+        return [
+            {
+                'snapshot_date': row['deal_date'],
+                'entity_type': cls.ENTITY_DEAL,
+                'status_code': row['status__code'] or '',
+                'property_type_code': row['property__property_type_ref__code'] or '',
+                'operation_type_code': row['operation_type__code'] or '',
+                'user_id': row['agent_id'],
+                'total_count': row['total_count'] or 0,
+                'amount_total': row['amount_total'] or Decimal('0.00'),
+                'commission_total': row['commission_total'] or Decimal('0.00'),
+                'completed_count': row['completed_count'] or 0,
+            }
+            for row in aggregates
+        ]
+
+
+class AgentPerformanceSnapshot(models.Model):
+    """Дневной KPI-срез эффективности сотрудников для аналитики и отчётов."""
+
+    snapshot_date = models.DateField(db_index=True, verbose_name='Дата среза')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='agent_performance_snapshots', verbose_name='Сотрудник')
+    deals_count = models.PositiveIntegerField(default=0, verbose_name='Количество сделок')
+    completed_deals_count = models.PositiveIntegerField(default=0, verbose_name='Завершённые сделки')
+    total_commission = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal('0.00'), verbose_name='Комиссия по сделкам')
+    tasks_total = models.PositiveIntegerField(default=0, verbose_name='Всего задач')
+    tasks_done = models.PositiveIntegerField(default=0, verbose_name='Выполнено задач')
+    requests_total = models.PositiveIntegerField(default=0, verbose_name='Всего заявок')
+    requests_completed = models.PositiveIntegerField(default=0, verbose_name='Завершено заявок')
+    created_at = models.DateTimeField(default=timezone.now, verbose_name='Дата создания')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Дата обновления')
+
+    class Meta:
+        db_table = 'agent_performance_snapshots'
+        verbose_name = 'Срез эффективности сотрудника'
+        verbose_name_plural = 'Срезы эффективности сотрудников'
+        ordering = ['-snapshot_date', 'user_id']
+        constraints = [
+            models.UniqueConstraint(fields=['snapshot_date', 'user'], name='agent_performance_snapshot_unique_day_user'),
+            models.CheckConstraint(condition=Q(deals_count__gte=0), name='agent_perf_deals_count_non_negative'),
+            models.CheckConstraint(condition=Q(completed_deals_count__gte=0), name='agent_perf_completed_deals_non_negative'),
+            models.CheckConstraint(condition=Q(total_commission__gte=0), name='agent_perf_total_commission_non_negative'),
+            models.CheckConstraint(condition=Q(tasks_total__gte=0), name='agent_perf_tasks_total_non_negative'),
+            models.CheckConstraint(condition=Q(tasks_done__gte=0), name='agent_perf_tasks_done_non_negative'),
+            models.CheckConstraint(condition=Q(requests_total__gte=0), name='agent_perf_requests_total_non_negative'),
+            models.CheckConstraint(condition=Q(requests_completed__gte=0), name='agent_perf_requests_completed_non_negative'),
+        ]
+
+    def __str__(self):
+        return f'{self.snapshot_date} · {self.user}'
+
+    @classmethod
+    def rebuild_for_dates(cls, snapshot_dates: list):
+        dates = [current for current in snapshot_dates if current]
+        if not dates:
+            return
+        cls.objects.filter(snapshot_date__in=dates).delete()
+        rows = []
+        for current in dates:
+            users = set(
+                Task.objects.filter(created_at__date=current, assignee__isnull=False).values_list('assignee_id', flat=True)
+            )
+            users.update(
+                Deal.objects.filter(deal_date=current, agent__isnull=False).values_list('agent_id', flat=True)
+            )
+            users.update(
+                Request.objects.filter(created_at__date=current, employee_profile__user__isnull=False)
+                .values_list('employee_profile__user_id', flat=True)
+            )
+            for user_id in users:
+                if not user_id:
+                    continue
+                tasks_total = Task.objects.filter(created_at__date=current, assignee_id=user_id).count()
+                tasks_done = Task.objects.filter(created_at__date=current, assignee_id=user_id, status__code='done').count()
+                deals_qs = Deal.objects.filter(deal_date=current, agent_id=user_id)
+                requests_qs = Request.objects.filter(created_at__date=current, employee_profile__user_id=user_id)
+                rows.append(
+                    cls(
+                        snapshot_date=current,
+                        user_id=user_id,
+                        deals_count=deals_qs.count(),
+                        completed_deals_count=deals_qs.filter(status__code='completed').count(),
+                        total_commission=deals_qs.aggregate(total=Sum('commission_amount'))['total'] or Decimal('0.00'),
+                        tasks_total=tasks_total,
+                        tasks_done=tasks_done,
+                        requests_total=requests_qs.count(),
+                        requests_completed=requests_qs.filter(status__code__in=Request.SUCCESS_STATUS_CODES).count(),
+                    )
+                )
+        if rows:
+            cls.objects.bulk_create(rows, batch_size=200)
+
+
+def rebuild_report_snapshots(*, property_dates=None, request_dates=None, task_dates=None, deal_dates=None):
+    ReportMetricSnapshot.rebuild_for_entity_dates(ReportMetricSnapshot.ENTITY_PROPERTY, property_dates or [])
+    ReportMetricSnapshot.rebuild_for_entity_dates(ReportMetricSnapshot.ENTITY_REQUEST, request_dates or [])
+    ReportMetricSnapshot.rebuild_for_entity_dates(ReportMetricSnapshot.ENTITY_TASK, task_dates or [])
+    ReportMetricSnapshot.rebuild_for_entity_dates(ReportMetricSnapshot.ENTITY_DEAL, deal_dates or [])
+    performance_dates = []
+    for items in (request_dates or [], task_dates or [], deal_dates or []):
+        for current in items:
+            if current and current not in performance_dates:
+                performance_dates.append(current)
+    AgentPerformanceSnapshot.rebuild_for_dates(performance_dates)
+
+
+def _auto_close_tasks_for_completed_deal(deal):
+    if not deal.pk or deal.status_id is None:
+        return
+    if deal.status.code != 'completed':
+        return
+    done_status = TaskStatus.objects.filter(code='done').first()
+    if done_status is None:
+        return
+    now = timezone.now()
+    Task.objects.filter(
+        deal_id=deal.pk,
+        status__code__in=('new', 'in_progress'),
+    ).update(
+        status=done_status,
+        completed_at=now,
+        is_auto_closed=True,
+        updated_at=now,
+    )
+    entity_type = AuditEntityType.objects.filter(code='deal').first()
+    action = AuditAction.objects.filter(code='status_changed').first()
+    if entity_type and action:
+        AuditLog.objects.create(
+            entity_type=entity_type,
+            entity_id=deal.pk,
+            action=action,
+            message='Автоматическое закрытие связанных задач при завершении сделки',
+        )
 
 
 # =====================================================

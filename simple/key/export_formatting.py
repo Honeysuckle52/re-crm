@@ -319,6 +319,18 @@ def _csv_bytes(rows: list[list[object]]) -> bytes:
     return buffer.getvalue()
 
 
+def _metadata_rows(title: str | None, metadata: dict | None) -> list[list[object]]:
+    rows: list[list[object]] = []
+    if title:
+        rows.append([title])
+        rows.append([])
+    if metadata:
+        for key, value in _clean_mapping(metadata, None).items():
+            rows.append([key, _flatten_value(value)])
+        rows.append([])
+    return rows
+
+
 def format_export_data(
     data: list[dict],
     fmt: str,
@@ -333,10 +345,15 @@ def format_export_data(
     cleaned_rows = cleaned_export_rows(data, columns=columns)
 
     if normalized == 'json':
-        return json.dumps(cleaned_rows, ensure_ascii=False, indent=2)
+        payload = {
+            'title': title or '',
+            'summary': _clean_mapping(metadata or {}, None),
+            'rows': cleaned_rows,
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
     rows = formatted_export_rows(data, columns=columns)
     if normalized == 'xlsx':
-        return rows
+        return [*_metadata_rows(title, metadata), *rows]
     if normalized == 'csv':
-        return _csv_bytes(rows)
+        return _csv_bytes([*_metadata_rows(title, metadata), *rows])
     raise ValueError('Unsupported export format.')

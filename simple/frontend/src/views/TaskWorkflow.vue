@@ -33,6 +33,9 @@
           </div>
         </div>
         <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button class="btn" type="button" @click="openTaskHistory">
+            История задачи
+          </button>
           <router-link to="/tasks" class="btn">← К списку задач</router-link>
         </div>
       </div>
@@ -97,6 +100,10 @@
           <button class="btn btn--accent" :disabled="busy"
                   @click="submitContact('messaged')">
             Написал
+          </button>
+          <button class="btn btn--accent" :disabled="busy"
+                  @click="submitContact('in_person')">
+            Клиент присутствует лично
           </button>
           <button class="btn" :disabled="busy"
                   @click="submitContact('missed')">

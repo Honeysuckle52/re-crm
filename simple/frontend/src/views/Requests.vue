@@ -103,7 +103,7 @@
 
         <div class="field">
           <label>Тип помещения</label>
-          <select v-model="form.property_type" class="select">
+          <select v-model="form.property_type" class="select" :disabled="Boolean(form.property)">
             <option value="">Выберите тип</option>
             <option value="apartment">Квартира</option>
             <option value="house">Дом</option>
@@ -485,7 +485,7 @@ import {
   getRequestCloseSuccessMessage,
   terminalRequestStatusCodes,
 } from '@/utils/requestClose'
-import { propertyTypeUsesRooms } from '@/utils/propertyTypes'
+import { normalizePropertyType, propertyTypeUsesRooms } from '@/utils/propertyTypes'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -677,7 +677,7 @@ function formatRequestValidationError(data) {
 function mapClientOption(user) {
   return {
     id: user.id,
-    label: user.full_name || user.username,
+    label: user.full_name || user.email || `Клиент #${user.id}`,
     hint: '',
   }
 }
@@ -685,7 +685,7 @@ function mapClientOption(user) {
 function mapAgentOption(user) {
   return {
     id: user.id,
-    label: user.full_name || user.username,
+    label: user.full_name || user.email || `Сотрудник #${user.id}`,
     hint: '',
   }
 }
@@ -696,12 +696,26 @@ function hasRowMenu(requestItem) {
 
 function selectProperty(property) {
   form.property = property.id
+  form.property_type = normalizePropertyType(
+    property.property_type_code || property.premises_type || property.property_type || '',
+  )
+  if (!propertyTypeUsesRooms(form.property_type)) {
+    form.rooms_count = null
+  }
+  if (!['commercial', 'land', 'house'].includes(form.property_type)) {
+    form.min_area = null
+    form.max_area = null
+  }
   selectedPropertyLabel.value = `${property.title || `Объект #${property.id}`}${property.full_address ? ` · ${property.full_address}` : ''}`
   propertyPickerOpen.value = false
 }
 
 function clearSelectedProperty() {
   form.property = null
+  form.property_type = ''
+  form.rooms_count = null
+  form.min_area = null
+  form.max_area = null
   selectedPropertyLabel.value = ''
 }
 
@@ -770,6 +784,9 @@ function populateFormFromRequest(requestItem) {
     max_price: requestItem.max_price ?? null,
     description: requestItem.description || '',
   })
+  form.property_type = normalizePropertyType(
+    requestItem.property_type_code || requestItem.property_type || '',
+  )
   selectedPropertyLabel.value = requestItem.property
     ? (requestItem.property_title || `Объект #${requestItem.property}`)
     : ''

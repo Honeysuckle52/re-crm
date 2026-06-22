@@ -1759,6 +1759,27 @@ class RequestSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = self.instance
+        property_obj = attrs.get(
+            'property',
+            getattr(instance, 'property', None),
+        )
+        requested_property_type = attrs.get(
+            'property_type',
+            getattr(instance, 'property_type', None),
+        )
+        if property_obj is not None:
+            property_type_from_property = getattr(property_obj, 'property_type_ref', None)
+            if (
+                requested_property_type is not None
+                and property_type_from_property is not None
+                and getattr(requested_property_type, 'pk', requested_property_type)
+                != getattr(property_type_from_property, 'pk', property_type_from_property)
+            ):
+                raise serializers.ValidationError({
+                    'property_type': 'Тип помещения должен совпадать с типом выбранного объекта.',
+                })
+            if property_type_from_property is not None:
+                attrs['property_type'] = property_type_from_property
         property_type = attrs.get(
             'property_type',
             getattr(instance, 'property_type', None),
@@ -1778,14 +1799,15 @@ class RequestSerializer(serializers.ModelSerializer):
         )
 
         errors = {}
-        if property_type_code == models.Property.PROPERTY_TYPE_COMMERCIAL:
-            if min_area in (None, '') and max_area in (None, ''):
-                errors['min_area'] = 'Для офиса или склада укажите диапазон площади.'
-            if rooms_count not in (None, ''):
-                errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
-        else:
-            if property_type_code and rooms_count in (None, '') and min_area in (None, '') and max_area in (None, ''):
-                errors['property_type'] = 'Укажите параметры, соответствующие выбранному типу помещения.'
+        if property_obj is None:
+            if property_type_code == models.Property.PROPERTY_TYPE_COMMERCIAL:
+                if min_area in (None, '') and max_area in (None, ''):
+                    errors['min_area'] = 'Для офиса или склада укажите диапазон площади.'
+                if rooms_count not in (None, ''):
+                    errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
+            else:
+                if property_type_code and rooms_count in (None, '') and min_area in (None, '') and max_area in (None, ''):
+                    errors['property_type'] = 'Укажите параметры, соответствующие выбранному типу помещения.'
 
         if min_area not in (None, '') and max_area not in (None, ''):
             try:

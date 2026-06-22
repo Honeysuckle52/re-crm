@@ -9,124 +9,348 @@
 {% block content_title %}{% endblock %}
 {% block bodyclass %}{{ block.super }} crm-backups-page{% endblock %}
 
+{% block extrastyle %}{{ block.super }}
+<style>
+:root {
+  --rpt-r: 8px;
+  --rpt-border: #d0d5dd;
+  --rpt-bg: #f3f5f7;
+  --rpt-card: #fff;
+  --rpt-head: #f4f6f8;
+  --rpt-accent: #417690;
+  --rpt-accent-lt: #e8f0f7;
+  --rpt-text: #1a2333;
+  --rpt-muted: #667085;
+  --rpt-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+
+.rpt-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0 2px;
+}
+
+.rpt-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.rpt-page-head h1 {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  margin: 0 0 4px;
+}
+.rpt-page-head p {
+  font-size: 12.5px;
+  color: var(--rpt-muted);
+  margin: 0;
+}
+
+.rpt-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--rpt-accent-lt);
+  border: 1px solid #c2d9ec;
+  border-radius: 6px;
+  padding: 7px 13px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--rpt-accent);
+  white-space: normal;
+  max-width: 420px;
+  line-height: 1.4;
+}
+
+.rpt-tabs {
+  display: flex;
+  border-bottom: 2px solid var(--rpt-border);
+  overflow-x: auto;
+  gap: 0;
+}
+.rpt-tabs span {
+  display: inline-block;
+  padding: 10px 22px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--rpt-accent);
+  border-bottom: 3px solid var(--rpt-accent);
+  margin-bottom: -2px;
+  white-space: nowrap;
+}
+
+.rpt-card {
+  background: var(--rpt-card);
+  border: 1px solid var(--rpt-border);
+  border-radius: var(--rpt-r);
+  box-shadow: var(--rpt-shadow);
+  overflow: hidden;
+}
+.rpt-card__head {
+  background: var(--rpt-head);
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--rpt-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rpt-card__head h3 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  margin: 0;
+}
+.rpt-card__body {
+  padding: 16px 18px;
+}
+
+.rpt-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.rpt-kpi {
+  background: var(--rpt-accent-lt);
+  border: 1px solid #c2d9ec;
+  border-radius: 6px;
+  padding: 10px 16px;
+  min-width: 150px;
+  flex: 1 1 180px;
+}
+.rpt-kpi__lbl {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--rpt-muted);
+  margin-bottom: 4px;
+}
+.rpt-kpi__val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--rpt-text);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.rpt-export {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.rpt-export .button,
+.rpt-export a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--rpt-border);
+  border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--rpt-accent);
+  background: #fff;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.rpt-export .button.default {
+  background: var(--rpt-accent);
+  border-color: var(--rpt-accent);
+  color: #fff;
+}
+.rpt-export .button[disabled] {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.rpt-note {
+  font-size: 12.5px;
+  color: var(--rpt-muted);
+  line-height: 1.55;
+}
+
+.rpt-empty {
+  text-align: center;
+  color: var(--rpt-muted);
+  font-style: italic;
+  font-size: 12.5px;
+  padding: 24px 18px;
+}
+
+.rpt-tbl-wrap {
+  overflow-x: auto;
+}
+.rpt-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+.rpt-tbl th,
+.rpt-tbl td {
+  padding: 7px 11px;
+  border: 1px solid #e0e5eb;
+  vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.45;
+}
+.rpt-tbl thead th {
+  background: var(--rpt-head);
+  font-weight: 700;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--rpt-text);
+  text-align: left;
+}
+.rpt-tbl tbody tr:nth-child(even) td {
+  background: #f9fbfc;
+}
+
+.rpt-mini {
+  font-size: 12px;
+  color: var(--rpt-muted);
+  margin-top: 4px;
+}
+
+.rpt-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+code {
+  font-family: Consolas, monospace;
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div id="content-main" class="crm-report-shell">
-  <div class="crm-dash-title">
-    <h1 class="crm-dash-title__h">Резервное копирование БД</h1>
+<div id="content-main" class="rpt-shell">
+  <div class="rpt-page-head">
+    <div>
+      <h1>Резервное копирование БД</h1>
+      <p>Полный резервный снимок базы данных с историей созданных файлов и быстрым скачиванием.</p>
+    </div>
+    <span class="rpt-stamp">
+      PostgreSQL · {{ backup_tool_label|default:"pg_dump" }}
+    </span>
   </div>
 
-  <section class="crm-report-hero">
-    <div class="crm-report-hero__copy">
-      <div class="crm-report-hero__eyebrow">Надёжность</div>
-      <h2>Полный резервный снимок</h2>
-      <p>Файл формируется средствами PostgreSQL по текущему подключению, сохраняется в истории и сразу отдается на скачивание.</p>
-    </div>
-    <div class="crm-report-tabs" role="list" aria-label="Тип резервной копии">
-      <span class="crm-report-tabs__link is-active">Полный снимок</span>
-    </div>
-  </section>
+  <nav class="rpt-tabs" aria-label="Раздел резервного копирования">
+    <span>Полный резервный снимок</span>
+  </nav>
 
-  <section class="crm-report-panel">
-    <div class="crm-report-panel__head crm-report-panel__head--row">
-      <div>
-        <h3>Сформировать резервную копию</h3>
-        <div class="crm-report-panel__meta">Используется утилита {{ backup_tool_label }}. Файл сохраняется в журнале и подходит для полного восстановления базы через PostgreSQL.</div>
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>Сводка подключения</h3>
+      <div class="rpt-export">
+        <form method="post">
+          {% csrf_token %}
+          <button type="submit" class="button default" {% if not backup_available %}disabled{% endif %}>
+            Создать и скачать снимок
+          </button>
+        </form>
       </div>
-      <form method="post" class="crm-backup-action">
-        {% csrf_token %}
-        <button type="submit" class="button default" {% if not backup_available %}disabled{% endif %}>
-          Создать и скачать снимок
-        </button>
-      </form>
     </div>
-
-    {% if not backup_available %}
-      <div class="crm-report-empty">{{ backup_unavailable_reason }}</div>
-    {% endif %}
-
-    <div class="crm-report-kpis">
-      {% for label, value in summary_items %}
-        <article class="crm-report-kpi">
-          <div class="crm-report-kpi__label">{{ label }}</div>
-          <div class="crm-report-kpi__value">{{ value }}</div>
-        </article>
-      {% endfor %}
-    </div>
-
-    <div class="crm-backup-history">
-      <div class="crm-report-panel__head">
-        <h3>История резервных копий</h3>
-        <div class="crm-report-panel__meta">Последние сохранённые файлы с журналом, кто и когда их создавал.</div>
+    <div class="rpt-card__body">
+      <div class="rpt-kpis">
+        {% for label, value in summary_items %}
+          <div class="rpt-kpi">
+            <div class="rpt-kpi__lbl">{{ label }}</div>
+            <div class="rpt-kpi__val">{{ value }}</div>
+          </div>
+        {% endfor %}
       </div>
-
-      {% if backup_history %}
-        <div class="crm-report-table-wrap">
-          <table class="crm-report-table crm-backup-table">
-            <thead>
-              <tr>
-                <th>Файл</th>
-                <th>Создал</th>
-                <th>Дата</th>
-                <th>Размер</th>
-                <th>Действие</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for backup in backup_history %}
-                <tr>
-                  <td>
-                    <strong>{{ backup.filename }}</strong>
-                    <div class="crm-backup-muted">{{ backup.engine_label }} · {{ backup.database_name }}</div>
-                  </td>
-                  <td>{{ backup.created_by|default:"Системно" }}</td>
-                  <td>{{ backup.created_at|date:"d.m.Y H:i" }}</td>
-                  <td>{{ backup.size_bytes|filesizeformat }}</td>
-                  <td>
-                    <a class="crm-row-btn crm-row-btn--edit" href="{% url 'admin:crm_backup_download' backup.id %}">
-                      Скачать
-                    </a>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% else %}
-        <div class="crm-report-empty">Сохранённых резервных копий пока нет.</div>
+      <div class="rpt-note" style="margin-top:12px;">
+        Файл формируется серверной утилитой, сохраняется в журнале и подходит для полного восстановления базы.
+      </div>
+      {% if not backup_available %}
+        <div class="rpt-empty">{{ backup_unavailable_reason }}</div>
       {% endif %}
     </div>
-  </section>
+  </div>
 
-  <section class="crm-report-panel">
-    <div class="crm-report-panel__head">
-      <h3>Что входит в файл</h3>
-      <div class="crm-report-panel__meta">Карточка оформлена в том же контуре, что и отчёты: без лишних действий, с понятным составом результата.</div>
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>История резервных копий</h3>
+      <div class="rpt-note">Последние сохранённые файлы и информация о том, кто их создал.</div>
     </div>
+    {% if backup_history %}
+      <div class="rpt-tbl-wrap">
+        <table class="rpt-tbl">
+          <thead>
+            <tr>
+              <th>Файл</th>
+              <th>Создал</th>
+              <th>Дата</th>
+              <th>Размер</th>
+              <th>Действие</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for backup in backup_history %}
+              <tr>
+                <td>
+                  <strong>{{ backup.filename }}</strong>
+                  <div class="rpt-mini">{{ backup.engine_label }} · {{ backup.database_name }}</div>
+                </td>
+                <td>{{ backup.created_by|default:"Системно" }}</td>
+                <td>{{ backup.created_at|date:"d.m.Y H:i" }}</td>
+                <td>{{ backup.size_bytes|filesizeformat }}</td>
+                <td>
+                  <a href="{% url 'admin:crm_backup_download' backup.id %}">Скачать</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="rpt-empty">Сохранённых резервных копий пока нет.</div>
+    {% endif %}
+  </div>
 
-    <div class="crm-report-kpis">
-      <article class="crm-report-kpi">
-        <div class="crm-report-kpi__label">Структура</div>
-        <div class="crm-backup-copy">Таблицы, последовательности, схемы и служебные объекты базы.</div>
-      </article>
-      <article class="crm-report-kpi">
-        <div class="crm-report-kpi__label">Данные</div>
-        <div class="crm-backup-copy">Все записи из рабочих таблиц, включая связанные сущности CRM.</div>
-      </article>
-      <article class="crm-report-kpi">
-        <div class="crm-report-kpi__label">Формат</div>
-        <div class="crm-backup-copy">Сжатый файл <code>.dump</code> для восстановления через <code>pg_restore</code>.</div>
-      </article>
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>Что входит в резервную копию</h3>
     </div>
-  </section>
+    <div class="rpt-card__body">
+      <div class="rpt-grid-3">
+        <div class="rpt-kpi">
+          <div class="rpt-kpi__lbl">Структура</div>
+          <div class="rpt-note">Таблицы, последовательности, схемы и служебные объекты базы данных.</div>
+        </div>
+        <div class="rpt-kpi">
+          <div class="rpt-kpi__lbl">Данные</div>
+          <div class="rpt-note">Все рабочие записи CRM, включая связанные сущности и служебные журналы.</div>
+        </div>
+        <div class="rpt-kpi">
+          <div class="rpt-kpi__lbl">Формат</div>
+          <div class="rpt-note">Сжатый файл <code>.dump</code> для восстановления через <code>pg_restore</code>.</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <section class="crm-report-panel">
-    <div class="crm-report-panel__head">
-      <h3>На что обратить внимание</h3>
-      <div class="crm-report-panel__meta">Если кнопка неактивна, на сервере не хватает утилиты <code>pg_dump</code> или используется неподдерживаемая СУБД.</div>
+  <div class="rpt-card">
+    <div class="rpt-card__head">
+      <h3>Важно</h3>
     </div>
-    <div class="crm-report-empty">
-      Для стабильной эксплуатации стоит хранить скачанные снимки вне рабочей машины и периодически проверять тестовое восстановление.
+    <div class="rpt-card__body">
+      <div class="rpt-note">
+        Если кнопка создания неактивна, на сервере недоступна утилита <code>pg_dump</code> или используется неподдерживаемая конфигурация базы. Для надёжности резервные копии стоит хранить вне рабочего сервера и периодически проверять тестовое восстановление.
+      </div>
     </div>
-  </section>
+  </div>
 </div>
 {% endblock %}

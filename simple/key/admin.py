@@ -4,6 +4,7 @@ from django import forms
 from django.apps import apps
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.forms import ReadOnlyPasswordHashField
 from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import models as django_models
 from django.http import FileResponse, Http404, HttpResponse
@@ -88,7 +89,7 @@ def _admin_query_string(query_dict, **updates):
 
 def _build_admin_report_context(request):
     report_type = (request.GET.get('type') or 'deals').strip().lower()
-    if report_type not in {'deals', 'tasks'}:
+    if report_type not in {'deals', 'tasks', 'properties', 'requests'}:
         report_type = 'deals'
 
     params = request.GET.copy()
@@ -98,6 +99,14 @@ def _build_admin_report_context(request):
         payload = reports.build_tasks_report(params, user=request.user)
         status_options = models.TaskStatus.objects.all()
         ordering_options = reports.TASKS_REPORT.ordering_options
+    elif report_type == 'properties':
+        payload = reports.build_properties_report(params, user=request.user)
+        status_options = models.PropertyStatus.objects.all()
+        ordering_options = reports.PROPERTIES_REPORT.ordering_options
+    elif report_type == 'requests':
+        payload = reports.build_requests_report(params, user=request.user)
+        status_options = models.RequestStatus.objects.all()
+        ordering_options = reports.REQUESTS_REPORT.ordering_options
     else:
         payload = reports.build_deals_report(params, user=request.user)
         status_options = models.DealStatus.objects.all()
@@ -138,6 +147,7 @@ def _admin_reports_view(request):
             payload['rows'],
             export_format,
             ordering=payload['ordering'],
+            title=payload['title'],
             user=request.user,
         )
 
@@ -155,6 +165,7 @@ def _admin_reports_view(request):
         'title': 'Отчёты',
         'report_type': report_type,
         'report_title': payload['definition'].title,
+        'report_generated_title': payload['title'],
         'columns': payload['definition'].columns,
         'rows': payload['rows'],
         'table_rows': [
@@ -165,12 +176,19 @@ def _admin_reports_view(request):
             for row in payload['rows']
         ],
         'summary_items': list(payload['summary'].items()),
+        'insight_items': payload.get('insights', []),
         'ordering_options': ordering_options,
         'status_options': status_options,
         'employees': models.User.objects.filter(
             user_type='employee',
         ).order_by('username'),
+        'property_types': models.PropertyType.objects.order_by('name'),
+        'operation_types': models.OperationType.objects.order_by('name'),
         'task_types': models.Task.TASK_TYPE_CHOICES,
+        'top_n': payload.get('top_n', 5),
+        'top_n_options': (0, 5, 10, 15, 20),
+        'top_agents_tasks': payload.get('top_agents_tasks', []),
+        'top_agents_deals': payload.get('top_agents_deals', []),
         'filters': {
             'date_from': (request.GET.get('date_from') or '').strip(),
             'date_to': (request.GET.get('date_to') or '').strip(),
@@ -179,10 +197,16 @@ def _admin_reports_view(request):
             'agent': (request.GET.get('agent') or '').strip(),
             'assignee': (request.GET.get('assignee') or '').strip(),
             'task_type': (request.GET.get('task_type') or '').strip(),
+            'property_type': (request.GET.get('property_type') or '').strip(),
+            'operation_type': (request.GET.get('operation_type') or '').strip(),
+            'is_published': (request.GET.get('is_published') or '').strip(),
+            'top_n': (request.GET.get('top_n') or str(payload.get('top_n', 5))).strip(),
         },
         'switch_links': {
             'deals': _admin_query_string(base_query, type='deals'),
             'tasks': _admin_query_string(base_query, type='tasks'),
+            'properties': _admin_query_string(base_query, type='properties'),
+            'requests': _admin_query_string(base_query, type='requests'),
         },
         'reset_link': _admin_query_string(reset_query),
         'export_links': {
@@ -562,6 +586,48 @@ class UserRoleAdminForm(forms.ModelForm):
         return role
 
 
+class UserAdminChangeForm(forms.ModelForm):
+    password = ReadOnlyPasswordHashField(
+        label='Пароль',
+        help_text='Пароль хранится только в зашифрованном виде и не может быть показан.',
+    )
+
+    class Meta:
+        model = models.User
+        fields = '__all__'
+
+
+class UserAdminCreationForm(forms.ModelForm):
+    password1 = forms.CharField(label='Пароль', widget=forms.PasswordInput)
+    password2 = forms.CharField(label='Подтверждение пароля', widget=forms.PasswordInput)
+
+    class Meta:
+        model = models.User
+        fields = ('email', 'phone', 'user_type_ref', 'role')
+
+    def clean_email(self):
+        email = models.User.objects.normalize_email((self.cleaned_data.get('email') or '').strip())
+        if not email:
+            raise ValidationError('Укажите электронную почту.')
+        if models.User.objects.filter(email__iexact=email).exists():
+            raise ValidationError('Пользователь с такой электронной почтой уже существует.')
+        return email
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get('password1') != cleaned_data.get('password2'):
+            self.add_error('password2', 'Пароли не совпадают.')
+        return cleaned_data
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.username = ''
+        user.set_password(self.cleaned_data['password1'])
+        if commit:
+            user.save()
+        return user
+
+
 @admin.register(models.UserRole)
 class UserRoleAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     form = UserRoleAdminForm
@@ -600,8 +666,9 @@ class UserRoleAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
 
 @admin.register(models.User)
 class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
+    form = UserAdminChangeForm
+    add_form = UserAdminCreationForm
     list_display = (
-        'username',
         'email',
         'phone',
         'user_type',
@@ -611,15 +678,15 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
         'created_at',
     )
     list_filter = ('user_type_ref', 'role', 'is_active', 'is_staff', 'is_superuser')
-    search_fields = ('username', 'email', 'phone')
+    search_fields = ('email', 'phone')
     ordering = ('-created_at',)
     list_select_related = ('role', 'user_type_ref')
     fieldsets = (
         (
             'Учётная запись',
             {
-                'fields': ('username', 'password'),
-                'description': 'Логин и пароль пользователя. Пароль хранится только в зашифрованном виде.',
+                'fields': ('password',),
+                'description': 'Логин формируется автоматически по email. Пароль хранится только в зашифрованном виде.',
             },
         ),
         (
@@ -661,7 +728,6 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
             {
                 'classes': ('wide',),
                 'fields': (
-                    'username',
                     'email',
                     'password1',
                     'password2',
