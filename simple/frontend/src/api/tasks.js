@@ -84,6 +84,18 @@ export function recordTaskStep(id, payload) {
   })
 }
 
+export function scheduleTaskViewing(id, payload) {
+  return call(() => api.post(`/tasks/${id}/schedule_viewing/`, payload), {
+    bump: false,
+  })
+}
+
+export function initiateTaskViewingPayment(id) {
+  return call(() => api.post(`/tasks/${id}/initiate_viewing_payment/`), {
+    bump: false,
+  })
+}
+
 export function takeRequest(id) {
   return call(() => api.post(`/requests/${id}/take/`))
 }

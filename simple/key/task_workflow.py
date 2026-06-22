@@ -9,10 +9,12 @@ from rest_framework.exceptions import ValidationError
 from . import models
 
 MATCH_TASK_TYPES = {'property_search', 'showing'}
+SHOWING_TASK_TYPES = {'showing'}
 
 CONTACT_STEP = 'contact'
 REQUEST_STEP = 'request'
 MATCH_STEP = 'match'
+PAYMENT_STEP = 'payment'
 COMPLETE_STEP = 'complete'
 COMPLETED_LOG_STEP = 'completed'
 
@@ -85,9 +87,34 @@ TASK_MATCH_SCHEMA = [
     TASK_DEFAULT_SCHEMA[2],
 ]
 
+TASK_SHOWING_SCHEMA = [
+    TASK_DEFAULT_SCHEMA[0],
+    TASK_DEFAULT_SCHEMA[1],
+    {
+        'id': MATCH_STEP,
+        'label': 'Предпросмотр объекта',
+        'outcomes': [
+            {'code': 'showing_scheduled', 'label': 'назначил реальный просмотр'},
+            {'code': 'confirmed', 'label': 'клиент подтвердил просмотр'},
+        ],
+    },
+    {
+        'id': PAYMENT_STEP,
+        'label': 'Оплата просмотра',
+        'outcomes': [
+            {'code': 'link_sent', 'label': 'отправил ссылку на оплату'},
+        ],
+    },
+    TASK_DEFAULT_SCHEMA[2],
+]
+
 
 def _schema_for_task(task: models.Task) -> list[dict]:
-    return TASK_MATCH_SCHEMA if task.task_type in MATCH_TASK_TYPES else TASK_DEFAULT_SCHEMA
+    if task.task_type in SHOWING_TASK_TYPES:
+        return TASK_SHOWING_SCHEMA
+    if task.task_type in MATCH_TASK_TYPES:
+        return TASK_MATCH_SCHEMA
+    return TASK_DEFAULT_SCHEMA
 
 
 def _step_specs_for_task(task: models.Task) -> tuple[WorkflowStepSpec, ...]:
@@ -164,6 +191,30 @@ def _validate_step_preconditions(
                 {'detail': 'Сначала привяжите или создайте заявку для задачи.'}
             )
 
+    if step_id == PAYMENT_STEP:
+        if task.task_type not in SHOWING_TASK_TYPES:
+            raise ValidationError(
+                {'detail': 'Этап оплаты доступен только для задач показа.'}
+            )
+        if not task.property_id or not task.client_id:
+            raise ValidationError(
+                {'detail': 'Для оплаты просмотра у задачи должны быть указаны клиент и объект.'}
+            )
+        viewing = models.PropertyViewing.objects.filter(
+            property_id=task.property_id,
+            client_profile__user_id=task.client_id,
+        ).order_by('-viewing_date', '-id').first()
+        payment = getattr(viewing, 'payment', None) if viewing else None
+        if viewing is None:
+            raise ValidationError(
+                {'detail': 'Сначала назначьте реальный просмотр объекта.'}
+            )
+        if payment is None or not payment.payment_url:
+            raise ValidationError(
+                {'detail': 'Сначала сформируйте ссылку на оплату просмотра.'}
+            )
+        return
+
     if step_id != MATCH_STEP:
         return
 
@@ -172,10 +223,16 @@ def _validate_step_preconditions(
             {'detail': 'Для этапа подбора задача должна быть связана с заявкой.'}
         )
 
+    if task.task_type in SHOWING_TASK_TYPES and outcome == 'showing_scheduled':
+        if not task.property_id or not task.client_id:
+            raise ValidationError(
+                {'detail': 'Для назначения просмотра укажите в задаче клиента и объект.'}
+            )
+        return
+
     if outcome == 'confirmed':
         has_confirmed_match = task.request.matches.filter(
-            is_confirmed=True,
-            is_rejected=False,
+            confirmed_at__isnull=False,
         ).exists()
         if not has_confirmed_match:
             raise ValidationError({

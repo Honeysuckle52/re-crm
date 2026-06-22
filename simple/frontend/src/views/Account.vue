@@ -136,6 +136,51 @@
         </div>
       </form>
     </div>
+
+    <div v-if="auth.user?.user_type === 'client'" class="panel panel--light stack">
+      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
+        <div>
+          <h2 class="h3">Мои задачи по работе агента</h2>
+          <div class="muted" style="font-size: 13px; margin-top: 4px">
+            Здесь видно, на каком этапе находится работа по вашему запросу, просмотру и оплате.
+          </div>
+        </div>
+      </div>
+
+      <div v-if="loadingTasks" class="muted">Загрузка…</div>
+      <div v-else-if="clientTasks.length" class="stack">
+        <div v-for="item in clientTasks" :key="item.id" class="client-task-card">
+          <div class="client-task-card__head">
+            <div>
+              <b>{{ item.title }}</b>
+              <div class="muted" style="font-size: 13px; margin-top: 4px">
+                {{ item.task_type_display || item.task_type }} · {{ item.status_name }}
+              </div>
+            </div>
+            <div class="client-task-card__meta">
+              <span class="tag">{{ workflowCurrentLabel(item) }}</span>
+            </div>
+          </div>
+          <div class="stack" style="gap: 8px">
+            <div v-if="item.viewing_date" class="muted">
+              Просмотр назначен на {{ formatDate(item.viewing_date) }}
+            </div>
+            <div v-if="item.showing_payment_status" class="muted">
+              Статус оплаты просмотра: {{ paymentStatusLabel(item.showing_payment_status) }}
+            </div>
+            <a v-if="item.showing_payment_url && ['pending', 'failed'].includes(item.showing_payment_status)"
+               class="btn btn--sm btn--accent"
+               :href="item.showing_payment_url"
+               target="_blank" rel="noreferrer">
+              Перейти к оплате просмотра
+            </a>
+          </div>
+        </div>
+      </div>
+      <div v-else class="muted">
+        Пока нет задач, связанных с вашим обслуживанием.
+      </div>
+    </div>
   </section>
 </template>
 
@@ -147,6 +192,7 @@ import { useAuthStore } from '../store/auth'
 import { extractError, useToastsStore } from '../store/toasts'
 import InfoRow from '../components/InfoRow.vue'
 import { unpackPaginated } from '@/utils/paginated'
+import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -156,8 +202,10 @@ const toasts = useToastsStore()
 const showWelcome = ref(!!route.query.welcome)
 
 const loadingProfile = ref(false)
+const loadingTasks = ref(false)
 const saving = ref(false)
 const profileId = ref(null)
+const clientTasks = ref([])
 const profile = reactive({
   first_name: '',
   last_name: '',
@@ -279,6 +327,35 @@ async function loadProfile () {
   }
 }
 
+function workflowCurrentLabel(task) {
+  const current = task?.workflow_steps?.find(step => step.current)
+  return current?.label || task?.workflow_current_step || 'В работе'
+}
+
+function paymentStatusLabel(status) {
+  return {
+    pending: 'ожидает оплаты',
+    paid: 'оплата подтверждена',
+    failed: 'ошибка оплаты',
+    refunded: 'возврат выполнен',
+  }[status] || status || 'не создана'
+}
+
+async function loadClientTasks () {
+  if (auth.user?.user_type !== 'client') return
+  loadingTasks.value = true
+  try {
+    const { data } = await api.get('/tasks/', {
+      params: { page_size: 20 },
+    })
+    clientTasks.value = unpackPaginated(data).items
+  } catch (_err) {
+    clientTasks.value = []
+  } finally {
+    loadingTasks.value = false
+  }
+}
+
 async function saveProfile () {
   if (!profileId.value) {
     toasts.error('Профиль ещё не создан — обратитесь к менеджеру')
@@ -309,7 +386,10 @@ async function logout () {
   router.push('/login')
 }
 
-onMounted(loadProfile)
+onMounted(() => {
+  void loadProfile()
+  void loadClientTasks()
+})
 </script>
 
 <style scoped>
@@ -343,6 +423,28 @@ onMounted(loadProfile)
   font-weight: 600;
 }
 
+.client-task-card {
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid var(--c-border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.client-task-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.client-task-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .panel--light .field > .select {
   color-scheme: light;
   background-color: #f4f8fa;
@@ -363,6 +465,17 @@ onMounted(loadProfile)
 .panel--light .field > .select option {
   background: #f4f8fa;
   color: var(--c-page-text);
+}
+
+@media (max-width: 720px) {
+  .client-task-card {
+    padding: 14px 16px;
+  }
+
+  .client-task-card__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 </style>

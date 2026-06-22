@@ -247,11 +247,12 @@ def mark_payment_paid(
     sber_response: dict[str, Any],
     actor=None,
 ) -> models.ViewingPayment:
-    payment = models.ViewingPayment.objects.select_for_update().select_related(
-        'viewing__status',
-        'client',
-        'property',
-    ).get(pk=payment.pk)
+    payment = models.ViewingPayment.objects.select_for_update().get(pk=payment.pk)
+    payment.viewing = (
+        models.PropertyViewing.objects
+        .select_related('status')
+        .get(pk=payment.viewing_id)
+    )
     old_status = payment.status
     payment.status = models.ViewingPayment.STATUS_PAID
     payment.paid_at = timezone.now()

@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from . import audit as audit_service
 from . import models
 from . import task_workflow
+from . import viewing_payments
 
 
 def _get_status_by_code(code: str) -> models.TaskStatus | None:
@@ -33,6 +34,144 @@ def _normalize_result(result: Any) -> tuple[str | None, dict[str, Any]]:
                 if k not in ('summary', 'text')}
         return summary, meta
     return str(result), {}
+
+
+def _latest_viewing_for_task(task: models.Task) -> models.PropertyViewing | None:
+    if not task.property_id or not task.client_id:
+        return None
+    return (
+        models.PropertyViewing.objects
+        .select_related('payment', 'client_profile__user', 'employee_profile__user', 'status')
+        .filter(
+            property_id=task.property_id,
+            client_profile__user_id=task.client_id,
+        )
+        .order_by('-viewing_date', '-id')
+        .first()
+    )
+
+
+@transaction.atomic
+def schedule_task_showing(
+    task: models.Task,
+    *,
+    actor,
+    viewing_date,
+    note: str | None = None,
+) -> tuple[models.Task, models.PropertyViewing]:
+    task = (
+        models.Task.objects
+        .select_for_update()
+        .get(pk=task.pk)
+    )
+    if task.client_profile_id:
+        task.client_profile = models.ClientProfile.objects.get(pk=task.client_profile_id)
+    if task.property_id:
+        task.property = models.Property.objects.get(pk=task.property_id)
+    if task.request_id:
+        task.request = models.Request.objects.get(pk=task.request_id)
+    if task.assignee_id:
+        task.assignee = (
+            models.User.objects
+            .select_related('employee_profile')
+            .get(pk=task.assignee_id)
+        )
+    if task.task_type != models.Task.TASK_TYPE_SHOWING:
+        raise ValidationError({'detail': 'Назначение просмотра доступно только для задач показа.'})
+    if not task.property_id or not task.client_profile_id:
+        raise ValidationError({'detail': 'Для назначения просмотра у задачи должны быть указаны клиент и объект.'})
+    if not task.assignee_id or not hasattr(task.assignee, 'employee_profile'):
+        raise ValidationError({'detail': 'У задачи должен быть назначен сотрудник с профилем агента.'})
+
+    scheduled_status = models.ViewingStatus.objects.filter(code='scheduled').first()
+    if scheduled_status is None:
+        raise ValidationError({'detail': 'Справочник статусов просмотров не заполнен: отсутствует код "scheduled".'})
+
+    viewing = _latest_viewing_for_task(task)
+    if viewing is None or viewing.status_id and viewing.status.code in {'completed', 'cancelled', 'no_show'}:
+        viewing = models.PropertyViewing(
+            property=task.property,
+            client_profile=task.client_profile,
+            employee_profile=task.assignee.employee_profile,
+        )
+    viewing.employee_profile = task.assignee.employee_profile
+    viewing.viewing_date = viewing_date
+    viewing.status = scheduled_status
+    if note is not None:
+        viewing.comment = note
+    viewing.full_clean()
+    viewing.save()
+
+    audit_service.log_event(
+        entity=task,
+        action_code='scheduled',
+        action_label='Назначение просмотра',
+        actor=actor,
+        message='Для клиента назначен реальный просмотр объекта.',
+        metadata={
+            'task_id': task.pk,
+            'property_id': task.property_id,
+            'client_id': task.client_id,
+            'viewing_date': viewing.viewing_date.isoformat() if viewing.viewing_date else None,
+        },
+        property_obj=task.property,
+        request_obj=task.request,
+    )
+    return task, viewing
+
+
+@transaction.atomic
+def initiate_showing_payment_for_task(
+    task: models.Task,
+    *,
+    actor,
+    request,
+) -> tuple[models.Task, models.ViewingPayment]:
+    task = (
+        models.Task.objects
+        .select_for_update()
+        .get(pk=task.pk)
+    )
+    if task.client_profile_id:
+        task.client_profile = (
+            models.ClientProfile.objects
+            .select_related('user')
+            .get(pk=task.client_profile_id)
+        )
+    if task.property_id:
+        task.property = models.Property.objects.get(pk=task.property_id)
+    if task.request_id:
+        task.request = models.Request.objects.get(pk=task.request_id)
+    if task.task_type != models.Task.TASK_TYPE_SHOWING:
+        raise ValidationError({'detail': 'Создание оплаты доступно только для задач показа.'})
+    viewing = _latest_viewing_for_task(task)
+    if viewing is None:
+        raise ValidationError({'detail': 'Сначала назначьте реальный просмотр объекта.'})
+
+    payment = getattr(viewing, 'payment', None)
+    if payment and payment.status == models.ViewingPayment.STATUS_PAID:
+        return task, payment
+
+    payment = viewing_payments.create_viewing_payment(
+        viewing,
+        task.client_profile.user,
+        request,
+    )
+    audit_service.log_event(
+        entity=task,
+        action_code='payment_link_created',
+        action_label='Создание ссылки на оплату',
+        actor=actor,
+        message='Для просмотра сформирована ссылка на оплату и отправлена клиенту.',
+        metadata={
+            'viewing_id': viewing.pk,
+            'payment_id': payment.pk,
+            'payment_url': payment.payment_url,
+        },
+        property_obj=task.property,
+        request_obj=task.request,
+    )
+    return task, payment
 
 
 @transaction.atomic

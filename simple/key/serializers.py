@@ -1903,6 +1903,11 @@ class TaskSerializer(serializers.ModelSerializer):
     workflow_current_step = serializers.SerializerMethodField()
     showing_payment_status = serializers.SerializerMethodField()
     showing_payment_amount = serializers.SerializerMethodField()
+    showing_payment_url = serializers.SerializerMethodField()
+    showing_payment_id = serializers.SerializerMethodField()
+    viewing_id = serializers.SerializerMethodField()
+    viewing_date = serializers.SerializerMethodField()
+    client_can_view_task = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Task
@@ -1918,6 +1923,8 @@ class TaskSerializer(serializers.ModelSerializer):
                   'steps_log', 'is_auto_closed',
                   'workflow_steps', 'workflow_current_step',
                   'showing_payment_status', 'showing_payment_amount',
+                  'showing_payment_url', 'showing_payment_id',
+                  'viewing_id', 'viewing_date', 'client_can_view_task',
                   'is_overdue', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at', 'created_by', 'is_auto_closed', 'steps_log']
         # status назначается бэкендом автоматически при создании (статус «new»),
@@ -1968,6 +1975,45 @@ class TaskSerializer(serializers.ModelSerializer):
     def get_showing_payment_amount(self, obj):
         payment = self._showing_payment(obj)
         return payment.amount if payment else None
+
+    def get_showing_payment_url(self, obj):
+        payment = self._showing_payment(obj)
+        if payment is None:
+            return None
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if user and (
+            getattr(user, 'is_admin_or_manager', False)
+            or getattr(user, 'is_employee', False)
+            or user.id == obj.client_id
+        ):
+            return payment.payment_url
+        return None
+
+    def get_showing_payment_id(self, obj):
+        payment = self._showing_payment(obj)
+        return payment.id if payment else None
+
+    def get_viewing_id(self, obj):
+        if obj.task_type != models.Task.TASK_TYPE_SHOWING or not obj.property_id or not obj.client_id:
+            return None
+        viewing = models.PropertyViewing.objects.filter(
+            property_id=obj.property_id,
+            client_profile__user_id=obj.client_id,
+        ).order_by('-viewing_date', '-id').first()
+        return viewing.id if viewing else None
+
+    def get_viewing_date(self, obj):
+        if obj.task_type != models.Task.TASK_TYPE_SHOWING or not obj.property_id or not obj.client_id:
+            return None
+        viewing = models.PropertyViewing.objects.filter(
+            property_id=obj.property_id,
+            client_profile__user_id=obj.client_id,
+        ).order_by('-viewing_date', '-id').first()
+        return viewing.viewing_date if viewing else None
+
+    def get_client_can_view_task(self, obj):
+        return bool(obj.client_id)
 
 
 class ViewingPaymentSerializer(serializers.ModelSerializer):

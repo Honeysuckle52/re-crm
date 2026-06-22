@@ -202,10 +202,10 @@
       </template>
 
       <template v-else-if="currentStep.id === 'match'">
-        <h2 class="h3">Шаг 3. Подбор объекта</h2>
+        <h2 class="h3">Шаг 3. Предложение объекта и просмотр</h2>
         <p class="muted" style="margin-top: 4px">
-          Подберите объекты для клиента в заявке, затем зафиксируйте,
-          какой вариант он подтвердил.
+          Для показа зафиксируйте реальный просмотр объекта. Для подбора зафиксируйте,
+          какой вариант предложен или подтвержден клиентом.
         </p>
 
         <div v-if="activeRequestId" class="linked-request">
@@ -223,7 +223,32 @@
           </div>
         </div>
 
-        <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 14px">
+        <div v-if="task?.task_type === 'showing'" class="stack" style="margin-top: 14px">
+          <div class="field">
+            <label>Дата и время реального просмотра</label>
+            <input v-model="showingForm.viewing_date" class="input" type="datetime-local" />
+          </div>
+          <div class="field">
+            <label>Комментарий агенту</label>
+            <textarea v-model="showingForm.note" class="textarea" rows="2"
+                      placeholder="Например: клиент подтвердил субботу 15:00"></textarea>
+          </div>
+          <div v-if="task.viewing_date" class="notice-card">
+            Назначенный просмотр: {{ formatDate(task.viewing_date) }}
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <button class="btn btn--accent" :disabled="busy || !showingForm.viewing_date"
+                    @click="scheduleViewing">
+              Назначить реальный просмотр
+            </button>
+            <button class="btn" :disabled="busy || !task.viewing_id"
+                    @click="submitMatchStep('showing_scheduled')">
+              Зафиксировать этап
+            </button>
+          </div>
+        </div>
+
+        <div v-else class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 14px">
           <button class="btn btn--accent" :disabled="busy"
                   @click="submitMatchStep('proposed')">
             Предложил варианты
@@ -239,8 +264,52 @@
         </div>
       </template>
 
+      <template v-else-if="currentStep.id === 'payment'">
+        <h2 class="h3">Шаг 4. Оплата просмотра</h2>
+        <p class="muted" style="margin-top: 4px">
+          После согласования просмотра сформируйте клиенту ссылку на оплату и зафиксируйте этот этап.
+        </p>
+
+        <div class="stack" style="margin-top: 14px">
+          <div class="notice-card" v-if="task.viewing_date">
+            Дата просмотра: {{ formatDate(task.viewing_date) }}
+          </div>
+          <div class="notice-card" v-if="task.showing_payment_amount">
+            Сумма к оплате: {{ task.showing_payment_amount }} ₽
+          </div>
+          <div class="notice-card" v-if="task.showing_payment_status">
+            Статус оплаты: {{ outcomeLabel(task.showing_payment_status) }}
+          </div>
+          <div v-if="task.showing_payment_url" class="linked-request">
+            <div>
+              <b>Ссылка на оплату сформирована</b>
+              <div class="muted" style="font-size: 13px">
+                Клиент может открыть ее из личного кабинета или по прямой ссылке.
+              </div>
+            </div>
+            <div class="row" style="gap: 6px">
+              <a class="btn btn--sm btn--primary"
+                 :href="task.showing_payment_url"
+                 target="_blank" rel="noreferrer">
+                Открыть ссылку
+              </a>
+            </div>
+          </div>
+          <div class="row" style="gap: 8px; flex-wrap: wrap">
+            <button class="btn btn--accent" :disabled="busy || !task.viewing_id"
+                    @click="createViewingPayment">
+              {{ task.showing_payment_id ? 'Обновить ссылку на оплату' : 'Создать ссылку на оплату' }}
+            </button>
+            <button class="btn" :disabled="busy || !task.showing_payment_url"
+                    @click="submitPaymentStep">
+              Зафиксировать отправку ссылки
+            </button>
+          </div>
+        </div>
+      </template>
+
       <template v-else-if="currentStep.id === 'complete'">
-        <h2 class="h3">Шаг 4. Завершить задачу</h2>
+        <h2 class="h3">Шаг {{ task?.task_type === 'showing' ? 5 : 4 }}. Завершить задачу</h2>
         <p class="muted" style="margin-top: 4px">
           Опишите итог — это попадёт в историю и в отчёты.
         </p>
@@ -328,9 +397,14 @@ const newRequest = reactive({
   address_preferences: '',
   description: '',
 })
+const showingForm = reactive({
+  viewing_date: '',
+  note: '',
+})
 
 function fallbackWorkflowSteps(taskPayload) {
   const isMatchRelevant = ['property_search', 'showing'].includes(taskPayload?.task_type)
+  const isShowing = taskPayload?.task_type === 'showing'
   return [
     {
       id: 'contact',
@@ -348,6 +422,14 @@ function fallbackWorkflowSteps(taskPayload) {
       ? [{
           id: 'match',
           label: 'Подбор/выполнение',
+          done: false,
+          current: false,
+        }]
+      : []),
+    ...(isShowing
+      ? [{
+          id: 'payment',
+          label: 'Оплата просмотра',
           done: false,
           current: false,
         }]
@@ -422,6 +504,8 @@ function resetWorkflowState () {
   busy.value = false
   contactNote.value = ''
   completionSummary.value = ''
+  showingForm.viewing_date = ''
+  showingForm.note = ''
   resetNewRequestState()
 }
 
@@ -447,6 +531,12 @@ async function load ({ reset = false } = {}) {
 
     task.value = data
     completionSummary.value = taskResultText(data)
+    if (data.viewing_date) {
+      const date = new Date(data.viewing_date)
+      const offset = date.getTimezoneOffset()
+      const local = new Date(date.getTime() - offset * 60000)
+      showingForm.viewing_date = local.toISOString().slice(0, 16)
+    }
 
     let nextOperationTypes = []
     let nextLinkedRequest = null
@@ -513,6 +603,7 @@ const STEP_LABELS = {
   contact:  'Контакт',
   request:  'Заявка',
   match:    'Подбор',
+  payment:  'Оплата',
   complete: 'Завершение',
 }
 const OUTCOME_LABELS = {
@@ -523,8 +614,13 @@ const OUTCOME_LABELS = {
   linked:             'связана с существующей заявкой',
   exists:             'использована активная заявка клиента',
   proposed:           'предложил варианты',
-  showing_scheduled:  'назначил показ',
+  showing_scheduled:  'назначил реальный просмотр',
   confirmed:          'клиент подтвердил вариант',
+  link_sent:          'отправил ссылку на оплату',
+  pending:            'ожидает оплаты',
+  paid:               'оплата подтверждена',
+  failed:             'ошибка оплаты',
+  refunded:           'возврат выполнен',
 }
 function stepLabel (id) { return STEP_LABELS[id] || id }
 function outcomeLabel (id) { return OUTCOME_LABELS[id] || id }
@@ -644,6 +740,49 @@ async function submitMatchStep (outcome) {
     toasts.success('Этап «Подбор» зафиксирован')
   } else {
     toasts.error(error || 'Не удалось зафиксировать этап')
+  }
+  busy.value = false
+}
+
+async function scheduleViewing () {
+  busy.value = true
+  const { ok, data, error } = await tasksApi.scheduleTaskViewing(task.value.id, {
+    viewing_date: showingForm.viewing_date,
+    note: showingForm.note || null,
+  })
+  if (ok) {
+    task.value = data.task
+    toasts.success('Реальный просмотр назначен')
+  } else {
+    toasts.error(error || 'Не удалось назначить просмотр')
+  }
+  busy.value = false
+}
+
+async function createViewingPayment () {
+  busy.value = true
+  const { ok, data, error } = await tasksApi.initiateTaskViewingPayment(task.value.id)
+  if (ok) {
+    task.value = data.task
+    toasts.success('Ссылка на оплату сформирована')
+  } else {
+    toasts.error(error || 'Не удалось создать ссылку на оплату')
+  }
+  busy.value = false
+}
+
+async function submitPaymentStep () {
+  busy.value = true
+  const { ok, data, error } = await tasksApi.recordTaskStep(task.value.id, {
+    step: 'payment',
+    outcome: 'link_sent',
+    note: task.value?.showing_payment_url || null,
+  })
+  if (ok) {
+    task.value = data
+    toasts.success('Этап оплаты зафиксирован')
+  } else {
+    toasts.error(error || 'Не удалось зафиксировать этап оплаты')
   }
   busy.value = false
 }

@@ -3623,6 +3623,11 @@ class TaskWorkflowValidationTests(TestCase):
             name='New',
             order=10,
         )
+        self.status_done = models.TaskStatus.objects.create(
+            code='done',
+            name='Done',
+            order=20,
+        )
         self.employee = models.User.objects.create_user(
             username='task-workflow-user',
             email='task-workflow-user@example.com',
@@ -3643,9 +3648,43 @@ class TaskWorkflowValidationTests(TestCase):
             code='processing',
             name='Processing',
         )
+        self.match_status_confirmed = models.RequestMatchStatus.objects.create(
+            code='confirmed',
+            name='Confirmed',
+        )
         self.property_status = models.PropertyStatus.objects.create(
             code='active',
             name='Active',
+        )
+        self.viewing_status_scheduled = models.ViewingStatus.objects.create(
+            code='scheduled',
+            name='Scheduled',
+        )
+        self.priority = models.TaskPriority.objects.create(
+            code='normal',
+            name='Normal',
+        )
+        self.showing_task_type = models.TaskType.objects.create(
+            code='showing',
+            name='Showing',
+        )
+        self.property_search_task_type = models.TaskType.objects.create(
+            code='property_search',
+            name='Property search',
+        )
+        self.contact_task_type = models.TaskType.objects.create(
+            code='contact_client',
+            name='Contact client',
+        )
+        self.employee_profile = models.EmployeeProfile.objects.create(
+            user=self.employee,
+            first_name='Workflow',
+            last_name='Agent',
+        )
+        self.client_profile = models.ClientProfile.objects.create(
+            user=self.client_user,
+            first_name='Workflow',
+            last_name='Client',
         )
 
         city = models.City.objects.create(name='Irkutsk', region='Region')
@@ -3668,10 +3707,10 @@ class TaskWorkflowValidationTests(TestCase):
     def test_task_detail_includes_backend_workflow_steps(self):
         task = models.Task.objects.create(
             title='Search property',
-            task_type='property_search',
             status=self.status_new,
             assignee=self.employee,
             created_by=self.employee,
+            task_type_ref=self.property_search_task_type,
         )
 
         response = self.api.get(f'/api/tasks/{task.pk}/')
@@ -3682,18 +3721,13 @@ class TaskWorkflowValidationTests(TestCase):
         self.assertEqual(response.data['workflow_current_step'], 'contact')
 
     def test_terminal_task_detail_points_to_complete_step(self):
-        status_done = models.TaskStatus.objects.create(
-            code='done',
-            name='Done',
-            order=20,
-        )
         task = models.Task.objects.create(
             title='Completed search property',
-            task_type='property_search',
-            status=status_done,
+            status=self.status_done,
             assignee=self.employee,
             created_by=self.employee,
             completed_at=timezone.now(),
+            task_type_ref=self.property_search_task_type,
         )
 
         response = self.api.get(f'/api/tasks/{task.pk}/')
@@ -3704,10 +3738,10 @@ class TaskWorkflowValidationTests(TestCase):
     def test_record_step_rejects_out_of_order_transition(self):
         task = models.Task.objects.create(
             title='Contact client',
-            task_type='contact_client',
             status=self.status_new,
             assignee=self.employee,
             created_by=self.employee,
+            task_type_ref=self.contact_task_type,
         )
 
         response = self.api.post(
@@ -3722,11 +3756,11 @@ class TaskWorkflowValidationTests(TestCase):
     def test_request_step_requires_linked_request(self):
         task = models.Task.objects.create(
             title='Contact client',
-            task_type='contact_client',
             status=self.status_new,
             assignee=self.employee,
             created_by=self.employee,
-            client=self.client_user,
+            client_profile=self.client_profile,
+            task_type_ref=self.contact_task_type,
         )
 
         first_response = self.api.post(
@@ -3756,12 +3790,12 @@ class TaskWorkflowValidationTests(TestCase):
         )
         task = models.Task.objects.create(
             title='Search property',
-            task_type='property_search',
             status=self.status_new,
             assignee=self.employee,
             created_by=self.employee,
-            client=self.client_user,
+            client_profile=self.client_profile,
             request=request_obj,
+            task_type_ref=self.property_search_task_type,
         )
 
         self.api.post(
@@ -3793,20 +3827,19 @@ class TaskWorkflowValidationTests(TestCase):
         models.RequestPropertyMatch.objects.create(
             request=request_obj,
             property=self.property,
-            agent=self.employee,
-            is_offered=True,
-            is_confirmed=True,
+            employee_profile=self.employee_profile,
+            status=self.match_status_confirmed,
             confirmed_at=timezone.now(),
             confirmed_by=self.employee,
         )
         task = models.Task.objects.create(
             title='Search property',
-            task_type='property_search',
             status=self.status_new,
             assignee=self.employee,
             created_by=self.employee,
-            client=self.client_user,
+            client_profile=self.client_profile,
             request=request_obj,
+            task_type_ref=self.property_search_task_type,
         )
 
         contact_response = self.api.post(
@@ -3831,6 +3864,236 @@ class TaskWorkflowValidationTests(TestCase):
         self.assertEqual(match_response.data['workflow_current_step'], 'complete')
         self.assertEqual(match_response.data['steps_log'][-1]['step'], 'match')
         self.assertEqual(match_response.data['steps_log'][-1]['outcome'], 'confirmed')
+
+    def test_showing_task_detail_includes_payment_step(self):
+        task = models.Task.objects.create(
+            title='Showing workflow',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=self.client_profile,
+            property=self.property,
+            priority_ref=self.priority,
+            task_type_ref=self.showing_task_type,
+        )
+
+        response = self.api.get(f'/api/tasks/{task.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        step_ids = [step['id'] for step in response.data['workflow_steps']]
+        self.assertEqual(step_ids, ['contact', 'request', 'match', 'payment', 'complete'])
+        self.assertEqual(response.data['workflow_current_step'], 'contact')
+
+    def test_schedule_viewing_action_creates_viewing_for_showing_task(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status,
+        )
+        task = models.Task.objects.create(
+            title='Schedule real viewing',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=self.client_profile,
+            property=self.property,
+            request=request_obj,
+            priority_ref=self.priority,
+            task_type_ref=self.showing_task_type,
+        )
+
+        response = self.api.post(
+            f'/api/tasks/{task.pk}/schedule_viewing/',
+            {
+                'viewing_date': '2030-01-01T10:30:00+08:00',
+                'note': 'Client agreed to a real viewing',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.data['task']['viewing_id'])
+        self.assertEqual(response.data['viewing']['status_name'], 'Scheduled')
+        self.assertEqual(
+            models.PropertyViewing.objects.filter(
+                property=self.property,
+                client_profile=self.client_profile,
+            ).count(),
+            1,
+        )
+
+    def test_payment_step_requires_payment_link_for_showing_task(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status,
+        )
+        task = models.Task.objects.create(
+            title='Showing payment step',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=self.client_profile,
+            property=self.property,
+            request=request_obj,
+            priority_ref=self.priority,
+            task_type_ref=self.showing_task_type,
+        )
+
+        self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'contact', 'outcome': 'called'},
+            format='json',
+        )
+        self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'request', 'outcome': 'exists'},
+            format='json',
+        )
+        viewing = models.PropertyViewing.objects.create(
+            property=self.property,
+            client_profile=self.client_profile,
+            employee_profile=self.employee_profile,
+            viewing_date=timezone.now() + timedelta(days=1),
+            status=self.viewing_status_scheduled,
+        )
+        self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'match', 'outcome': 'showing_scheduled'},
+            format='json',
+        )
+
+        response = self.api.post(
+            f'/api/tasks/{task.pk}/record_step/',
+            {'step': 'payment', 'outcome': 'link_sent'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('ссылку на оплату', str(response.data['detail']).lower())
+        self.assertIsNone(getattr(viewing, 'payment', None))
+
+    @override_settings(
+        SBER_USERNAME='test-sber-username',
+        SBER_PASSWORD='test-sber-password',
+    )
+    @patch('key.viewing_payments.SberAcquiringClient.register_order')
+    def test_initiate_viewing_payment_action_creates_payment_link(self, register_order_mock):
+        register_order_mock.return_value = {
+            'error_code': '0',
+            'orderId': 'task-sber-order-1',
+            'formUrl': 'https://sber.test/pay/task-1',
+        }
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status,
+        )
+        task = models.Task.objects.create(
+            title='Create viewing payment',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=self.client_profile,
+            property=self.property,
+            request=request_obj,
+            priority_ref=self.priority,
+            task_type_ref=self.showing_task_type,
+        )
+        models.PropertyViewing.objects.create(
+            property=self.property,
+            client_profile=self.client_profile,
+            employee_profile=self.employee_profile,
+            viewing_date=timezone.now() + timedelta(days=2),
+            status=self.viewing_status_scheduled,
+        )
+
+        response = self.api.post(
+            f'/api/tasks/{task.pk}/initiate_viewing_payment/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['payment']['status'], models.ViewingPayment.STATUS_PENDING)
+        self.assertEqual(response.data['payment']['payment_url'], 'https://sber.test/pay/task-1')
+        self.assertEqual(response.data['task']['showing_payment_url'], 'https://sber.test/pay/task-1')
+
+    def test_client_can_list_only_own_tasks(self):
+        other_client = models.User.objects.create_user(
+            username='task-workflow-client-other',
+            email='task-workflow-client-other@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        other_profile = models.ClientProfile.objects.create(
+            user=other_client,
+            first_name='Other',
+            last_name='Client',
+        )
+        own_task = models.Task.objects.create(
+            title='Own client task',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=self.client_profile,
+            task_type_ref=self.showing_task_type,
+            priority_ref=self.priority,
+        )
+        models.Task.objects.create(
+            title='Foreign client task',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=other_profile,
+            task_type_ref=self.showing_task_type,
+            priority_ref=self.priority,
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        response = self.api.get('/api/tasks/')
+
+        self.assertEqual(response.status_code, 200)
+        items = response.data['results'] if 'results' in response.data else response.data
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['id'], own_task.pk)
+
+    def test_client_cannot_schedule_viewing_or_initiate_payment(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            agent=self.employee,
+            operation_type=self.operation_type,
+            status=self.request_status,
+        )
+        task = models.Task.objects.create(
+            title='Forbidden showing actions',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            client_profile=self.client_profile,
+            property=self.property,
+            request=request_obj,
+            priority_ref=self.priority,
+            task_type_ref=self.showing_task_type,
+        )
+        self.api.force_authenticate(user=self.client_user)
+
+        schedule_response = self.api.post(
+            f'/api/tasks/{task.pk}/schedule_viewing/',
+            {'viewing_date': '2030-01-01T10:30:00+08:00'},
+            format='json',
+        )
+        payment_response = self.api.post(
+            f'/api/tasks/{task.pk}/initiate_viewing_payment/',
+            {},
+            format='json',
+        )
+
+        self.assertEqual(schedule_response.status_code, 403)
+        self.assertEqual(payment_response.status_code, 403)
 
 
 class TaskWorkloadEndpointTests(TestCase):

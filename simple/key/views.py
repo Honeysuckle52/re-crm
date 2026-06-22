@@ -2177,7 +2177,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         'request', 'deal',
     ).all()
     serializer_class = serializers.TaskSerializer
-    permission_classes = [IsEmployee]
+    permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['due_date', 'created_at', 'priority']
     search_fields = ['title', 'description']
@@ -2190,7 +2190,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         )
         user = self.request.user
         params = self.request.query_params
-        if user.is_authenticated and not user.is_admin_or_manager:
+        if user.is_authenticated and user.is_client:
+            qs = qs.filter(client_profile__user=user)
+        elif user.is_authenticated and not user.is_admin_or_manager:
             qs = qs.filter(Q(assignee=user) | Q(created_by=user))
         if params.get('status'):
             qs = qs.filter(status_id=params['status'])
@@ -2223,6 +2225,11 @@ class TaskViewSet(viewsets.ModelViewSet):
         if params.get('completed_before'):
             qs = qs.filter(completed_at__lte=params['completed_before'])
         return qs
+
+    def get_permissions(self):
+        if self.action in {'list', 'retrieve'}:
+            return [IsAuthenticated()]
+        return [IsEmployee()]
 
     def perform_create(self, serializer):
         assignee = serializer.validated_data.get('assignee')
@@ -2667,6 +2674,59 @@ class TaskViewSet(viewsets.ModelViewSet):
             actor=request.user,
         )
         return Response(serializers.TaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'], url_path='schedule_viewing')
+    def schedule_viewing(self, request, pk=None):
+        task = self.get_object()
+        if (task.assignee_id != request.user.id and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя назначать просмотр по чужой задаче.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        viewing_date = request.data.get('viewing_date')
+        if not viewing_date:
+            return Response(
+                {'detail': 'Поле viewing_date обязательно.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            parsed_date = drf_serializers.DateTimeField().to_internal_value(viewing_date)
+            from . import task_actions
+            task, viewing = task_actions.schedule_task_showing(
+                task,
+                actor=request.user,
+                viewing_date=parsed_date,
+                note=request.data.get('note'),
+            )
+        except ValidationError as exc:
+            return Response(_validation_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'task': serializers.TaskSerializer(task, context={'request': request}).data,
+            'viewing': serializers.PropertyViewingSerializer(viewing, context={'request': request}).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='initiate_viewing_payment')
+    def initiate_viewing_payment(self, request, pk=None):
+        task = self.get_object()
+        if (task.assignee_id != request.user.id and not request.user.is_admin_or_manager):
+            return Response(
+                {'detail': 'Нельзя создавать оплату по чужой задаче.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from . import task_actions
+        try:
+            task, payment = task_actions.initiate_showing_payment_for_task(
+                task,
+                actor=request.user,
+                request=request,
+            )
+        except (ValidationError, ViewingPaymentValidationError, SberAcquiringError) as exc:
+            payload = _validation_error_payload(exc) if isinstance(exc, ValidationError) else {'detail': str(exc)}
+            return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'task': serializers.TaskSerializer(task, context={'request': request}).data,
+            'payment': serializers.ViewingPaymentSerializer(payment, context={'request': request}).data,
+        })
 
     @action(detail=False, methods=['get'])
     def current(self, request):
