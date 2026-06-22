@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from html import escape
 
-from django.db.models import Count, Max, Q, QuerySet, Sum
+from django.db.models import Count, Q, QuerySet, Sum
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -709,7 +709,7 @@ def build_properties_report(params, *, user) -> dict:
     ordering = _resolve_ordering(params, PROPERTIES_REPORT)
 
     qs = models.Property.objects.select_related(
-        'status', 'property_type_ref', 'operation_type', 'house__city',
+        'status', 'property_type_ref', 'operation_type', 'house__street__city',
     )
 
     property_type = (params.get('property_type') or '').strip()
@@ -741,7 +741,6 @@ def build_properties_report(params, *, user) -> dict:
     summary_raw = qs.aggregate(
         total_count=Count('id'),
         total_price=Sum('price'),
-        avg_price=Sum('price'),
     )
     published_count = qs.filter(is_published=True).count()
     unpublished_count = qs.filter(is_published=False).count()
@@ -755,21 +754,20 @@ def build_properties_report(params, *, user) -> dict:
 
     rows = []
     for prop in qs:
-        address_parts = []
+        # Адрес: House.__str__ возвращает «Город, Улица, д. N» (House → Street → City)
+        address = '—'
         if prop.house_id:
-            if prop.house.city_id:
-                address_parts.append(prop.house.city.name)
-            if prop.house.street:
-                address_parts.append(prop.house.street)
-            if prop.house.house_number:
-                address_parts.append(f'д. {prop.house.house_number}')
+            try:
+                address = str(prop.house) or '—'
+            except Exception:
+                address = '—'
         rows.append({
             'id': prop.id,
             'title': prop.title or '—',
             'property_type': prop.property_type_ref.name if prop.property_type_ref_id else '—',
             'operation_type': prop.operation_type.name if prop.operation_type_id else '—',
             'status_name': prop.status.name if prop.status_id else '—',
-            'address': ', '.join(address_parts) if address_parts else '—',
+            'address': address,
             'price': _format_money(prop.price),
             'area_total': (
                 f'{prop.area_total:.1f}' if prop.area_total is not None else '—'
