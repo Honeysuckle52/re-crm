@@ -672,7 +672,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { bulkTaskAction } from '../api/bulk'
 import * as tasksApi from '../api/tasks'
@@ -696,6 +696,7 @@ const auth = useAuthStore()
 const confirm = useConfirmStore()
 const workload = useWorkloadStore()
 const toasts = useToastsStore()
+const route = useRoute()
 const router = useRouter()
 
 const tasks = ref([])
@@ -1447,8 +1448,16 @@ watch(taskPageSize, async () => {
 })
 
 onMounted(async () => {
+  // Если пришли с ?view=history (например, из TaskWorkflow после завершения)
+  // — сразу открываем вкладку истории.
+  if (route.query.view === 'history') {
+    viewMode.value = 'history'
+  }
   await Promise.all([loadLookups(), load()])
   await loadTaskCounts()
+  if (viewMode.value === 'history') {
+    await loadHistory()
+  }
   if (!taskDraftRestored.value) {
     syncTaskFormBaseline()
   }

@@ -482,7 +482,7 @@ async function load () {
 
   // Безопасность на клиенте: если задача не моя и я не менеджер —
   // возвращаем на /tasks, чтобы экран пошаговой работы не вводил в
-  // заблуждение (API всё равно запретит действия, но лучше не
+  // заблуждение (API всё равно запретит действия, но луч��е не
   // рендерить экран вообще).
   if (task.value.assignee !== auth.user?.id && !auth.isManager) {
     router.replace('/tasks')
@@ -500,7 +500,7 @@ async function load () {
   // 1) Справочник типов операций — нужен форме «создать заявку».
   extra.push(api.get('/operation-types/').then((r) => {
     operationTypes.value = r.data.results || r.data
-  }).catch(() => { /* справочник может быть на другом пути */ }))
+  }).catch(() => { /* справочник может быть на другом пу��и */ }))
 
   // 2) Если у задачи уже есть заявка — подгружаем её для контекста.
   if (task.value.request) {
@@ -542,6 +542,7 @@ const STEP_LABELS = {
 const OUTCOME_LABELS = {
   called:             'позвонил',
   messaged:           'написал',
+  in_person:          'клиент присутствует лично',
   missed:             'не дозвонился',
   created:            'создана новая заявка',
   linked:             'связана с существующей заявкой',
@@ -645,6 +646,11 @@ async function submitMatchStep (outcome) {
     showToast(error, 'error')
   }
   busy.value = false
+}
+
+// Открыть список задач сразу на вкладке «История»
+function openTaskHistory () {
+  router.push({ path: '/tasks', query: { view: 'history' } })
 }
 
 async function submitComplete () {
