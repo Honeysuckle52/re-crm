@@ -15,6 +15,10 @@ export default defineConfig({
     port: 5173,
     origin: 'http://127.0.0.1:5173',
     cors: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+      '/media': 'http://127.0.0.1:8000',
+    },
   },
   build: {
     manifest: true,

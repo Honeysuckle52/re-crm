@@ -134,32 +134,6 @@
       </div>
     </form>
 
-    <div class="panel panel--light">
-      <div class="surface-head tasks-head">
-        <div class="surface-head__meta">
-          <h2 class="h3">Режим просмотра</h2>
-          <div class="muted">
-            Активные задачи и история вынесены в отдельные режимы.
-          </div>
-        </div>
-      </div>
-      <div class="row requests-tabs" style="gap: 8px; flex-wrap: wrap">
-        <button
-          class="btn btn--sm"
-          :class="{ 'btn--primary': viewMode === 'active' }"
-          @click="setViewMode('active')"
-        >
-          Активные ({{ activeCount }})
-        </button>
-        <button
-          class="btn btn--sm"
-          :class="{ 'btn--primary': viewMode === 'history' }"
-          @click="setViewMode('history')"
-        >
-          История ({{ historyCount }})
-        </button>
-      </div>
-    </div>
 
     <div class="panel panel--light">
       <div class="surface-head tasks-head">
@@ -227,7 +201,7 @@
       </div>
     </div>
 
-    <div v-if="viewMode === 'active'" class="panel panel--light">
+    <div class="panel panel--light">
       <div class="surface-head">
         <div class="surface-head__meta">
           <h2 class="h3">Активные задачи</h2>
@@ -506,131 +480,7 @@
       @select="selectProperty"
     />
 
-    <div v-else class="panel panel--light">
-      <div class="surface-head">
-        <div class="surface-head__meta">
-          <h2 class="h3">История по задачам</h2>
-          <div class="muted">Записей: {{ historyCount }}</div>
-        </div>
-      </div>
 
-      <DataFetchPanel
-        v-if="historyLoadError && history.length"
-        class="table-state"
-        compact
-        :error="historyLoadError"
-        error-title="История задач обновлена не полностью"
-        @retry="loadHistory"
-      />
-
-      <DataFetchPanel
-        v-else-if="loadingHistory && history.length"
-        class="table-state"
-        compact
-        loading
-        loading-title="Обновление истории"
-        loading-text="Подтягиваем завершённые задачи."
-      />
-
-      <DataFetchPanel
-        v-if="loadingHistory && !history.length"
-        loading
-        loading-title="Загрузка истории"
-        loading-text="Подтягиваем завершённые и отменённые задачи."
-      />
-
-      <DataFetchPanel
-        v-else-if="historyLoadError && !history.length"
-        :error="historyLoadError"
-        error-title="Не удалось загрузить историю задач"
-        @retry="loadHistory"
-      />
-
-      <div v-else class="table-wrap task-history-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Задача</th>
-              <th>Тип</th>
-              <th>Исполнитель</th>
-              <th>Заявка</th>
-              <th>Завершена</th>
-              <th>Длительность</th>
-              <th>Результат</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="task in history" :key="task.id">
-              <td>
-                <b>{{ task.title }}</b>
-                <div v-if="task.property_title" class="muted task-subline">
-                  Объект: {{ task.property_title }}
-                </div>
-              </td>
-              <td class="task-type-cell">
-                <span class="tag tag--type task-badge task-badge--type-full">
-                  {{ task.task_type_display || taskTypeLabel(task.task_type) }}
-                </span>
-              </td>
-              <td>
-                <span class="assignee-name">{{ task.assignee_name || '—' }}</span>
-              </td>
-              <td class="task-request-cell">
-                <router-link
-                  v-if="task.request"
-                  :to="`/requests/${task.request}`"
-                  class="task-request-link"
-                >
-                  №{{ task.request }}
-                </router-link>
-                <span v-else class="muted">—</span>
-              </td>
-              <td class="muted" style="white-space: nowrap">
-                {{ task.completed_at ? formatDate(task.completed_at) : '—' }}
-              </td>
-              <td class="muted" style="white-space: nowrap">
-                {{ humanDuration(task) }}
-              </td>
-              <td class="history-result">
-                <div v-if="task.status_code === 'done'" class="tag tag--accent task-badge">выполнена</div>
-                <div
-                  v-else-if="task.status_code === 'cancelled'"
-                  class="tag tag--cancelled task-badge"
-                >
-                  отменена
-                </div>
-                <div v-if="resultSummary(task)" class="muted task-subline task-subline--gap">
-                  {{ resultSummary(task) }}
-                </div>
-              </td>
-              <td class="task-actions task-actions--history">
-                <button
-                  v-if="canViewTask(task)"
-                  class="btn btn--sm btn--primary"
-                  @click="openWorkflow(task)"
-                >
-                  Открыть
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="!history.length" class="empty">Выполненных задач пока нет.</div>
-
-      <ListPagination
-        v-if="historyCount > history.length"
-        :count="historyCount"
-        :page="historyPage"
-        :visible-count="history.length"
-        :page-size="taskPageSize"
-        label="записей"
-        @change="setHistoryPage"
-        @change-page-size="setTaskPageSize"
-      />
-    </div>
 
     <Teleport to="body">
       <div v-if="completeModal.show" class="modal-overlay" @click.self="closeCompleteModal">
