@@ -2205,7 +2205,19 @@ class TaskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
     ordering_fields = ['due_date', 'created_at', 'priority']
-    search_fields = ['title', 'description']
+    search_fields = [
+        'title',
+        'description',
+        'assignee__username',
+        'client_profile__user__username',
+        'client_profile__first_name',
+        'client_profile__last_name',
+        'client_profile__middle_name',
+        'request__client_profile__first_name',
+        'request__client_profile__last_name',
+        'request__client_profile__middle_name',
+        'property__title',
+    ]
 
     def get_queryset(self):
         qs = super().get_queryset()

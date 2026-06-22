@@ -281,18 +281,9 @@ SBER_API_URL = os.getenv(
     'SBER_API_URL',
     'https://3dsec.sberbank.ru/payment/rest/',
 )
-SBER_USERNAME = os.getenv('SBER_USERNAME', '')
-SBER_PASSWORD = os.getenv('SBER_PASSWORD', '')
-SBER_SANDBOX = env_bool('SBER_SANDBOX', True)
-SBER_PAYMENT_TIMEOUT = int(os.getenv('SBER_PAYMENT_TIMEOUT', '10'))
-SBER_VIEWING_AMOUNTS = env_json(
-    'SBER_VIEWING_AMOUNTS',
-    {
-        'apartment': '500.00',
-        'room': '500.00',
-        'house': '1000.00',
-        'commercial': '2000.00',
-        'land': '1500.00',
-        'garage': '300.00',
-    },
+SBER_USERNAME = os.environ.get('SBER_USERNAME', '')
+SBER_PASSWORD = os.environ.get('SBER_PASSWORD', '')
+SBER_SANDBOX  = os.environ.get('SBER_SANDBOX', 'True') == 'True'
+SBER_PAYMENT_TIMEOUT = os.environ.get('SBER_PAYMENT_TIMEOUT', 10)
+SBER_VIEWING_AMOUNTS = json.loads(os.environ.get('SBER_VIEWING_AMOUNTS', '{}')
 )

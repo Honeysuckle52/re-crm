@@ -2037,15 +2037,19 @@ class TaskSerializer(serializers.ModelSerializer):
     status_code = serializers.CharField(source='status.code', read_only=True)
     assignee_username = serializers.CharField(source='assignee.username',
                                               read_only=True)
+    assignee_name = serializers.SerializerMethodField()
     created_by_username = serializers.CharField(source='created_by.username',
                                                 read_only=True)
+    created_by_name = serializers.SerializerMethodField()
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
+    client_name = serializers.SerializerMethodField()
     property_title = serializers.CharField(source='property.title',
                                            read_only=True)
     request_client_username = serializers.CharField(
         source='request.client.username', read_only=True, default=None,
     )
+    request_client_name = serializers.SerializerMethodField()
     priority_display = serializers.CharField(source='get_priority_display',
                                              read_only=True)
     task_type_display = serializers.CharField(read_only=True)
@@ -2065,11 +2069,12 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = ['id', 'title', 'description', 'priority', 'priority_display',
                   'task_type', 'task_type_display',
                   'status', 'status_name', 'status_code',
-                  'assignee', 'assignee_username',
-                  'created_by', 'created_by_username',
-                  'client', 'client_username',
+                  'assignee', 'assignee_username', 'assignee_name',
+                  'created_by', 'created_by_username', 'created_by_name',
+                  'client', 'client_username', 'client_name',
                   'property', 'property_title',
-                  'request', 'request_client_username', 'deal',
+                  'request', 'request_client_username',
+                  'request_client_name', 'deal',
                   'due_date', 'completed_at', 'result',
                   'steps_log', 'is_auto_closed',
                   'workflow_steps', 'workflow_current_step',
@@ -2095,6 +2100,36 @@ class TaskSerializer(serializers.ModelSerializer):
         if client is not None:
             instance.client = client
         return super().update(instance, validated_data)
+
+    @staticmethod
+    def _display_full_name(user):
+        """ФИО пользователя из профиля. Прочерк, если имя не заполнено."""
+        if user is None:
+            return '—'
+        profile = (getattr(user, 'client_profile', None)
+                   or getattr(user, 'employee_profile', None))
+        if profile is None:
+            return '—'
+        parts = [
+            (profile.last_name or '').strip(),
+            (profile.first_name or '').strip(),
+            (profile.middle_name or '').strip(),
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        return full_name or '—'
+
+    def get_assignee_name(self, obj) -> str:
+        return self._display_full_name(obj.assignee)
+
+    def get_created_by_name(self, obj) -> str:
+        return self._display_full_name(obj.created_by)
+
+    def get_client_name(self, obj) -> str:
+        return self._display_full_name(obj.client)
+
+    def get_request_client_name(self, obj) -> str:
+        request = getattr(obj, 'request', None)
+        return self._display_full_name(getattr(request, 'client', None))
 
     def get_is_overdue(self, obj) -> bool:
         from django.utils import timezone

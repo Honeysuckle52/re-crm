@@ -38,10 +38,19 @@ class SberAcquiringError(ViewingPaymentError):
     """Ошибка взаимодействия с API Сбербанка."""
 
 
+SBER_SANDBOX_URL = 'https://3dsec.sberbank.ru/payment/rest/'
+SBER_PRODUCTION_URL = 'https://securepayments.sberbank.ru/payment/rest/'
+
+
 class SberAcquiringClient:
     def __init__(self):
-        base_url = getattr(settings, 'SBER_API_URL', '').strip()
+        is_sandbox = getattr(settings, 'SBER_SANDBOX', True)
+        # SBER_API_URL переопределяет автовыбор по SBER_SANDBOX, если задан явно.
+        explicit_url = getattr(settings, 'SBER_API_URL', '').strip()
+        auto_url = SBER_SANDBOX_URL if is_sandbox else SBER_PRODUCTION_URL
+        base_url = explicit_url or auto_url
         self.base_url = base_url if base_url.endswith('/') else f'{base_url}/'
+        self.is_sandbox = is_sandbox
         self.username = getattr(settings, 'SBER_USERNAME', '')
         self.password = getattr(settings, 'SBER_PASSWORD', '')
         self.timeout = int(getattr(settings, 'SBER_PAYMENT_TIMEOUT', 10) or 10)
@@ -212,6 +221,12 @@ def register_sber_order(payment: models.ViewingPayment, request) -> dict[str, An
     client = SberAcquiringClient()
     if not client.username or not client.password:
         raise ViewingPaymentValidationError('SBER_USERNAME и SBER_PASSWORD должны быть заданы в окружении.')
+    _BAD_PASSWORD_MARKERS = ('process.env.', 'replace-with-', '<', '{{')
+    if any(m in client.password for m in _BAD_PASSWORD_MARKERS):
+        raise ViewingPaymentValidationError(
+            'SBER_PASSWORD содержит незаменённый placeholder. '
+            'Вставьте реальный JWT-токен из личного кабинета Сбербанка напрямую в .env.'
+        )
 
     order_number = f'VIEW-{payment.viewing_id}-{int(time.time())}'
     response = client.register_order(
