@@ -37,7 +37,7 @@
       </div>
     </div>
 
-    <form class="panel panel--light property-form" @submit.prevent="handleSubmit">
+    <form class="panel panel--light property-form" novalidate @submit.prevent="handleSubmit">
       <div class="surface-head property-form__surface-head">
         <div class="surface-head__meta">
           <div class="surface-head__meta">Шаг {{ currentStep }} из {{ steps.length }}</div>
