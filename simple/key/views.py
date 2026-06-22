@@ -1446,7 +1446,12 @@ class RequestViewSet(viewsets.ModelViewSet):
         'client_profile__user__username',
         'client_profile__user__email',
         'client_profile__user__phone',
+        'client_profile__first_name',
+        'client_profile__last_name',
+        'client_profile__middle_name',
         'employee_profile__user__username',
+        'employee_profile__first_name',
+        'employee_profile__last_name',
         'property__title',
     ]
 

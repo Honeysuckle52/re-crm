@@ -1662,10 +1662,12 @@ class RequestSerializer(serializers.ModelSerializer):
     )
     client_username = serializers.CharField(source='client.username',
                                             read_only=True)
+    client_full_name = serializers.SerializerMethodField()
     client_email = serializers.CharField(source='client.email', read_only=True)
     client_phone = serializers.CharField(source='client.phone', read_only=True)
     agent_username = serializers.CharField(source='agent.username',
                                            read_only=True)
+    agent_full_name = serializers.SerializerMethodField()
     property_title = serializers.CharField(source='property.title',
                                            read_only=True)
     operation_type_name = serializers.CharField(source='operation_type.name',
@@ -1682,8 +1684,8 @@ class RequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Request
         fields = [
-            'id', 'client', 'client_username', 'client_email', 'client_phone',
-            'agent', 'agent_username',
+            'id', 'client', 'client_username', 'client_full_name', 'client_email', 'client_phone',
+            'agent', 'agent_username', 'agent_full_name',
             'property', 'property_title',
             'operation_type', 'operation_type_name',
             'status', 'status_name', 'status_code',
@@ -1697,6 +1699,28 @@ class RequestSerializer(serializers.ModelSerializer):
 
     def get_can_close(self, obj) -> bool:
         return bool(obj.status_id and not obj.is_terminal)
+
+    @staticmethod
+    def _profile_full_name(profile, fallback=''):
+        if profile is None:
+            return fallback
+        parts = [
+            getattr(profile, 'last_name', '') or '',
+            getattr(profile, 'first_name', '') or '',
+            getattr(profile, 'middle_name', '') or '',
+        ]
+        full_name = ' '.join(part for part in parts if part).strip()
+        return full_name or fallback
+
+    def get_client_full_name(self, obj) -> str:
+        fallback = getattr(getattr(obj, 'client', None), 'username', '') or ''
+        profile = getattr(obj, 'client_profile', None)
+        return self._profile_full_name(profile, fallback=fallback)
+
+    def get_agent_full_name(self, obj) -> str:
+        fallback = getattr(getattr(obj, 'agent', None), 'username', '') or ''
+        profile = getattr(obj, 'employee_profile', None)
+        return self._profile_full_name(profile, fallback=fallback)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

@@ -145,6 +145,14 @@
       <div v-if="formError" class="error">{{ formError }}</div>
 
       <div class="row" style="justify-content: flex-end">
+        <button
+          v-if="isEditingRequest && canDeleteEditingRequest()"
+          class="btn btn--danger"
+          type="button"
+          @click="deleteRequest(editingRequestItem)"
+        >
+          Удалить
+        </button>
         <button v-if="isEditingRequest" class="btn" type="button" @click="cancelForm">
           Отмена
         </button>
@@ -167,6 +175,14 @@
         </button>
       </div>
       <div class="grid grid--4 request-filters-grid">
+        <div class="field request-filters-grid__search">
+          <label>Поиск</label>
+          <input
+            v-model.trim="requestFilters.search"
+            class="input"
+            type="search"
+            placeholder="ФИО, логин, почта, телефон" />
+        </div>
         <div class="field">
           <label>Операция</label>
           <select v-model="requestFilters.operation_type" class="select">
@@ -269,6 +285,17 @@
 
       <div v-else class="table-wrap table-wrap--cards">
         <table class="table requests-table table--responsive-cards">
+          <colgroup>
+            <col v-if="auth.isStaff" class="requests-table__col requests-table__col--check" />
+            <col v-if="auth.isStaff" class="requests-table__col requests-table__col--client" />
+            <col class="requests-table__col requests-table__col--agent" />
+            <col class="requests-table__col requests-table__col--property" />
+            <col class="requests-table__col requests-table__col--operation" />
+            <col class="requests-table__col requests-table__col--budget" />
+            <col class="requests-table__col requests-table__col--status" />
+            <col class="requests-table__col requests-table__col--created" />
+            <col class="requests-table__col requests-table__col--actions" />
+          </colgroup>
           <thead>
             <tr>
               <th v-if="auth.isStaff" class="table-check-cell">
@@ -309,7 +336,7 @@
                 <div class="user-name">{{ requestItem.client_full_name || requestItem.client_username }}</div>
               </td>
               <td data-label="Агент">
-                <div v-if="requestItem.agent_id" class="user-name">
+                <div v-if="requestItem.agent" class="user-name">
                   {{ requestItem.agent_full_name || requestItem.agent_username }}
                 </div>
                 <span v-else class="tag tag-unassigned">не назначен</span>
@@ -336,7 +363,7 @@
                 {{ formatDate(requestItem.created_at) }}
               </td>
               <td class="table-actions-cell" data-label="Действия">
-                <div class="row requests-table__actions" style="gap: 6px; flex-wrap: wrap">
+                <div class="requests-table__actions">
                   <button
                     v-if="auth.isStaff && canTakeRequest(requestItem)"
                     class="btn btn--sm btn--accent"
@@ -355,20 +382,35 @@
                   >
                     Редактировать
                   </button>
-                  <button
-                    v-if="canDeleteRequest(requestItem)"
-                    class="btn btn--sm btn--danger"
-                    @click.stop="deleteRequest(requestItem)"
+                  <div
+                    v-if="canDeleteRequest(requestItem) || (auth.isStaff && requestItem.can_close)"
+                    class="request-more"
+                    :class="{ 'is-open': moreMenuId === requestItem.id }"
                   >
-                    Удалить
-                  </button>
-                  <button
-                    v-if="auth.isStaff && requestItem.can_close"
-                    class="btn btn--sm btn--danger"
-                    @click.stop="closeRequest(requestItem)"
-                  >
-                    Закрыть
-                  </button>
+                    <button
+                      class="btn btn--sm request-more__trigger"
+                      aria-label="Еще действия"
+                      @click.stop="toggleMoreMenu(requestItem.id)"
+                    >
+                      •••
+                    </button>
+                    <div class="request-more__menu" @click.stop>
+                      <button
+                        v-if="auth.isStaff && requestItem.can_close"
+                        class="request-more__item"
+                        @click="closeRequest(requestItem); moreMenuId = null"
+                      >
+                        Закрыть
+                      </button>
+                      <button
+                        v-if="canDeleteRequest(requestItem)"
+                        class="request-more__item request-more__item--danger"
+                        @click="startEditRequest(requestItem); moreMenuId = null"
+                      >
+                        Удалить в редакторе
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -461,6 +503,7 @@ const editingRequestId = ref(null)
 const propertyPickerOpen = ref(false)
 const selectedPropertyLabel = ref('')
 const bulkCloseOutcome = ref('cancelled')
+const moreMenuId = ref(null)
 const requestFormBaseline = ref('')
 const requestDraftRestored = ref(false)
 const requestsLoadError = ref('')
@@ -476,6 +519,7 @@ const requestStatsSnapshot = reactive({
   mine: 0,
 })
 const requestFilters = reactive({
+  search: '',
   operation_type: '',
   status: '',
   date_from: '',
@@ -484,6 +528,9 @@ const requestFilters = reactive({
 
 const form = reactive(defaultForm())
 const isEditingRequest = computed(() => editingRequestId.value !== null)
+const editingRequestItem = computed(() => (
+  requests.value.find((item) => item.id === editingRequestId.value) || null
+))
 const isRequestRoomsDisabled = computed(() => !propertyTypeUsesRooms(form.property_type))
 const requestFormSnapshot = computed(() => JSON.stringify({ ...form }))
 const isRequestFormDirty = computed(() => (
@@ -671,6 +718,7 @@ function resetForm() {
 function cancelForm() {
   if (!confirmRequestFormLeave()) return
   showForm.value = false
+  moreMenuId.value = null
   clearRequestDraft()
   resetForm()
   syncRequestFormBaseline()
@@ -689,6 +737,14 @@ function canEditRequest(requestItem) {
 
 function canDeleteRequest(requestItem) {
   return auth.isStaff && !terminalRequestStatusCodes.includes(requestItem.status_code)
+}
+
+function canDeleteEditingRequest() {
+  return editingRequestItem.value && canDeleteRequest(editingRequestItem.value)
+}
+
+function toggleMoreMenu(requestId) {
+  moreMenuId.value = moreMenuId.value === requestId ? null : requestId
 }
 
 function populateFormFromRequest(requestItem) {
@@ -714,6 +770,7 @@ function populateFormFromRequest(requestItem) {
 
 function startEditRequest(requestItem) {
   requestDraftRestored.value = false
+  moreMenuId.value = null
   populateFormFromRequest(requestItem)
   showForm.value = true
   syncRequestFormBaseline()
@@ -757,6 +814,9 @@ async function loadLookups() {
 
 function requestFilterParams({ includePaging = false } = {}) {
   const params = {}
+  if (requestFilters.search) {
+    params.search = requestFilters.search
+  }
   if (requestFilters.operation_type) {
     params.operation_type = Number(requestFilters.operation_type)
   }
@@ -853,6 +913,7 @@ function setRequestPageSize(size) {
 }
 
 function resetFilters() {
+  requestFilters.search = ''
   requestFilters.operation_type = ''
   requestFilters.status = ''
   requestFilters.date_from = ''
@@ -925,6 +986,7 @@ async function createRequest() {
 }
 
 async function takeRequest(requestItem) {
+  moreMenuId.value = null
   if (!auth.isManager && !workload.workload.can_take_request) {
     toasts.warn(
       `Нельзя взять заявку: уже ${workload.workload.active_requests} в работе `
@@ -946,6 +1008,8 @@ async function takeRequest(requestItem) {
 }
 
 async function deleteRequest(requestItem) {
+  if (!requestItem) return
+  moreMenuId.value = null
   const approved = await confirm.ask({
     title: 'Удаление заявки',
     message: `Удалить заявку #${requestItem.id}?`,
@@ -1004,6 +1068,7 @@ async function bulkCloseSelectedRequests() {
 }
 
 function closeRequest(requestItem) {
+  moreMenuId.value = null
   closeDialog.open = true
   closeDialog.requestId = requestItem.id
 }
@@ -1052,10 +1117,11 @@ watch(scope, async () => {
 
 watch(
   () => [
-    requestFilters.operation_type,
-    requestFilters.status,
-    requestFilters.date_from,
-    requestFilters.date_to,
+  requestFilters.operation_type,
+  requestFilters.status,
+  requestFilters.date_from,
+  requestFilters.date_to,
+  requestFilters.search,
   ],
   async () => {
     requestPage.value = 1
@@ -1098,6 +1164,12 @@ onMounted(async () => {
 
 .request-filters-grid {
   align-items: end;
+  grid-template-columns: minmax(240px, 1.4fr) repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.request-filters-grid__search {
+  min-width: 0;
 }
 
 .table-check-cell {
@@ -1191,8 +1263,115 @@ onMounted(async () => {
   gap: 10px;
 }
 
+.requests-table {
+  table-layout: fixed;
+}
+
+.requests-table__col--check {
+  width: 44px;
+}
+
+.requests-table__col--client,
+.requests-table__col--agent {
+  width: 16%;
+}
+
+.requests-table__col--property {
+  width: 18%;
+}
+
+.requests-table__col--operation {
+  width: 10%;
+}
+
+.requests-table__col--budget {
+  width: 12%;
+}
+
+.requests-table__col--status {
+  width: 11%;
+}
+
+.requests-table__col--created {
+  width: 10%;
+}
+
+.requests-table__col--actions {
+  width: 140px;
+}
+
+.requests-table td,
+.requests-table th {
+  vertical-align: middle;
+}
+
 .requests-table__actions {
-  min-width: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.request-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.request-more__trigger {
+  min-width: 36px;
+  padding-left: 10px;
+  padding-right: 10px;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+.request-more__menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 176px;
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--grad-panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 16px 36px rgba(4, 24, 22, 0.28);
+}
+
+.request-more.is-open .request-more__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.request-more__item {
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.request-more__item:hover:not(:disabled) {
+  background: rgba(99, 208, 197, 0.1);
+  color: #effffd;
+}
+
+.request-more__item--danger {
+  color: #ffb2a7;
 }
 
 .requests-table__row-link {
@@ -1226,15 +1405,24 @@ onMounted(async () => {
 }
 
 @media (max-width: 960px) {
+  .request-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .request-form__budget {
     max-width: none;
   }
 }
 
 @media (max-width: 640px) {
+  .request-filters-grid {
+    grid-template-columns: 1fr;
+  }
+
   .requests-table__actions {
-    min-width: 0;
     width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .request-form__budget-row {

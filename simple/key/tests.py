@@ -2985,11 +2985,22 @@ class RequestWorkflowLifecycleTests(TestCase):
             password='Secret123!',
             user_type='employee',
         )
+        models.EmployeeProfile.objects.create(
+            user=self.employee,
+            first_name='Иван',
+            last_name='Петров',
+        )
         self.client_user = models.User.objects.create_user(
             username='workflow-client',
             email='workflow-client@example.com',
             password='Secret123!',
             user_type='client',
+        )
+        models.ClientProfile.objects.create(
+            user=self.client_user,
+            first_name='Анна',
+            last_name='Сидорова',
+            middle_name='Олеговна',
         )
         self.manager = models.User.objects.create_user(
             username='workflow-manager',
@@ -3049,6 +3060,38 @@ class RequestWorkflowLifecycleTests(TestCase):
             recipient=self.client_user,
             status='pending',
         ).exists())
+
+    def test_take_request_response_contains_client_and_agent_full_names(self):
+        request_obj = models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.post(
+            f'/api/requests/{request_obj.pk}/take/',
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['client_full_name'], 'Сидорова Анна Олеговна')
+        self.assertEqual(response.data['agent_full_name'], 'Петров Иван')
+
+    def test_request_search_finds_by_client_full_name(self):
+        models.Request.objects.create(
+            client=self.client_user,
+            operation_type=self.operation_type,
+            status=self.request_status_open,
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get('/api/requests/?search=Сидорова')
+
+        self.assertEqual(response.status_code, 200)
+        items = response.data['results']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['client_full_name'], 'Сидорова Анна Олеговна')
 
     def test_take_request_persists_employee_profile_field(self):
         request_obj = models.Request.objects.create(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+import logging
 
 from django.db import transaction
 from django.utils import timezone
@@ -18,6 +19,8 @@ from .mailing import (
     enqueue_request_taken,
 )
 from .task_actions import complete_task
+
+logger = logging.getLogger(__name__)
 
 REQUEST_STATUS_DEFAULT_NAMES = {
     'open': 'Открыта',
@@ -65,12 +68,19 @@ def _task_status_by_code(code: str) -> models.TaskStatus | None:
 
 
 def _request_with_related(pk: int) -> models.Request:
-    return (
+    (
         models.Request.objects
         .select_for_update()
-        .select_related('status', 'client', 'operation_type')
+        .only('pk')
         .get(pk=pk)
     )
+    return models.Request.objects.select_related(
+        'status',
+        'operation_type',
+        'client_profile__user',
+        'employee_profile__user',
+        'property',
+    ).get(pk=pk)
 
 
 def _ensure_processing_status(request_obj: models.Request) -> bool:
@@ -165,10 +175,25 @@ def sync_request_assignment(
     if update_fields:
         req.save(update_fields=update_fields)
 
-    contact_task, task_created = _ensure_contact_task(req, agent=req.agent)
+    contact_task = None
+    task_created = False
+    try:
+        contact_task, task_created = _ensure_contact_task(req, agent=req.agent)
+    except Exception:
+        logger.exception(
+            'Failed to create contact task for request pk=%s and agent pk=%s',
+            req.pk,
+            req.agent_id,
+        )
     queued_email = None
     if assignment_changed:
-        queued_email = enqueue_request_taken(request=req, agent=req.agent)
+        try:
+            queued_email = enqueue_request_taken(request=req, agent=req.agent)
+        except Exception:
+            logger.exception(
+                'Failed to enqueue request_taken email for request pk=%s',
+                req.pk,
+            )
         audit_service.log_event(
             entity=req,
             action_code='assigned',
