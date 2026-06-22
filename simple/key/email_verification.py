@@ -47,13 +47,19 @@ def issue_pending_registration(validated_data: dict[str, Any]) -> dict[str, str]
         'code_hash': make_password(code),
         'created_at': timezone.now().isoformat(),
     }
-    mailing.send_email_verification_code(
-        to_email=validated_data['email'],
-        code=code,
-        client_name=validated_data.get('first_name') or validated_data.get('username') or '',
-    )
+    # Save to cache BEFORE attempting to send email so the token is always valid
+    # even if the SMTP call fails.
     cache.set(_cache_key(token), pending_payload, timeout=_ttl_seconds())
-    return {'token': token, 'code': code}
+    email_sent = True
+    try:
+        mailing.send_email_verification_code(
+            to_email=validated_data['email'],
+            code=code,
+            client_name=validated_data.get('first_name') or validated_data.get('username') or '',
+        )
+    except Exception:  # noqa: BLE001
+        email_sent = False
+    return {'token': token, 'code': code, 'email_sent': email_sent}
 
 
 def resend_pending_code(token: str) -> bool:

@@ -374,11 +374,15 @@ async function doRegister (extended) {
     verificationToken.value = result.verification_token || ''
     verificationCode.value = ''
     step.value = 3
-    error.value = ''
+    if (result.email_sent === false) {
+      error.value = 'Не удалось доставить письмо с кодом. Нажмите «Отправить код ещё раз» или свяжитесь с поддержкой.'
+    } else {
+      error.value = ''
+    }
   } catch (e) {
     const data = e.response?.data || {}
-    error.value = flattenErrors(data)
-      || 'Не удалось создать учётную запись'
+    const msg = flattenErrors(data) || 'Не удалось создать учётную запись'
+    error.value = msg
     if (data.email || data.password || data.phone || data.first_name || data.last_name) {
       step.value = 1
     }
@@ -423,7 +427,7 @@ async function resendCode () {
     await auth.resendEmailCode(verificationToken.value)
     error.value = 'Новый код отправлен на почту.'
   } catch (e) {
-    error.value = flattenErrors(e.response?.data) || 'Не удалось отправить код повторно.'
+    error.value = flattenErrors(e.response?.data) || 'Не удалось отправить код ��овторно.'
   } finally {
     resendLoading.value = false
   }

@@ -308,30 +308,20 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = serializers.RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
-            pending = email_verification.issue_pending_registration(
-                serializer.validated_data,
-            )
-        except Exception as exc:  # noqa: BLE001
+        pending = email_verification.issue_pending_registration(
+            serializer.validated_data,
+        )
+        if not pending.get('email_sent'):
             log.warning(
-                'Email verification code was not sent to %s: %s',
+                'Email verification code was not sent to %s',
                 serializer.validated_data.get('email'),
-                exc,
-            )
-            return Response(
-                {
-                    'email': [
-                        'Не удалось отправить код подтверждения. '
-                        'Проверьте email и попробуйте позже.',
-                    ],
-                },
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(
             {
                 'verification_token': pending['token'],
                 'email': serializer.validated_data['email'],
                 'email_verification_required': True,
+                'email_sent': pending.get('email_sent', True),
             },
             status=status.HTTP_202_ACCEPTED,
         )
