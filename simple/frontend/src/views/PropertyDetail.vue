@@ -415,6 +415,11 @@
           <div class="surface-head__caption">Документы объекта</div>
         </div>
         <h2 class="h3">Документы</h2>
+        <div v-if="auth.isStaff" class="row" style="margin-top: 12px; gap: 8px">
+          <button class="btn btn--sm btn--primary" @click="downloadSummaryPdf">
+            Скачать карточку PDF
+          </button>
+        </div>
         <div v-if="documents.length" class="stack" style="margin-top: 12px">
           <a v-for="doc in documents" :key="doc.id" :href="doc.file_url" class="doc-row" target="_blank" rel="noreferrer">
             <span>{{ doc.document_name }}</span>
@@ -527,6 +532,7 @@ import { extractError, useToastsStore } from '../store/toasts'
 import { formatMoney as fmtMoney, formatDate } from '@/utils/formatters'
 import { LOOKUP_PAGE_SIZE, unpackPaginated } from '@/utils/paginated'
 import { formatRoomsValue, getPropertyTypeSchema, normalizePropertyType, propertyTypeLabel } from '@/utils/propertyTypes'
+import { downloadBlobResponse } from '@/utils/downloads'
 
 const route = useRoute(); const router = useRouter()
 const auth = useAuthStore()
@@ -697,7 +703,10 @@ async function load() {
       api.get(`/properties/${propertyId}/`),
       api.get(`/properties/${propertyId}/history/`).catch(() => ({ data: [] })),
     ])
-    property.value = propertyResponse.data
+    property.value = {
+      ...propertyResponse.data,
+      photos: (propertyResponse.data?.photos || []).filter((photo) => photo.image_url),
+    }
     history.value = Array.isArray(historyResponse.data) ? historyResponse.data : []
     await loadClientViewings()
   } catch (err) {
@@ -727,6 +736,17 @@ async function changeStatus(id) {
     await load()
   } catch (err) {
     toasts.error(extractError(err, 'Не удалось изменить статус объекта'))
+  }
+}
+
+async function downloadSummaryPdf() {
+  try {
+    const response = await api.get(`/properties/${route.params.id}/summary-pdf/`, {
+      responseType: 'blob',
+    })
+    downloadBlobResponse(response, `property-${route.params.id}.pdf`)
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось скачать карточку объекта'))
   }
 }
 

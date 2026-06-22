@@ -75,7 +75,7 @@ def in_progress_tasks_qs(user, *, exclude_pk: int | None = None):
 def active_requests_qs(user, *, exclude_pk: int | None = None):
     """Активные (в работе) заявки клиентов, закреплённые за сотрудником."""
     qs = models.Request.objects.filter(
-        agent=user,
+        employee_profile__user=user,
         status__code__in=ACTIVE_REQUEST_STATUS_CODES,
     )
     if exclude_pk is not None:

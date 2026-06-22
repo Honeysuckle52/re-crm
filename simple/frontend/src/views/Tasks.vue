@@ -1018,6 +1018,14 @@ async function submitTaskForm() {
     toasts.error('Выберите исполнителя задачи')
     return
   }
+  if (form.task_type === 'showing' && !form.client) {
+    toasts.error('Для задачи на показ нужно выбрать клиента.')
+    return
+  }
+  if (form.task_type === 'showing' && !form.property) {
+    toasts.error('Для задачи на показ нужно выбрать объект.')
+    return
+  }
 
   const wasEditing = isEditingTask.value
   const payload = { ...form }

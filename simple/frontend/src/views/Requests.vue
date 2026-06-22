@@ -674,6 +674,12 @@ function formatRequestValidationError(data) {
   return parts.join(' ')
 }
 
+function normalizeNullableNumber(value) {
+  if (value === '' || value === null || value === undefined) return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
 function mapClientOption(user) {
   return {
     id: user.id,
@@ -971,10 +977,29 @@ async function createRequest() {
     formError.value = 'Выберите тип операции.'
     return
   }
+  if (!form.property && form.property_type) {
+    if (propertyTypeUsesRooms(form.property_type) && !normalizeNullableNumber(form.rooms_count)) {
+      formError.value = 'Для выбранного типа помещения укажите количество комнат.'
+      return
+    }
+    if (
+      ['commercial', 'land', 'house'].includes(form.property_type)
+      && normalizeNullableNumber(form.min_area) == null
+      && normalizeNullableNumber(form.max_area) == null
+    ) {
+      formError.value = 'Для выбранного типа помещения укажите диапазон площади.'
+      return
+    }
+  }
 
   try {
     const wasEditing = isEditingRequest.value
     const payload = { ...form }
+    payload.rooms_count = normalizeNullableNumber(payload.rooms_count)
+    payload.min_area = normalizeNullableNumber(payload.min_area)
+    payload.max_area = normalizeNullableNumber(payload.max_area)
+    payload.min_price = normalizeNullableNumber(payload.min_price)
+    payload.max_price = normalizeNullableNumber(payload.max_price)
     if (!propertyTypeUsesRooms(payload.property_type)) {
       payload.rooms_count = null
     }

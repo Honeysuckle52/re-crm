@@ -19,6 +19,7 @@ from django.core.management.commands.runserver import (
 from ..background_worker import (
     DEFAULT_WORKER_LIMIT,
     DEFAULT_WORKER_SLEEP,
+    DEFAULT_WORKER_MAX_SLEEP,
     build_worker_command,
 )
 
@@ -48,6 +49,12 @@ class Command(DjangoRunserverCommand):
             default=DEFAULT_WORKER_SLEEP,
             help='Пауза между пустыми циклами background worker.',
         )
+        parser.add_argument(
+            '--worker-max-sleep',
+            type=float,
+            default=DEFAULT_WORKER_MAX_SLEEP,
+            help='Максимальная пауза между пустыми циклами background worker.',
+        )
 
     def get_handler(self, *args, **options):
         handler = BaseRunserverCommand.get_handler(self, *args, **options)
@@ -67,6 +74,8 @@ class Command(DjangoRunserverCommand):
     def _should_start_worker(self, options) -> bool:
         if options.get('without_worker'):
             return False
+        if getattr(settings, 'BACKGROUND_AUTORUN_ENABLED', False):
+            return False
         if options.get('use_reloader', True):
             return os.environ.get('RUN_MAIN') == 'true'
         return True
@@ -78,6 +87,7 @@ class Command(DjangoRunserverCommand):
             manage_py=manage_py,
             limit=options.get('worker_limit'),
             sleep_seconds=options.get('worker_sleep'),
+            max_sleep_seconds=options.get('worker_max_sleep'),
         )
         env = os.environ.copy()
         env.setdefault('PYTHONIOENCODING', 'utf-8')

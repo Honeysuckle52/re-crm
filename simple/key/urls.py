@@ -26,6 +26,7 @@ router.register('task-types', views.TaskTypeViewSet)
 router.register('client-kinds', views.ClientKindViewSet)
 router.register('contact-methods', views.ContactMethodViewSet)
 router.register('contract-statuses', views.ContractStatusViewSet)
+router.register('deal-participant-roles', views.DealParticipantRoleViewSet)
 router.register('user-types', views.UserTypeViewSet)
 
 # Адреса
@@ -43,6 +44,11 @@ router.register('client-profiles', views.ClientProfileViewSet)
 router.register('properties', views.PropertyViewSet)
 router.register('property-photos', views.PropertyPhotoViewSet)
 router.register('property-documents', views.PropertyDocumentViewSet)
+router.register('property-price-history', views.PropertyPriceHistoryViewSet,
+                basename='property-price-history')
+router.register('property-viewings', views.PropertyViewingViewSet,
+                basename='property-viewings')
+router.register('audit-log', views.AuditLogViewSet, basename='audit-log')
 
 # Бизнес-процессы
 router.register('requests', views.RequestViewSet)

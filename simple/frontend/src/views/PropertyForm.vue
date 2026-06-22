@@ -68,7 +68,7 @@
               <label>Тип операции <span class="property-form__required">*</span></label>
               <select ref="operationTypeFieldRef" class="select" v-model.number="form.operation_type">
                 <option v-for="item in dict.operations" :key="item.id" :value="item.id">
-                  {{ item.name }}
+                  {{ item.display_name || item.name }}
                 </option>
               </select>
               <div v-if="fieldErrors.operation_type" class="property-form__field-error">{{ fieldErrors.operation_type }}</div>
@@ -122,6 +122,7 @@
           <AddressAutocomplete
             ref="addressFieldRef"
             v-model="addressQuery"
+            :count="7"
             label="Поиск по адресу"
             placeholder="Город, улица, дом, квартира…"
             @pick="onAddressPick"
@@ -192,7 +193,16 @@
 
             <div class="field">
               <label>Кадастровый номер</label>
-              <input class="input" v-model="form.cadastral_number" />
+              <input
+                class="input"
+                v-model="form.cadastral_number"
+                inputmode="numeric"
+                maxlength="50"
+                placeholder="Например: 38:06:144003:472"
+                @input="onCadastralNumberInput"
+              />
+              <div class="muted property-form__field-hint">Формат: 00:00:000000:000</div>
+              <div v-if="fieldErrors.cadastral_number" class="property-form__field-error">{{ fieldErrors.cadastral_number }}</div>
             </div>
           </div>
         </div>
@@ -453,7 +463,7 @@
           </div>
         </div>
 
-        <div v-if="auth.isStaff" class="panel panel--light property-form__subpanel">
+        <div v-if="canManagePropertyMeta" class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
               <h3 class="h4">Документы объекта</h3>
@@ -469,7 +479,11 @@
               </div>
               <div class="field">
                 <label>Ссылка на файл</label>
-                <input class="input" v-model="newDocument.file_url" />
+                <input class="input" v-model="newDocument.file_url" placeholder="https://..." />
+              </div>
+              <div class="field">
+                <label>Или загрузите файл</label>
+                <input class="input" type="file" @change="onDocumentFileChange" />
               </div>
             </div>
 
@@ -499,7 +513,7 @@
           </div>
         </div>
 
-        <div v-if="auth.isStaff && isEdit" class="panel panel--light property-form__subpanel">
+        <div v-if="canManagePropertyMeta && isEdit" class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
               <h3 class="h4">Просмотры</h3>
@@ -701,7 +715,7 @@
 
           <div class="row property-form__modal-actions">
             <button class="btn" type="button" @click="closeViewingDialog">Отмена</button>
-            <button class="btn btn--accent" type="button" :disabled="viewingSaving" @click="submitViewing">
+            <button class="btn btn--primary property-form__modal-submit" type="button" :disabled="viewingSaving" @click="submitViewing">
               {{ viewingSaving ? 'Сохранение…' : 'Запланировать' }}
             </button>
           </div>
@@ -893,6 +907,7 @@ const isCommercialType = computed(() => propertyTypeIsCommercial(normalizedPremi
 const isHouseType = computed(() => normalizedPremisesType.value === 'house')
 const isLandType = computed(() => normalizedPremisesType.value === 'land')
 const isGarageType = computed(() => normalizedPremisesType.value === 'garage')
+const canManagePropertyMeta = computed(() => auth.isAdminOrManager)
 // "О доме": скрываем для земли, гаража и коммерции (у коммерции свой блок)
 const showBuildingDetailsSection = computed(() => propertyTypeSchema.value.showBuildingDetails)
 // Комнаты: только квартира, дом, комната
@@ -929,6 +944,7 @@ const isCurrentStepValid = computed(() => validateStep(currentStep.value, false)
 const newDocument = reactive({
   document_name: '',
   file_url: '',
+  file: null,
   is_verified: false,
 })
 const viewingDialogOpen = ref(false)
@@ -949,7 +965,39 @@ function normalizeTextValue(value) {
   return (value || '').toString().trim()
 }
 
+function normalizeOperationOption(item) {
+  const code = String(item?.code || '').trim().toLowerCase()
+  if (code === 'sale') return { ...item, display_name: 'Продажа' }
+  if (code === 'rent') return { ...item, display_name: 'Аренда' }
+  return null
+}
+
+function normalizeCadastralNumber(value) {
+  return String(value || '')
+    .replace(/[^\d:]/g, '')
+    .replace(/:{2,}/g, ':')
+    .replace(/^:/, '')
+    .slice(0, 50)
+}
+
+function isValidCadastralNumber(value) {
+  if (!value) return true
+  return /^\d{2}:\d{2}:\d{6,}:\d+$/.test(value)
+}
+
+function onCadastralNumberInput(event) {
+  const normalized = normalizeCadastralNumber(event?.target?.value ?? form.cadastral_number)
+  form.cadastral_number = normalized
+  if (event?.target && event.target.value !== normalized) {
+    event.target.value = normalized
+  }
+}
+
 function hasConfirmedAddressSelection() {
+  const manualAddress = normalizeTextValue(addressQuery.value || form.address || existingAddress.value)
+  if (manualAddress) {
+    return true
+  }
   // In edit mode: if user hasn't changed the address query, consider it confirmed
   if (isEdit.value && !addressPicked.value) {
     const queryTrimmed = normalizeTextValue(addressQuery.value)
@@ -1097,6 +1145,64 @@ function onAddressPick(result) {
   addressConfirmedValue.value = result?.value || ''
 }
 
+function buildManualAddressData() {
+  const manualValue = normalizeTextValue(addressQuery.value || form.address || existingAddress.value)
+  if (!manualValue) return null
+  const parts = manualValue
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const city = parts[0] || ''
+  let street = ''
+  let streetType = ''
+  let house = ''
+  let flat = ''
+  const streetPattern = /^(ул\.?|улица|пр-?т|проспект|пер\.?|переулок|бул\.?|бульвар|наб\.?|набережная|мкр\.?|микрорайон|ш\.?|шоссе|пл\.?|площадь)\s+/i
+  const housePattern = /^(?:д\.?|дом)\s*/i
+  const flatPattern = /^(кв\.?|квартира)\s*/i
+
+  for (const rawPart of parts.slice(1)) {
+    const part = rawPart.trim()
+    if (!part) continue
+    if (!flat && flatPattern.test(part)) {
+      flat = part.replace(flatPattern, '').trim()
+      continue
+    }
+    if (!house && housePattern.test(part)) {
+      house = part.replace(housePattern, '').trim()
+      continue
+    }
+    if (!street && streetPattern.test(part)) {
+      const match = part.match(streetPattern)
+      streetType = match?.[1] || ''
+      street = part.replace(streetPattern, '').trim()
+      continue
+    }
+    if (!street) {
+      street = part
+      continue
+    }
+    if (!house) {
+      house = part
+      continue
+    }
+    if (!flat) {
+      flat = part
+    }
+  }
+
+  return {
+    value: manualValue,
+    city,
+    region: '',
+    street,
+    street_type: streetType,
+    house,
+    flat,
+    postal_code: '',
+  }
+}
+
 function formatCoordinate(value) {
   const numberValue = Number(value)
   return Number.isFinite(numberValue) ? numberValue.toFixed(4) : value
@@ -1149,24 +1255,38 @@ function closeViewingDialog() {
   viewingDialogOpen.value = false
 }
 
+function onDocumentFileChange(event) {
+  newDocument.file = event.target.files?.[0] || null
+}
+
 async function submitDocument() {
-  if (!isEdit.value || !newDocument.document_name.trim() || !newDocument.file_url.trim()) return
-  const payload = {
-    property: route.params.id,
-    document_name: newDocument.document_name.trim(),
-    file_url: newDocument.file_url.trim(),
-    is_verified: !!newDocument.is_verified,
+  if (!canManagePropertyMeta.value || !isEdit.value) return
+  const documentName = newDocument.document_name.trim()
+  const fileUrl = newDocument.file_url.trim()
+  if (!documentName || (!fileUrl && !newDocument.file)) return
+  try {
+    const payload = new FormData()
+    payload.append('property', route.params.id)
+    payload.append('document_name', documentName)
+    payload.append('is_verified', newDocument.is_verified ? 'true' : 'false')
+    if (fileUrl) payload.append('file_url', fileUrl)
+    if (newDocument.file) payload.append('file', newDocument.file)
+    await api.post('/property-documents/', payload, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    newDocument.document_name = ''
+    newDocument.file_url = ''
+    newDocument.file = null
+    newDocument.is_verified = false
+    const { data } = await api.get('/property-documents/', { params: { property: route.params.id } })
+    documents.value = unpackPaginated(data).items
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось добавить документ объекта.'))
   }
-  await api.post('/property-documents/', payload)
-  newDocument.document_name = ''
-  newDocument.file_url = ''
-  newDocument.is_verified = false
-  const { data } = await api.get('/property-documents/', { params: { property: route.params.id } })
-  documents.value = unpackPaginated(data).items
 }
 
 async function submitViewing() {
-  if (!isEdit.value || !viewingForm.client_profile || !viewingForm.employee_profile || !viewingForm.scheduled_date) return
+  if (!canManagePropertyMeta.value || !isEdit.value || !viewingForm.client_profile || !viewingForm.employee_profile || !viewingForm.scheduled_date) return
   viewingSaving.value = true
   try {
     await api.post('/property-viewings/', {
@@ -1185,6 +1305,8 @@ async function submitViewing() {
     viewingForm.notes = ''
     const { data } = await api.get('/property-viewings/', { params: { property: route.params.id } })
     viewings.value = unpackPaginated(data).items
+  } catch (err) {
+    toasts.error(extractError(err, 'Не удалось запланировать просмотр.'))
   } finally {
     viewingSaving.value = false
   }
@@ -1345,6 +1467,7 @@ function resetPropertyFormState() {
   viewingForm.notes = ''
   newDocument.document_name = ''
   newDocument.file_url = ''
+  newDocument.file = null
   newDocument.is_verified = false
   photos.value.forEach(revokePreview)
   photos.value = []
@@ -1368,6 +1491,8 @@ async function ensureOperationTypesLoaded() {
     params: { page_size: LOOKUP_PAGE_SIZE },
   })
   dict.operations = unpackPaginated(data).items
+    .map(normalizeOperationOption)
+    .filter(Boolean)
 }
 
 async function ensureLookupLoaded(key, endpoint) {
@@ -1449,7 +1574,7 @@ function buildPropertyPayload() {
     area_total: form.area_total,
     rooms_count: schema.showRooms ? form.rooms_count : null,
     floor_number: schema.showFloor ? form.floor_number : null,
-    cadastral_number: form.cadastral_number || null,
+    cadastral_number: normalizeCadastralNumber(form.cadastral_number) || null,
     is_published: !!form.is_published,
     description: form.description,
     building_details_data: schema.showBuildingDetails ? stripDataKeys({
@@ -1559,13 +1684,15 @@ async function initializeForm() {
       existingAddress.value = data.full_address || ''
       addressQuery.value = data.full_address || data.address || ''
       addressConfirmedValue.value = data.full_address || data.address || ''
-      photos.value = (data.photos || []).map((photo) => ({ ...photo }))
+      photos.value = (data.photos || [])
+        .filter((photo) => photo.image_url || photo.url)
+        .map((photo) => ({ ...photo }))
       documents.value = unpackPaginated(data.documents).items
       priceHistory.value = unpackPaginated(data.price_history).items
       const [docsResp, priceResp, viewingsResp] = await Promise.all([
         api.get('/property-documents/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
         api.get('/property-price-history/', { params: { property: route.params.id } }).catch(() => ({ data: [] })),
-        auth.isStaff
+        canManagePropertyMeta.value
           ? api.get('/property-viewings/', { params: { property: route.params.id } }).catch(() => ({ data: [] }))
           : Promise.resolve({ data: [] }),
       ])
@@ -1736,6 +1863,15 @@ async function submit() {
     if (addressPicked.value) {
       // User selected a new address from DaData suggestions
       payload.address_data = addressPicked.value
+    } else if (!isEdit.value) {
+      const manualAddressData = buildManualAddressData()
+      if (manualAddressData) {
+        payload.address_data = manualAddressData
+      } else {
+        throw new Error('Введите адрес объекта.')
+      }
+    } else if (normalizeTextValue(addressQuery.value) && normalizeTextValue(addressQuery.value) !== normalizeTextValue(existingAddress.value)) {
+      payload.address_data = buildManualAddressData()
     } else if (isEdit.value && form.address && typeof form.address === 'number') {
       // Editing: keep existing address by its numeric PK — don't re-send address_data
       payload.address = form.address
@@ -1813,6 +1949,12 @@ onBeforeUnmount(() => {
   min-height: 0;
   position: relative;
   z-index: 1;
+}
+
+.property-form,
+.property-form__step-panel,
+.property-form__subpanel {
+  overflow: visible;
 }
 
 .property-form__hero {
@@ -1943,7 +2085,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   padding: 18px;
   border: 1px solid var(--c-border);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .property-form__grid {
@@ -2171,12 +2313,17 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.property-form__modal-actions {
+  position: relative;
+  z-index: 1;
+}
+
 .property-form__footer {
   padding-top: 8px;
   padding-bottom: 8px;
   border-top: 1px solid var(--c-border);
   position: relative;
-  z-index: 10;
+  z-index: 1;
   margin-top: 20px;
 }
 
@@ -2197,15 +2344,48 @@ onBeforeUnmount(() => {
 
 .property-form__modal {
   width: min(760px, calc(100vw - 32px));
+  position: relative;
+  overflow: visible;
+  z-index: 100;
 }
 
 .property-form__modal-grid {
   gap: 14px;
   margin-top: 18px;
+  overflow: visible;
 }
 
 .property-form__modal-field-full {
   grid-column: 1 / -1;
+}
+
+.property-form :deep(.field),
+.property-form :deep(.remote-lookup),
+.property-form :deep(.remote-lookup__control) {
+  overflow: visible;
+}
+
+.property-form :deep(.field),
+.property-form :deep(.remote-lookup) {
+  position: relative;
+  z-index: 5;
+}
+
+.property-form :deep(.remote-lookup__menu),
+.property-form :deep(.autocomplete) {
+  z-index: 260;
+}
+
+.property-form__modal-submit {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(230, 238, 242, 0.96)) !important;
+  color: var(--c-page-text) !important;
+  border-color: rgba(21, 56, 57, 0.18) !important;
+  box-shadow: 0 12px 24px rgba(16, 55, 52, 0.12);
+}
+
+.property-form__modal-submit:hover {
+  border-color: rgba(21, 56, 57, 0.24) !important;
+  box-shadow: 0 14px 28px rgba(16, 55, 52, 0.14);
 }
 
 @media (max-width: 1080px) {

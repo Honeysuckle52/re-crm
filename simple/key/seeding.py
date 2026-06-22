@@ -71,7 +71,7 @@ from .seeding_catalog import (
 from .twogis import TwoGisClient
 
 
-SEED_MARKER = '__seed_demo__'
+SEED_SOURCE_NAME = 'seed_fixture'
 SEED_PASSWORD = 'SeedPass123!'
 DECIMAL_100 = Decimal('100.00')
 
@@ -198,28 +198,35 @@ class SeedDataService:
         return summary
 
     def flush_demo(self) -> dict[str, int]:
-        seeded_users = User.objects.filter(username__startswith='seed_')
-        seeded_properties = Property.objects.filter(description__contains=SEED_MARKER)
+        seeded_users = self._seeded_users_queryset()
+        seeded_properties = Property.objects.filter(
+            external_sources__source_name=SEED_SOURCE_NAME,
+        ).distinct()
+        seeded_user_ids = list(seeded_users.values_list('pk', flat=True))
         house_ids = list(seeded_properties.values_list('house_id', flat=True))
 
         Task.objects.filter(
-            Q(assignee__username__startswith='seed_')
-            | Q(created_by__username__startswith='seed_')
-            | Q(client_profile__user__username__startswith='seed_')
-            | Q(property__description__contains=SEED_MARKER)
-            | Q(request__client_profile__user__username__startswith='seed_')
-            | Q(deal__client__username__startswith='seed_')
+            Q(assignee_id__in=seeded_user_ids)
+            | Q(created_by_id__in=seeded_user_ids)
+            | Q(client_profile__user_id__in=seeded_user_ids)
+            | Q(property__external_sources__source_name=SEED_SOURCE_NAME)
+            | Q(request__client_profile__user_id__in=seeded_user_ids)
+            | Q(deal__client_id__in=seeded_user_ids)
         ).delete()
         Deal.objects.filter(
-            Q(client__username__startswith='seed_')
-            | Q(agent__username__startswith='seed_')
-            | Q(request__client_profile__user__username__startswith='seed_')
-            | Q(property__description__contains=SEED_MARKER)
+            Q(client_id__in=seeded_user_ids)
+            | Q(agent_id__in=seeded_user_ids)
+            | Q(request__client_profile__user_id__in=seeded_user_ids)
+            | Q(property__external_sources__source_name=SEED_SOURCE_NAME)
         ).delete()
         Request.objects.filter(
-            Q(client_profile__user__username__startswith='seed_')
-            | Q(employee_profile__user__username__startswith='seed_')
-            | Q(property__description__contains=SEED_MARKER)
+            Q(client_profile__user_id__in=seeded_user_ids)
+            | Q(employee_profile__user_id__in=seeded_user_ids)
+            | Q(property__external_sources__source_name=SEED_SOURCE_NAME)
+        ).delete()
+        PropertyOwner.objects.filter(
+            Q(client_profile__user_id__in=seeded_user_ids)
+            | Q(property__external_sources__source_name=SEED_SOURCE_NAME)
         ).delete()
         Property.objects.filter(pk__in=seeded_properties.values_list('pk', flat=True)).delete()
         User.objects.filter(pk__in=seeded_users.values_list('pk', flat=True)).delete()
@@ -231,8 +238,10 @@ class SeedDataService:
 
     def _has_seeded_demo(self) -> bool:
         return (
-            User.objects.filter(username__startswith='seed_').exists()
-            or Property.objects.filter(description__contains=SEED_MARKER).exists()
+            self._seeded_users_queryset().exists()
+            or Property.objects.filter(
+                external_sources__source_name=SEED_SOURCE_NAME,
+            ).exists()
         )
 
     def _seed_rows(self, model, rows: list[dict[str, Any]]) -> tuple[int, int]:
@@ -252,9 +261,10 @@ class SeedDataService:
         individual_clients: list[ClientProfile] = []
         company_clients: list[ClientProfile] = []
         for index, (role_code, first_name, last_name, position) in enumerate(EMPLOYEE_SPECS, start=1):
+            seed_username = f'seed_{role_code}_{index}'
             user = self._create_user(
-                username=f'seed_{role_code}_{index}',
-                email=f'seed.{role_code}.{index}@example.com',
+                username=seed_username,
+                email=f'{seed_username}@example.com',
                 phone=f'+7999000{index:04d}',
                 user_type=lookups['user_types']['employee'],
                 role=lookups['user_roles'][role_code],
@@ -272,9 +282,10 @@ class SeedDataService:
             employees.append(profile)
 
         for index, (first_name, last_name) in enumerate(INDIVIDUAL_CLIENTS, start=1):
+            seed_username = f'seed_client_ind_{index}'
             user = self._create_user(
-                username=f'seed_client_ind_{index}',
-                email=f'seed.client.ind.{index}@example.com',
+                username=seed_username,
+                email=f'{seed_username}@example.com',
                 phone=f'+7999111{index:04d}',
                 user_type=lookups['user_types']['client'],
                 role=None,
@@ -300,9 +311,10 @@ class SeedDataService:
             individual_clients.append(profile)
 
         for index, company_name in enumerate(COMPANY_CLIENTS, start=1):
+            seed_username = f'seed_client_company_{index}'
             user = self._create_user(
-                username=f'seed_client_company_{index}',
-                email=f'seed.client.company.{index}@example.com',
+                username=seed_username,
+                email=f'{seed_username}@example.com',
                 phone=f'+7999222{index:04d}',
                 user_type=lookups['user_types']['client'],
                 role=None,
@@ -333,6 +345,11 @@ class SeedDataService:
             'individual_clients': individual_clients,
             'company_clients': company_clients,
         }
+
+    def _seeded_users_queryset(self):
+        return User.objects.filter(
+            Q(username__startswith='seed_') | Q(email__startswith='seed_'),
+        ).distinct()
 
     def _seed_properties(self, employees: list[EmployeeProfile], *, force_images: bool) -> list[PropertyBundle]:
         lookups = self._lookups()
@@ -427,6 +444,17 @@ class SeedDataService:
             if force_images:
                 PropertyPhoto.objects.filter(property=property_obj).delete()
             self._enrich_property(property_obj, city.name, street.name, house.house_number)
+            PropertyExternalSource.objects.update_or_create(
+                property=property_obj,
+                source_name=SEED_SOURCE_NAME,
+                external_id='demo',
+                defaults={
+                    'source_object_name': property_obj.title,
+                    'source_address': str(property_obj.house),
+                    'source_rubric': 'seed-data',
+                    'synced_at': timezone.now(),
+                },
+            )
             bundles.append(
                 PropertyBundle(
                     property=property_obj,
@@ -449,47 +477,23 @@ class SeedDataService:
         individual_clients: list[ClientProfile],
         company_clients: list[ClientProfile],
     ) -> None:
-        single_shares = [(profile, Decimal('100.00')) for profile in (individual_clients + company_clients + individual_clients[:3])]
-        share_patterns = [
-            (Decimal('50.00'), Decimal('50.00')),
-            (Decimal('60.00'), Decimal('40.00')),
-            (Decimal('70.00'), Decimal('30.00')),
-        ]
-        double_residential = [0, 2, 5, 6, 9, 11, 14, 16, 18]
-        double_commercial = [22, 24, 25]
-        double_indices = set(double_residential + double_commercial)
-        residential_queue = individual_clients + individual_clients[:9]
-        company_queue = company_clients + company_clients[:3]
         residential_index = 0
         company_index = 0
 
-        for index, bundle in enumerate(properties):
-            if index in double_indices:
-                shares = share_patterns[index % len(share_patterns)]
-                if bundle.is_commercial_like:
-                    owners = [
-                        company_queue[company_index % len(company_queue)],
-                        (individual_clients + company_clients)[(company_index + 1) % (len(individual_clients) + len(company_clients))],
-                    ]
-                    company_index += 1
-                else:
-                    owners = [
-                        residential_queue[residential_index % len(residential_queue)],
-                        residential_queue[(residential_index + 1) % len(residential_queue)],
-                    ]
-                    residential_index += 2
-                for owner, share in zip(owners, shares):
-                    self._save(PropertyOwner(property=bundle.property, client_profile=owner, ownership_share=share))
-                continue
-
-            owner = single_shares.pop(0)[0]
-            if bundle.is_commercial_like and owner.client_kind != 'company':
+        for bundle in properties:
+            if bundle.is_commercial_like:
                 owner = company_clients[company_index % len(company_clients)]
                 company_index += 1
-            if not bundle.is_commercial_like and owner.client_kind != 'individual':
+            else:
                 owner = individual_clients[residential_index % len(individual_clients)]
                 residential_index += 1
-            self._save(PropertyOwner(property=bundle.property, client_profile=owner, ownership_share=DECIMAL_100))
+            self._save(
+                PropertyOwner(
+                    property=bundle.property,
+                    client_profile=owner,
+                    ownership_share=DECIMAL_100,
+                )
+            )
 
     def _seed_requests(
         self,
@@ -500,21 +504,11 @@ class SeedDataService:
         lookups = self._lookups()
         by_type = self._property_index(properties)
         request_specs = [
-            ('sale', 'apartment', 1, 'irkutsk', 'completed'),
-            ('sale', 'apartment', 2, 'moscow', 'completed'),
-            ('sale', 'house', 4, 'irkutsk', 'completed'),
-            ('rent', 'apartment', 2, 'moscow', 'completed'),
+            ('sale', 'apartment', 2, 'irkutsk', 'completed'),
+            ('sale', 'house', 4, 'moscow', 'completed'),
             ('rent', 'commercial', None, 'moscow', 'completed'),
-            ('sale', 'apartment', 3, 'khabarovsk', 'processing'),
-            ('sale', 'apartment', 4, 'irkutsk', 'processing'),
-            ('sale', 'apartment', 0, 'chita', 'processing'),
-            ('sale', 'apartment', 2, 'moscow', 'open'),
-            ('sale', 'house', 5, 'khabarovsk', 'processing'),
-            ('sale', 'house', 4, 'moscow', 'open'),
-            ('rent', 'apartment', 1, 'khabarovsk', 'processing'),
-            ('rent', 'apartment', 4, 'irkutsk', 'open'),
-            ('rent', 'commercial', None, 'irkutsk', 'cancelled'),
-            ('sale', 'land', None, 'irkutsk', 'lost'),
+            ('sale', 'land', None, 'irkutsk', 'completed'),
+            ('rent', 'apartment', 1, 'khabarovsk', 'completed'),
         ]
         requests: list[Request] = []
         for index, (operation_code, property_type_code, rooms_count, city_code, status_code) in enumerate(request_specs):
@@ -527,7 +521,7 @@ class SeedDataService:
             request_obj = Request(
                 client_profile=client,
                 employee_profile=employee,
-                property=bundle.property if index < 10 or property_type_code in {'commercial', 'land'} else None,
+                property=bundle.property,
                 operation_type=lookups['operation_types'][operation_code],
                 status=status,
                 property_type=lookups['property_types'][property_type_code],
@@ -543,7 +537,7 @@ class SeedDataService:
                 address_preferences=f'Предпочтительно {bundle.city.name}, рядом с транспортом и без долгого ремонта.',
                 description=self._request_description(operation_code, property_type_code, bundle.subtype),
                 created_at=created_at,
-                closed_at=created_at + timedelta(days=9) if status_code in Request.TERMINAL_STATUS_CODES else None,
+                closed_at=created_at + timedelta(days=9),
             )
             self._save(request_obj)
             requests.append(request_obj)
@@ -551,7 +545,7 @@ class SeedDataService:
 
     def _seed_deals(self, requests: list[Request]) -> list[Deal]:
         lookups = self._lookups()
-        completed_requests = [request for request in requests if request.status_code == 'completed'][:5]
+        completed_requests = requests[:5]
         deals: list[Deal] = []
         for index, request_obj in enumerate(completed_requests, start=1):
             property_obj = request_obj.property or Property.objects.filter(
@@ -573,7 +567,7 @@ class SeedDataService:
                 deal_date=timezone.localdate() - timedelta(days=10 - index),
                 contract_status_ref=lookups['contract_statuses']['signed'],
                 contract_file=f'deals/contracts/seed/contract_{index}.pdf',
-                notes=f'Сделка создана сидером. {SEED_MARKER}',
+                notes='Сделка создана на основе завершённой клиентской заявки и содержит полный комплект контрольных данных.',
             )
             self._save(deal)
             deals.append(deal)
@@ -588,21 +582,20 @@ class SeedDataService:
         employees: list[EmployeeProfile],
     ) -> list[Task]:
         lookups = self._lookups()
-        task_types = (
-            ['call_client'] * 5
-            + ['show_property'] * 4
-            + ['property_search'] * 4
-            + ['prepare_docs'] * 4
-            + ['negotiate'] * 2
-            + ['other']
-        )
-        status_codes = ['new', 'in_progress', 'waiting', 'done', 'cancelled'] * 4
-        priorities = ['medium', 'high', 'medium', 'urgent', 'low'] * 4
+        task_types = [
+            'call_client',
+            'show_property',
+            'property_search',
+            'prepare_docs',
+            'negotiate',
+        ]
+        status_codes = ['new', 'in_progress', 'waiting', 'done', 'cancelled']
+        priorities = ['medium', 'high', 'medium', 'urgent', 'low']
         tasks: list[Task] = []
         for index, task_type_code in enumerate(task_types):
             request_obj = requests[index % len(requests)]
             property_obj = properties[index % len(properties)].property
-            deal_obj = deals[index % len(deals)] if index % 4 == 0 else None
+            deal_obj = deals[index % len(deals)] if deals else None
             status_code = status_codes[index]
             task = Task(
                 title=self._task_title(task_type_code, request_obj, property_obj),
@@ -613,8 +606,8 @@ class SeedDataService:
                 assignee=employees[index % len(employees)].user,
                 created_by=employees[(index + 2) % len(employees)].user,
                 client_profile=clients[index % len(clients)],
-                property=property_obj if index % 5 != 0 else None,
-                request=request_obj if index % 3 != 0 else None,
+                property=property_obj,
+                request=request_obj,
                 deal=deal_obj,
                 due_date=timezone.now() + timedelta(days=(index % 6) - 2, hours=2 * index),
                 completed_at=timezone.now() - timedelta(days=1, hours=index) if status_code in {'done', 'cancelled'} else None,
@@ -632,19 +625,21 @@ class SeedDataService:
         tasks: list[Task],
         deals: list[Deal],
     ) -> dict[str, int]:
-        user_count = User.objects.filter(username__startswith='seed_').count()
+        user_count = self._seeded_users_queryset().count()
         property_count = len(properties)
-        owner_count = PropertyOwner.objects.filter(property__description__contains=SEED_MARKER).count()
+        owner_count = PropertyOwner.objects.filter(
+            property__external_sources__source_name=SEED_SOURCE_NAME,
+        ).count()
         request_count = len(requests)
         task_count = len(tasks)
         deal_count = len(deals)
-        if user_count != 27:
-            raise ValueError(f'Ожидалось 27 пользователей, получено {user_count}.')
-        if property_count != 30:
-            raise ValueError(f'Ожидалось 30 объектов, получено {property_count}.')
-        if owner_count != 42:
-            raise ValueError(f'Ожидалось 42 записи PropertyOwner, получено {owner_count}.')
-        if request_count != 15 or task_count != 20 or deal_count != 5:
+        if user_count != 22:
+            raise ValueError(f'Ожидалось 22 пользователя, получено {user_count}.')
+        if property_count != 20:
+            raise ValueError(f'Ожидалось 20 объектов, получено {property_count}.')
+        if owner_count != 20:
+            raise ValueError(f'Ожидалось 20 записей PropertyOwner, получено {owner_count}.')
+        if request_count != 5 or task_count != 5 or deal_count != 5:
             raise ValueError('Нарушены контрольные количества заявок, задач или сделок.')
 
         for bundle in properties:
@@ -674,7 +669,7 @@ class SeedDataService:
             if deal.client.user_type != 'client' or deal.agent.user_type != 'employee':
                 raise ValueError('В сделке обнаружены неверные ссылки client/agent.')
 
-        if len(users['employees']) != 12 or len(users['clients']) != 15:
+        if len(users['employees']) != 12 or len(users['clients']) != 10:
             raise ValueError('Нарушены количества сотрудников или клиентов.')
 
         return {
@@ -817,16 +812,22 @@ class SeedDataService:
         return f'{label}, {area_total} м², {city_name}'
 
     def _property_description(self, property_type_code: str, subtype: str, city_name: str) -> str:
-        chunks = {
-            'apartment': 'Формат объявления приближен к карточкам Яндекс Недвижимости: акцент на планировку, свет и транспорт.',
-            'house': 'Подойдет для семьи: участок оформлен, подъезд круглый год, документы готовы к сделке.',
-            'room': 'Комната с отдельным лицевым счетом, аккуратные общие зоны, понятный режим пользования.',
-            'commercial': 'Помещение с понятной коммерческой функцией, хорошей видимостью и рабочим трафиком.',
-            'land': 'Участок с ясным сценарием использования и базовыми вводными по подъезду и коммуникациям.',
-            'garage': 'Капитальный гараж, удобный заезд, сухой бокс.',
+        openings = {
+            'apartment': 'Квартира подготовлена как полноценный сценарий для подбора: понятная планировка, стабильное состояние отделки и предсказуемая эксплуатация без скрытых сюрпризов.',
+            'house': 'Дом собран как реалистичный семейный лот с акцентом на приватность, понятную логистику и баланс между площадью помещений и использованием участка.',
+            'room': 'Комната описана как самостоятельный продукт для клиента, которому важны бюджет входа, состояние общих зон и отсутствие конфликтных бытовых ограничений.',
+            'commercial': 'Коммерческий объект описан через полезность для бизнеса: сценарий использования, поток людей, инженерные характеристики и понятную модель запуска.',
+            'land': 'Участок подготовлен как инвестиционный и прикладной актив: учтены подъезд, контекст окружения, возможный формат освоения и читаемая земельная логика.',
+            'garage': 'Гараж описан как практичный утилитарный объект: удобный доступ, базовая безопасность, сухое хранение и предсказуемый режим использования круглый год.',
         }
-        suffix = ' Создано командой seed_data. ' + SEED_MARKER
-        return f'{chunks[property_type_code]} Локация: {city_name}. {suffix}'
+        details = (
+            f'Локация {city_name} выбрана не случайно: объект встроен в живой городской контекст, рядом есть повседневная инфраструктура, '
+            'понятный подъезд, рабочие точки притяжения и сценарии использования в будни и выходные. '
+            f'Подтип {subtype} раскрыт через реальные ожидания клиента: сроки выхода на сделку, удобство эксплуатации, потенциал роста ценности и качество окружения. '
+            'Описание специально сделано длинным, чтобы можно было проверять поиск по ключевым словам в описании, полнотекстовые фильтры и карточки объектов без шаблонных фраз. '
+            'В тексте есть акценты на транспорте, свете, инженерии, соседнем окружении, состоянии помещений и практических нюансах пользования.'
+        )
+        return f'{openings[property_type_code]} {details}'
 
     def _property_price(self, city_code: str, property_type_code: str, operation_code: str, area_total: str) -> Decimal:
         area = Decimal(area_total)

@@ -673,7 +673,12 @@ class DealContractQueueTests(TestCase):
             b'%PDF-1.4 ready test',
         )
 
-    def test_regenerate_contract_requeues_and_clears_existing_file(self):
+    @override_settings(BACKGROUND_AUTORUN_ENABLED=False)
+    @patch(
+        'key.views.deals_service.process_contract_queue',
+        return_value={'processed': 1, 'generated': 1, 'failed': 0},
+    )
+    def test_regenerate_contract_requeues_and_clears_existing_file(self, process_mock):
         self.deal.contract_file.save(
             'contract-old.pdf',
             ContentFile(b'old pdf', name='contract-old.pdf'),
@@ -695,6 +700,7 @@ class DealContractQueueTests(TestCase):
         self.assertEqual(self.deal.contract_status, 'pending')
         self.assertFalse(bool(self.deal.contract_file))
         self.assertIsNone(self.deal.contract_generated_at)
+        process_mock.assert_called_once_with(limit=1)
 
 
 class RequestMatchConfirmationTests(TestCase):
@@ -2305,6 +2311,29 @@ class PropertyClientVisibilityTests(TestCase):
         photo = models.PropertyPhoto.objects.get(pk=response.data['id'])
         self.assertEqual(photo.property_id, property_obj.pk)
 
+    def test_manager_can_download_property_summary_pdf(self):
+        property_obj = models.Property.objects.create(
+            title='Summary PDF property',
+            operation_type=self.operation_type,
+            status=self.active_status,
+            address=self.address,
+            owner=self.client_user,
+            price=5_000_000,
+            premises_type=models.Property.PREMISES_APARTMENT,
+            area_total='56.00',
+            rooms_count=2,
+            floor_number=4,
+            description='Подробное описание для скачивания карточки объекта.',
+        )
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.get(f'/api/properties/{property_obj.pk}/summary-pdf/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn(f'property-{property_obj.pk}.pdf', response['Content-Disposition'])
+        self.assertTrue(b''.join(response.streaming_content).startswith(b'%PDF-'))
+
     def test_client_can_retrieve_own_pending_property(self):
         property_obj = models.Property.objects.create(
             title='Own pending property',
@@ -2518,6 +2547,174 @@ class PropertyClientVisibilityTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('floor_number', response.data)
 
+    def test_room_frontend_payload_allows_ceiling_height(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Room with ceiling height',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PROPERTY_TYPE_ROOM,
+                'address': self.address.pk,
+                'price': 2_100_000,
+                'area_total': '19.20',
+                'rooms_count': 1,
+                'floor_number': 3,
+                'property_details_data': {
+                    'living_area': '14.00',
+                    'kitchen_area': None,
+                    'ceiling_height': '2.85',
+                    'bathroom_count': 1,
+                    'bathroom_type': None,
+                    'renovation_type': None,
+                    'bedrooms_count': 1,
+                },
+                'building_details_data': {
+                    'year_built': 1997,
+                    'total_floors': 9,
+                    'building_material': None,
+                    'elevators_count': 1,
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        property_obj = models.Property.objects.get(pk=response.data['id'])
+        self.assertEqual(str(property_obj.details.ceiling_height), '2.85')
+
+    def test_house_frontend_payload_uses_property_details_floors_and_ceiling_height(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'House frontend payload',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PROPERTY_TYPE_HOUSE,
+                'address': self.address.pk,
+                'price': 8_900_000,
+                'area_total': '146.00',
+                'rooms_count': 4,
+                'property_details_data': {
+                    'living_area': '88.00',
+                    'kitchen_area': '18.00',
+                    'ceiling_height': '3.05',
+                    'balcony_count': 0,
+                    'bathroom_count': 2,
+                    'bathroom_type': None,
+                    'renovation_type': None,
+                    'bedrooms_count': 3,
+                    'floors_count': 2,
+                    'land_area': '900.00',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        property_obj = models.Property.objects.get(pk=response.data['id'])
+        self.assertEqual(property_obj.details.floors_count, 2)
+        self.assertEqual(str(property_obj.details.ceiling_height), '3.05')
+
+    def test_commercial_frontend_payload_allows_ceiling_height(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Commercial frontend payload',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PROPERTY_TYPE_COMMERCIAL,
+                'address': self.address.pk,
+                'price': 12_500_000,
+                'area_total': '180.00',
+                'commercial_property_details_data': {
+                    'commercial_type': None,
+                    'usable_area': '165.00',
+                    'ceiling_height': '4.80',
+                    'floor_load': '600.00',
+                    'electric_power_kw': '35.00',
+                    'parking_spaces': 4,
+                    'has_separate_entrance': True,
+                    'has_display_windows': False,
+                    'is_first_line': True,
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        property_obj = models.Property.objects.get(pk=response.data['id'])
+        self.assertEqual(str(property_obj.commercial_details.ceiling_height), '4.80')
+
+    def test_land_frontend_payload_does_not_require_hidden_fields(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Land frontend payload',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PROPERTY_TYPE_LAND,
+                'address': self.address.pk,
+                'price': 1_900_000,
+                'area_total': '1200.00',
+                'property_details_data': {
+                    'land_area': '1200.00',
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_garage_frontend_payload_does_not_require_hidden_fields(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/properties/',
+            {
+                'title': 'Garage frontend payload',
+                'operation_type': self.operation_type.pk,
+                'status': self.active_status.pk,
+                'premises_type': models.Property.PROPERTY_TYPE_GARAGE,
+                'address': self.address.pk,
+                'price': 850_000,
+                'area_total': '24.50',
+                'property_details_data': {
+                    'renovation_type': None,
+                },
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_property_search_matches_description_keywords(self):
+        self.api.force_authenticate(user=self.manager)
+        property_obj = models.Property.objects.create(
+            title='Searchable property',
+            operation_type=self.operation_type,
+            status=self.active_status,
+            address=self.address,
+            price=4_500_000,
+            premises_type=models.Property.PROPERTY_TYPE_APARTMENT,
+            area_total='48.00',
+            description='Тихий двор, панорамный свет, рядом лицей и набережная для прогулок.',
+        )
+
+        response = self.api.get('/api/properties/', {'search': 'панорамный свет'})
+
+        self.assertEqual(response.status_code, 200)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertIn(property_obj.pk, ids)
+
     def test_land_update_ignores_hidden_residential_fields(self):
         self.api.force_authenticate(user=self.manager)
         property_type = models.PropertyType.objects.create(
@@ -2578,6 +2775,74 @@ class PropertyClientVisibilityTests(TestCase):
         self.assertIsNone(land_property.rooms_count)
         self.assertIsNone(land_property.floor_number)
         self.assertIsNone(land_property.total_floors)
+
+
+class PropertyDocumentApiTests(TestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.user_type_employee, _ = models.UserType.objects.get_or_create(
+            code='employee',
+            defaults={'name': 'Employee'},
+        )
+        self.role_manager, _ = models.UserRole.objects.get_or_create(
+            code='manager',
+            defaults={'name': 'Manager'},
+        )
+        self.operation_type = models.OperationType.objects.create(code='sale', name='Sale')
+        self.property_status = models.PropertyStatus.objects.create(code='active', name='Active')
+        self.property_type = models.PropertyType.objects.create(code='apartment', name='Apartment')
+        self.city = models.City.objects.create(name='Иркутск', region='Иркутская область')
+        self.street = models.Street.objects.create(city=self.city, name='Ленина', street_type='ул.')
+        self.house = models.House.objects.create(street=self.street, house_number='1')
+        self.manager = models.User.objects.create_user(
+            username='docs-manager',
+            email='docs-manager@example.com',
+            password='Secret123!',
+            user_type_ref=self.user_type_employee,
+            role=self.role_manager,
+            is_staff=True,
+        )
+        models.EmployeeProfile.objects.create(
+            user=self.manager,
+            first_name='Иван',
+            last_name='Петров',
+            position='Менеджер',
+        )
+        self.property_obj = models.Property.objects.create(
+            title='Property with docs',
+            operation_type=self.operation_type,
+            status=self.property_status,
+            house=self.house,
+            property_type_ref=self.property_type,
+            price=4_000_000,
+            area_total='40.00',
+        )
+
+    def test_employee_can_upload_property_document_file(self):
+        self.api.force_authenticate(user=self.manager)
+
+        response = self.api.post(
+            '/api/property-documents/',
+            {
+                'property': self.property_obj.pk,
+                'document_name': 'Выписка ЕГРН',
+                'is_verified': True,
+                'file': SimpleUploadedFile(
+                    'extract.pdf',
+                    b'%PDF-1.4 test property document',
+                    content_type='application/pdf',
+                ),
+            },
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document = models.PropertyDocument.objects.get(pk=response.data['id'])
+        self.assertEqual(document.property_id, self.property_obj.pk)
+        self.assertEqual(document.document_name, 'Выписка ЕГРН')
+        self.assertTrue(document.file_url)
+        self.assertTrue(document.is_verified)
+        self.assertEqual(document.verified_by_id, self.manager.pk)
 
 
 class AuditLogApiTests(TestCase):
@@ -2845,8 +3110,15 @@ class AuditLogApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(models.AuditLog.objects.filter(
-            deal=deal,
+            entity_type='deal',
+            entity_id=deal.pk,
             action_code='status_changed',
+        ).exists())
+        self.assertTrue(models.OutgoingEmail.objects.filter(
+            recipient=self.client_user,
+            request=self.request_obj,
+            trigger_code='deal_status_changed',
+            status='pending',
         ).exists())
 
 
@@ -3735,6 +4007,82 @@ class TaskStatusChangeTests(TestCase):
         self.assertEqual(task.status_id, self.status_cancelled.pk)
         self.assertIsNotNone(task.completed_at)
 
+    def test_task_list_auto_moves_overdue_new_task_to_waiting(self):
+        status_waiting = models.TaskStatus.objects.create(
+            code='waiting',
+            name='Waiting',
+            order=25,
+        )
+        task = models.Task.objects.create(
+            title='Overdue task',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            due_date=timezone.now() - timedelta(hours=2),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/tasks/')
+
+        self.assertEqual(response.status_code, 200)
+        task.refresh_from_db()
+        self.assertEqual(task.status_id, status_waiting.pk)
+        self.assertIsNone(task.completed_at)
+
+    def test_task_list_auto_cancels_stale_unstarted_task(self):
+        task = models.Task.objects.create(
+            title='Stale task',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            created_at=timezone.now() - timedelta(days=4),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/tasks/')
+
+        self.assertEqual(response.status_code, 200)
+        task.refresh_from_db()
+        self.assertEqual(task.status_id, self.status_cancelled.pk)
+        self.assertTrue(task.is_auto_closed)
+        self.assertIsNotNone(task.completed_at)
+
+    def test_current_endpoint_auto_cancels_stale_new_task(self):
+        task = models.Task.objects.create(
+            title='Stale current candidate',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            created_at=timezone.now() - timedelta(days=4),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/tasks/current/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data)
+        task.refresh_from_db()
+        self.assertEqual(task.status_id, self.status_cancelled.pk)
+        self.assertTrue(task.is_auto_closed)
+
+    def test_workload_endpoint_auto_cancels_stale_new_task(self):
+        task = models.Task.objects.create(
+            title='Stale workload task',
+            status=self.status_new,
+            assignee=self.employee,
+            created_by=self.employee,
+            created_at=timezone.now() - timedelta(days=4),
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get('/api/users/me/workload/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['active_tasks'], 0)
+        task.refresh_from_db()
+        self.assertEqual(task.status_id, self.status_cancelled.pk)
+        self.assertTrue(task.is_auto_closed)
+
 
 class TaskCrudRulesTests(TestCase):
     def setUp(self):
@@ -4452,6 +4800,14 @@ class DealPermissionTests(TestCase):
             name='Completed',
             order=20,
         )
+        self.role_buyer = models.DealParticipantRole.objects.create(
+            code='buyer',
+            name='Покупатель',
+        )
+        self.role_seller = models.DealParticipantRole.objects.create(
+            code='seller',
+            name='Продавец',
+        )
         self.employee = models.User.objects.create_user(
             username='deal-employee',
             email='deal-employee@example.com',
@@ -4470,6 +4826,24 @@ class DealPermissionTests(TestCase):
             password='Secret123!',
             user_type='client',
         )
+        self.client_profile = models.ClientProfile.objects.create(
+            user=self.client_user,
+            first_name='Owner',
+            last_name='Seller',
+            client_kind=models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+        )
+        self.second_client_user = models.User.objects.create_user(
+            username='deal-buyer',
+            email='deal-buyer@example.com',
+            password='Secret123!',
+            user_type='client',
+        )
+        self.second_client_profile = models.ClientProfile.objects.create(
+            user=self.second_client_user,
+            first_name='Buyer',
+            last_name='Client',
+            client_kind=models.ClientProfile.CLIENT_KIND_INDIVIDUAL,
+        )
         city = models.City.objects.create(name='Irkutsk', region='Region')
         street = models.Street.objects.create(city=city, name='Lenina')
         house = models.House.objects.create(street=street, house_number='11')
@@ -4484,15 +4858,20 @@ class DealPermissionTests(TestCase):
             address=address,
             price=8_200_000,
         )
+        models.PropertyOwner.objects.create(
+            property=self.property,
+            client_profile=self.client_profile,
+            ownership_share=Decimal('100.00'),
+        )
         self.deal = models.Deal.objects.create(
             deal_number='D-2026-0001',
             property=self.property,
             agent=self.employee,
-            client=self.client_user,
+            client=self.second_client_user,
             operation_type=self.operation_type,
             status=self.deal_status_new,
             price_final=self.property.price,
-            deal_date=timezone.now().date(),
+            deal_date=timezone.localdate(),
             notes='Initial note',
         )
 
@@ -4510,7 +4889,7 @@ class DealPermissionTests(TestCase):
         self.assertEqual(self.deal.status_id, self.deal_status_new.pk)
 
     def test_client_cannot_patch_own_deal(self):
-        self.api.force_authenticate(user=self.client_user)
+        self.api.force_authenticate(user=self.second_client_user)
 
         response = self.api.patch(
             f'/api/deals/{self.deal.pk}/',
@@ -4523,7 +4902,7 @@ class DealPermissionTests(TestCase):
         self.assertEqual(self.deal.notes, 'Initial note')
 
     def test_client_can_view_own_deal_list_and_detail(self):
-        self.api.force_authenticate(user=self.client_user)
+        self.api.force_authenticate(user=self.second_client_user)
 
         list_response = self.api.get('/api/deals/')
         detail_response = self.api.get(f'/api/deals/{self.deal.pk}/')
@@ -4533,6 +4912,95 @@ class DealPermissionTests(TestCase):
         self.assertEqual(list_response.data['results'][0]['id'], self.deal.pk)
         self.assertEqual(detail_response.status_code, 200)
         self.assertEqual(detail_response.data['id'], self.deal.pk)
+
+    def test_deal_detail_returns_property_owners_separately_from_client(self):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get(f'/api/deals/{self.deal.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['client'], self.second_client_user.pk)
+        self.assertEqual(response.data['client_username'], self.second_client_user.username)
+        self.assertEqual(len(response.data['property_owners']), 1)
+        self.assertEqual(
+            response.data['property_owners'][0]['client_username'],
+            self.client_user.username,
+        )
+        self.assertEqual(
+            response.data['property_owners'][0]['client_user_id'],
+            self.client_user.pk,
+        )
+
+    @patch('key.views.deals_service.process_contract_queue')
+    @patch('key.views.deals_service.queue_contract_generation')
+    def test_patch_deal_requeues_contract_generation_after_changes(self, queue_mock, process_mock):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.patch(
+            f'/api/deals/{self.deal.pk}/',
+            {
+                'client': self.client_user.pk,
+                'price_final': '9100000.00',
+                'notes': 'Updated note',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.deal.refresh_from_db()
+        self.assertEqual(self.deal.client_id, self.client_user.pk)
+        self.assertEqual(str(self.deal.price_final), '9100000.00')
+        self.assertEqual(self.deal.notes, 'Updated note')
+        queue_mock.assert_called_once()
+        process_mock.assert_called_once_with(limit=1)
+
+    @patch('key.views.deals_service.process_contract_queue')
+    @patch('key.views.deals_service.queue_contract_generation')
+    def test_patch_deal_updates_participants(self, queue_mock, process_mock):
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.patch(
+            f'/api/deals/{self.deal.pk}/',
+            {
+                'participants': [
+                    {'role': self.role_buyer.pk, 'client': self.second_client_user.pk},
+                    {'role': self.role_seller.pk, 'client': self.client_user.pk},
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        participants = list(self.deal.participants.select_related('role', 'client_profile__user').order_by('role__code'))
+        self.assertEqual(len(participants), 2)
+        self.assertEqual(participants[0].role.code, 'buyer')
+        self.assertEqual(participants[0].client_profile.user_id, self.second_client_user.pk)
+        self.assertEqual(participants[1].role.code, 'seller')
+        self.assertEqual(participants[1].client_profile.user_id, self.client_user.pk)
+        queue_mock.assert_called_once()
+        process_mock.assert_called_once_with(limit=1)
+
+    def test_deal_detail_returns_participants(self):
+        models.DealParticipant.objects.create(
+            deal=self.deal,
+            role=self.role_buyer,
+            client_profile=self.second_client_profile,
+        )
+        models.DealParticipant.objects.create(
+            deal=self.deal,
+            role=self.role_seller,
+            client_profile=self.client_profile,
+        )
+        self.api.force_authenticate(user=self.employee)
+
+        response = self.api.get(f'/api/deals/{self.deal.pk}/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['participants']), 2)
+        self.assertEqual(
+            {item['role_code'] for item in response.data['participants']},
+            {'buyer', 'seller'},
+        )
 
     def test_employee_cannot_see_foreign_deal(self):
         self.api.force_authenticate(user=self.other_employee)
@@ -5386,19 +5854,24 @@ class SeedDataCommandTests(TestCase):
 
         self.assertTrue(models.User.objects.filter(username='seed_admin_1').exists())
         self.assertFalse(models.User.objects.filter(username__startswith='demo').exists())
-        self.assertEqual(models.Property.objects.count(), 30)
+        self.assertEqual(models.Property.objects.count(), 20)
         self.assertEqual(models.Property.objects.filter(description__contains='__seed_batch__').count(), 0)
-        self.assertEqual(models.Request.objects.count(), 15)
-        self.assertEqual(models.Task.objects.count(), 20)
+        self.assertEqual(models.Request.objects.count(), 5)
+        self.assertEqual(models.Task.objects.count(), 5)
         self.assertEqual(models.Deal.objects.count(), 5)
-        self.assertGreaterEqual(models.PropertyPhoto.objects.count(), 60)
+        self.assertEqual(models.User.objects.filter(user_type='client').count(), 10)
+        self.assertEqual(models.User.objects.filter(role__code='agent').count(), 5)
+        self.assertEqual(models.User.objects.filter(role__code='manager').count(), 5)
+        self.assertEqual(models.User.objects.filter(role__code='admin').count(), 2)
+        self.assertGreaterEqual(models.PropertyPhoto.objects.count(), 40)
         self.assertEqual(models.OperationType.objects.count(), 2)
+        self.assertFalse(models.Property.objects.filter(description__icontains='seed_demo').exists())
 
         call_command('seed_data', stdout=io.StringIO())
         self.assertEqual(models.User.objects.filter(username='seed_admin_1').count(), 1)
-        self.assertEqual(models.Property.objects.count(), 30)
-        self.assertEqual(models.Request.objects.count(), 15)
-        self.assertEqual(models.Task.objects.count(), 20)
+        self.assertEqual(models.Property.objects.count(), 20)
+        self.assertEqual(models.Request.objects.count(), 5)
+        self.assertEqual(models.Task.objects.count(), 5)
         self.assertEqual(models.Deal.objects.count(), 5)
 
 

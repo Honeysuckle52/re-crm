@@ -6,7 +6,7 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from django.db import connection, transaction, close_old_connections
+from django.db import connection, transaction
 from django.db import DatabaseError, OperationalError, InterfaceError
 from django.db.models import Q
 from django.utils import timezone
@@ -14,6 +14,7 @@ from django.utils import timezone
 from . import audit as audit_service
 from . import models
 from .documents import render_contract_pdf
+from .queue_runtime import trigger_background_processing
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,7 @@ def queue_contract_generation(
         property_obj=locked.property,
         request_obj=locked.request,
     )
+    trigger_background_processing(reason=f'contract:{locked.pk}')
     return locked
 
 
@@ -183,7 +185,6 @@ def process_contract_queue(
     stale_after: timedelta = CONTRACT_CLAIM_TIMEOUT,
 ) -> dict[str, int]:
     """Обрабатывает очередь генерации договоров."""
-    close_old_connections()
     summary = {
         'processed': 0,
         'generated': 0,
@@ -203,7 +204,7 @@ def process_contract_queue(
                 'DB connection lost while generating contract for deal %s; retrying once',
                 deal.deal_number,
             )
-            close_old_connections()
+            connection.close()
             try:
                 pdf = _generate_contract_file(deal)
             except Exception as retry_exc:  # noqa: BLE001

@@ -24,6 +24,7 @@ function withDerivedWorkloadFlags(payload = {}) {
 }
 
 let _bumpTimer = null
+let _refreshRequestId = 0
 
 export const useWorkloadStore = defineStore('workload', {
   state: () => ({
@@ -44,6 +45,7 @@ export const useWorkloadStore = defineStore('workload', {
   },
   actions: {
     async refresh() {
+      const requestId = ++_refreshRequestId
       this.loading = true
       try {
         const [wl, cur] = await Promise.all([
@@ -68,17 +70,23 @@ export const useWorkloadStore = defineStore('workload', {
           } catch (_fallbackError) {}
         }
 
+        if (requestId !== _refreshRequestId) return
+
         this.workload = nextWorkload
         this.currentTask = currentTask
         this.lastSyncAt = new Date()
       } catch (_err) {
       } finally {
-        this.loading = false
+        if (requestId === _refreshRequestId) {
+          this.loading = false
+        }
       }
     },
     reset() {
+      _refreshRequestId += 1
       this.workload = withDerivedWorkloadFlags()
       this.currentTask = null
+      this.loading = false
       this.lastSyncAt = null
     },
     bumpAfterAction({ delayMs = 400 } = {}) {

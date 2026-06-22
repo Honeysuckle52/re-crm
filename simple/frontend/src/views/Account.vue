@@ -8,40 +8,37 @@
       <div style="color: rgba(255,255,255,.75); font-size: 14px; margin-top: 6px">
         {{ auth.user?.email }}<template v-if="!auth.isClient"> · {{ auth.roleLabel }}</template>
       </div>
-      <div v-if="showWelcome"
-           style="margin-top: 14px; background: rgba(61, 219, 199, .15);
-                  border: 1px solid rgba(61, 219, 199, .35);
-                  color: #cdf6ee; padding: 10px 14px; border-radius: 8px;
-                  font-size: 13px">
-        Добро пожаловать! Дополните договорные данные ниже — и договор
-        будет готов к подписанию без ручного заполнения.
+      <div
+        v-if="showWelcome"
+        style="margin-top: 14px; background: rgba(61, 219, 199, .15); border: 1px solid rgba(61, 219, 199, .35); color: #cdf6ee; padding: 10px 14px; border-radius: 8px; font-size: 13px"
+      >
+        Добро пожаловать! Дополните договорные данные ниже, и договор будет готов к подписанию без ручного заполнения.
       </div>
     </div>
 
     <div class="grid grid--2">
       <div class="panel panel--light stack">
         <h2 class="h3">Основные данные</h2>
-        <InfoRow label="Электронная почта"  :value="auth.user?.email" />
-        <InfoRow label="Телефон"            :value="auth.user?.phone || '—'" />
-        <InfoRow v-if="!auth.isClient"
-                 label="Тип учётной записи"
-                 :value="auth.user?.user_type === 'employee' ? 'Сотрудник' : 'Клиент'" />
-        <InfoRow v-if="!auth.isClient"
-                 label="Должность"
-                 :value="auth.user?.role_name || '—'" />
-        <InfoRow label="Почта подтверждена"   :value="auth.user?.is_email_verified ? 'да' : 'нет'" />
-        <InfoRow v-if="auth.isClient"
-                 label="Тип клиента"
-                 :value="clientKindLabel" />
+        <InfoRow label="Электронная почта" :value="auth.user?.email" />
+        <InfoRow label="Телефон" :value="auth.user?.phone || '—'" />
+        <InfoRow
+          v-if="!auth.isClient"
+          label="Тип учётной записи"
+          :value="auth.user?.user_type === 'employee' ? 'Сотрудник' : 'Клиент'"
+        />
+        <InfoRow
+          v-if="!auth.isClient"
+          label="Должность"
+          :value="auth.user?.role_name || '—'"
+        />
+        <InfoRow label="Почта подтверждена" :value="auth.user?.is_email_verified ? 'да' : 'нет'" />
+        <InfoRow v-if="auth.isClient" label="Тип клиента" :value="clientKindLabel" />
       </div>
 
       <div class="panel">
         <h2 class="h3" style="color: #fff">Безопасность</h2>
         <p style="color: rgba(255,255,255,.8); font-size: 14px">
-          Доступ к системе защищён токенами: основной токен обновляется автоматически
-          по обновляющему токену. Пароль хранится в зашифрованном виде,
-          ключи внешних сервисов хранятся только на сервере и никогда не попадают
-          в браузер.
+          Доступ к системе защищён токенами: основной токен обновляется автоматически по обновляющему токену. Пароль хранится в зашифрованном виде, ключи внешних сервисов хранятся только на сервере и никогда не попадают в браузер.
         </p>
         <button class="btn btn--danger" @click="logout">Выйти из учётной записи</button>
       </div>
@@ -52,14 +49,12 @@
         <div>
           <h2 class="h3">Договорные данные</h2>
           <div class="muted" style="font-size: 13px; margin-top: 4px">
-            Используются для автоматического заполнения договора.
-            Просмотреть их кроме вас могут только сотрудники агентства.
+            Используются для автоматического заполнения договора. Просмотреть их кроме вас могут только сотрудники агентства.
           </div>
         </div>
         <div class="completeness" :class="`is-${completeness.state}`">
           <div class="completeness__bar">
-            <div class="completeness__fill"
-                 :style="{ width: completeness.percent + '%' }"></div>
+            <div class="completeness__fill" :style="{ width: `${completeness.percent}%` }"></div>
           </div>
           <div class="completeness__label">
             Заполнено на {{ completeness.percent }}%
@@ -90,18 +85,27 @@
               <option value="company">Юридическое лицо</option>
             </select>
           </div>
+
           <template v-if="profile.client_kind === 'individual'">
             <div class="field">
               <label>Серия паспорта</label>
-              <input class="input" v-model.trim="profile.passport_series"
-                     maxlength="4" inputmode="numeric"
-                     @input="limitDigits('passport_series', 4)" />
+              <input
+                class="input"
+                v-model.trim="profile.passport_series"
+                maxlength="4"
+                inputmode="numeric"
+                @input="limitDigits('passport_series', 4)"
+              />
             </div>
             <div class="field">
               <label>Номер паспорта</label>
-              <input class="input" v-model.trim="profile.passport_number"
-                     maxlength="6" inputmode="numeric"
-                     @input="limitDigits('passport_number', 6)" />
+              <input
+                class="input"
+                v-model.trim="profile.passport_number"
+                maxlength="6"
+                inputmode="numeric"
+                @input="limitDigits('passport_number', 6)"
+              />
             </div>
             <div class="field" style="grid-column: 1 / -1">
               <label>Кем выдан</label>
@@ -113,16 +117,26 @@
             </div>
             <div class="field">
               <label>Код подразделения</label>
-              <input class="input" v-model.trim="profile.passport_code"
-                     placeholder="000-000" maxlength="7"
-                     @input="formatPassportCode" />
+              <input
+                class="input"
+                v-model.trim="profile.passport_code"
+                placeholder="000-000"
+                maxlength="7"
+                @input="formatPassportCode"
+              />
             </div>
           </template>
+
           <div v-else class="field">
             <label>ИНН компании</label>
-            <input class="input" v-model.trim="profile.company_inn"
-                   maxlength="10" inputmode="numeric" placeholder="0000000000"
-                   @input="limitDigits('company_inn', 10)" />
+            <input
+              class="input"
+              v-model.trim="profile.company_inn"
+              maxlength="10"
+              inputmode="numeric"
+              placeholder="0000000000"
+              @input="limitDigits('company_inn', 10)"
+            />
           </div>
         </div>
 
@@ -158,6 +172,7 @@
               <span class="tag">{{ workflowCurrentLabel(item) }}</span>
             </div>
           </div>
+
           <div class="stack" style="gap: 8px">
             <div v-if="item.viewing_date" class="muted">
               Просмотр назначен на {{ formatDate(item.viewing_date) }}
@@ -165,12 +180,31 @@
             <div v-if="item.showing_payment_status" class="muted">
               Статус оплаты просмотра: {{ paymentStatusLabel(item.showing_payment_status) }}
             </div>
-            <a v-if="item.showing_payment_url && ['pending', 'failed'].includes(item.showing_payment_status)"
-               class="btn btn--sm btn--accent"
-               :href="item.showing_payment_url"
-               target="_blank" rel="noreferrer">
+            <a
+              v-if="item.showing_payment_url && ['pending', 'failed'].includes(item.showing_payment_status)"
+              class="btn btn--sm btn--accent"
+              :href="item.showing_payment_url"
+              target="_blank"
+              rel="noreferrer"
+            >
               Перейти к оплате просмотра
             </a>
+            <button
+              v-else-if="canInitiateTaskViewingPayment(item)"
+              class="btn btn--sm btn--accent"
+              :disabled="payingTaskViewingId === item.viewing_id"
+              @click="startTaskViewingPayment(item)"
+            >
+              {{ payingTaskViewingId === item.viewing_id ? 'Подготовка…' : (item.showing_payment_id ? 'Получить новую ссылку' : 'Оплатить просмотр') }}
+            </button>
+            <button
+              v-if="item.showing_payment_id && ['pending', 'failed'].includes(item.showing_payment_status)"
+              class="btn btn--sm"
+              :disabled="syncingTaskPaymentId === item.showing_payment_id"
+              @click="refreshTaskViewingPayment(item)"
+            >
+              {{ syncingTaskPaymentId === item.showing_payment_id ? 'Проверка…' : 'Проверить оплату' }}
+            </button>
           </div>
         </div>
       </div>
@@ -188,6 +222,7 @@ import api from '../api'
 import { useAuthStore } from '../store/auth'
 import { extractError, useToastsStore } from '../store/toasts'
 import InfoRow from '../components/InfoRow.vue'
+import * as viewingPaymentsApi from '@/api/viewingPayments'
 import { unpackPaginated } from '@/utils/paginated'
 import { formatDateShort as formatDate } from '@/utils/formatters'
 
@@ -200,9 +235,12 @@ const showWelcome = ref(!!route.query.welcome)
 
 const loadingProfile = ref(false)
 const loadingTasks = ref(false)
+const payingTaskViewingId = ref(null)
+const syncingTaskPaymentId = ref(null)
 const saving = ref(false)
 const profileId = ref(null)
 const clientTasks = ref([])
+
 const profile = reactive({
   first_name: '',
   last_name: '',
@@ -215,6 +253,7 @@ const profile = reactive({
   passport_code: '',
   company_inn: '',
 })
+
 const clientKindLabel = computed(() => {
   if (profile.client_kind === 'company') return 'Юридическое лицо'
   if (profile.client_kind === 'individual') return 'Физическое лицо'
@@ -223,8 +262,11 @@ const clientKindLabel = computed(() => {
 
 const BASE_REQUIRED_FIELDS = ['first_name', 'last_name']
 const INDIVIDUAL_REQUIRED_FIELDS = [
-  'passport_series', 'passport_number',
-  'passport_issued_by', 'passport_issued_date', 'passport_code',
+  'passport_series',
+  'passport_number',
+  'passport_issued_by',
+  'passport_issued_date',
+  'passport_code',
 ]
 const COMPANY_REQUIRED_FIELDS = ['company_inn']
 const PERSON_NAME_RE = /[A-Za-zА-Яа-яЁё]/
@@ -232,11 +274,9 @@ const PERSON_NAME_RE = /[A-Za-zА-Яа-яЁё]/
 const completeness = computed(() => {
   const fields = [
     ...BASE_REQUIRED_FIELDS,
-    ...(profile.client_kind === 'company'
-      ? COMPANY_REQUIRED_FIELDS
-      : INDIVIDUAL_REQUIRED_FIELDS),
+    ...(profile.client_kind === 'company' ? COMPANY_REQUIRED_FIELDS : INDIVIDUAL_REQUIRED_FIELDS),
   ]
-  const filled = fields.filter(k => !!profile[k]).length
+  const filled = fields.filter(key => !!profile[key]).length
   const percent = Math.round((filled / fields.length) * 100)
   let state = 'low'
   if (percent >= 100) state = 'full'
@@ -244,26 +284,26 @@ const completeness = computed(() => {
   return { percent, state }
 })
 
-function digitsOnly (value) {
+function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '')
 }
 
-function todayIso () {
+function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function limitDigits (field, max) {
+function limitDigits(field, max) {
   profile[field] = digitsOnly(profile[field]).slice(0, max)
 }
 
-function formatPassportCode () {
+function formatPassportCode() {
   const digits = digitsOnly(profile.passport_code).slice(0, 6)
   profile.passport_code = digits.length > 3
     ? `${digits.slice(0, 3)}-${digits.slice(3)}`
     : digits
 }
 
-function validatePersonName (value, label, { required = true } = {}) {
+function validatePersonName(value, label, { required = true } = {}) {
   const normalized = String(value || '').trim().replace(/\s+/g, ' ')
   if (!normalized) return required ? `${label}: заполните поле.` : ''
   if (normalized.length < 2) return `${label}: минимум 2 символа.`
@@ -271,7 +311,7 @@ function validatePersonName (value, label, { required = true } = {}) {
   return ''
 }
 
-function validateProfile () {
+function validateProfile() {
   const commonChecks = [
     validatePersonName(profile.last_name, 'Фамилия'),
     validatePersonName(profile.first_name, 'Имя'),
@@ -301,15 +341,12 @@ function validateProfile () {
   return ''
 }
 
-async function loadProfile () {
+async function loadProfile() {
   if (auth.user?.user_type !== 'client') return
   loadingProfile.value = true
   try {
-    const { data } = await api.get('/client-profiles/', {
-      params: { page_size: 1 },
-    })
-    const list = unpackPaginated(data).items
-    const mine = list[0]
+    const { data } = await api.get('/client-profiles/', { params: { page_size: 1 } })
+    const mine = unpackPaginated(data).items[0]
     if (mine) {
       profileId.value = mine.id
       for (const key of Object.keys(profile)) {
@@ -317,7 +354,7 @@ async function loadProfile () {
       }
       profile.client_kind = mine.client_kind || 'individual'
     }
-  } catch (err) {
+  } catch (_err) {
     toasts.error('Не удалось загрузить профиль')
   } finally {
     loadingProfile.value = false
@@ -338,13 +375,25 @@ function paymentStatusLabel(status) {
   }[status] || status || 'не создана'
 }
 
-async function loadClientTasks () {
+function canInitiateTaskViewingPayment(task) {
+  return !!(
+    auth.isClient
+    && task?.viewing_id
+    && (
+      !task.showing_payment_id
+      || (
+        ['pending', 'failed'].includes(task.showing_payment_status)
+        && !task.showing_payment_url
+      )
+    )
+  )
+}
+
+async function loadClientTasks() {
   if (auth.user?.user_type !== 'client') return
   loadingTasks.value = true
   try {
-    const { data } = await api.get('/tasks/', {
-      params: { page_size: 20 },
-    })
+    const { data } = await api.get('/tasks/', { params: { page_size: 20 } })
     clientTasks.value = unpackPaginated(data).items
   } catch (_err) {
     clientTasks.value = []
@@ -353,7 +402,37 @@ async function loadClientTasks () {
   }
 }
 
-async function saveProfile () {
+async function startTaskViewingPayment(task) {
+  if (!task?.viewing_id) return
+  payingTaskViewingId.value = task.viewing_id
+  const { ok, data, error } = await viewingPaymentsApi.initiateViewingPayment(task.viewing_id)
+  payingTaskViewingId.value = null
+  if (!ok) {
+    toasts.error(error || 'Не удалось создать оплату просмотра')
+    return
+  }
+  await loadClientTasks()
+  if (data?.payment_url) {
+    window.open(data.payment_url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  toasts.success('Платёж создан. Ссылка на оплату готова.')
+}
+
+async function refreshTaskViewingPayment(task) {
+  if (!task?.showing_payment_id) return
+  syncingTaskPaymentId.value = task.showing_payment_id
+  const { ok, error } = await viewingPaymentsApi.syncViewingPayment(task.showing_payment_id)
+  syncingTaskPaymentId.value = null
+  if (!ok) {
+    toasts.error(error || 'Не удалось обновить статус оплаты')
+    return
+  }
+  await loadClientTasks()
+  toasts.success('Статус оплаты обновлён')
+}
+
+async function saveProfile() {
   if (!profileId.value) {
     toasts.error('Профиль ещё не создан — обратитесь к менеджеру')
     return
@@ -365,8 +444,8 @@ async function saveProfile () {
   }
   saving.value = true
   const payload = { user: auth.user.id }
-  for (const [k, v] of Object.entries(profile)) {
-    payload[k] = v === '' ? null : v
+  for (const [key, value] of Object.entries(profile)) {
+    payload[key] = value === '' ? null : value
   }
   try {
     await api.patch(`/client-profiles/${profileId.value}/`, payload)
@@ -378,7 +457,7 @@ async function saveProfile () {
   }
 }
 
-async function logout () {
+async function logout() {
   await auth.logout()
   router.push('/login')
 }
@@ -397,6 +476,7 @@ onMounted(() => {
   gap: 4px;
   align-items: flex-end;
 }
+
 .completeness__bar {
   width: 180px;
   height: 6px;
@@ -406,14 +486,22 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.22);
 }
+
 .completeness__fill {
   height: 100%;
   background: rgba(46, 159, 152, 0.72);
   box-shadow: 0 0 18px rgba(120, 216, 206, 0.2);
   transition: width 0.25s ease, background 0.25s ease;
 }
-.completeness.is-mid .completeness__fill  { background: var(--c-warning); }
-.completeness.is-full .completeness__fill { background: var(--c-accent-2); }
+
+.completeness.is-mid .completeness__fill {
+  background: var(--c-warning);
+}
+
+.completeness.is-full .completeness__fill {
+  background: var(--c-accent-2);
+}
+
 .completeness__label {
   font-size: 12px;
   color: var(--c-text-muted);
@@ -474,5 +562,4 @@ onMounted(() => {
     align-items: stretch;
   }
 }
-
 </style>

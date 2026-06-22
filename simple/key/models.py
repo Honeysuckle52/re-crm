@@ -408,6 +408,63 @@ class AliasManager(models.Manager):
         return AliasQuerySet(self.model, using=self._db, hints=self._hints)
 
 
+class AuditLogQuerySet(models.QuerySet):
+    ENTITY_FILTER_KEYS = {
+        'property': 'property',
+        'property_id': 'property',
+        'request': 'request',
+        'request_id': 'request',
+        'task': 'task',
+        'task_id': 'task',
+        'deal': 'deal',
+        'deal_id': 'deal',
+    }
+
+    @staticmethod
+    def _entity_pk(value):
+        return getattr(value, 'pk', value)
+
+    def _rewrite_kwargs(self, kwargs):
+        rewritten = {}
+        for key, value in kwargs.items():
+            entity_type = self.ENTITY_FILTER_KEYS.get(key)
+            if entity_type:
+                rewritten['entity_type__code'] = entity_type
+                rewritten['entity_id'] = self._entity_pk(value)
+                continue
+            if key == 'entity_type' and isinstance(value, str):
+                rewritten['entity_type__code'] = value
+                continue
+            if key == 'action_code':
+                rewritten['action__code'] = value
+                continue
+            if key == 'action_label':
+                rewritten['action__name'] = value
+                continue
+            if key == 'entity_type_code':
+                rewritten['entity_type__code'] = value
+                continue
+            if key == 'entity_type_name':
+                rewritten['entity_type__name'] = value
+                continue
+            rewritten[key] = value
+        return rewritten
+
+    def filter(self, *args, **kwargs):
+        return super().filter(*args, **self._rewrite_kwargs(kwargs))
+
+    def exclude(self, *args, **kwargs):
+        return super().exclude(*args, **self._rewrite_kwargs(kwargs))
+
+    def get(self, *args, **kwargs):
+        return super().get(*args, **self._rewrite_kwargs(kwargs))
+
+
+class AuditLogManager(models.Manager):
+    def get_queryset(self):
+        return AuditLogQuerySet(self.model, using=self._db, hints=self._hints)
+
+
 # =====================================================
 # 2. СПРАВОЧНИКИ (LOOKUPS)
 # =====================================================
@@ -1494,9 +1551,14 @@ class Property(models.Model):
         if isinstance(value, ClientProfile):
             return value
         if isinstance(value, User):
-            return getattr(value, 'client_profile', None)
+            return _resolve_user_profile(value, 'client_profile')
         if hasattr(value, 'client_profile'):
-            return value.client_profile
+            profile = getattr(value, 'client_profile', None)
+            if profile is not None:
+                return profile
+            nested_user = getattr(value, 'user', None)
+            if isinstance(nested_user, User):
+                return _resolve_user_profile(nested_user, 'client_profile')
         if hasattr(value, 'user') and isinstance(value.user, User):
             return value
         try:
@@ -1504,7 +1566,7 @@ class Property(models.Model):
         except (TypeError, ValueError):
             return None
         user = User.objects.select_related('client_profile').filter(pk=user_id).first()
-        return getattr(user, 'client_profile', None) if user else None
+        return _resolve_user_profile(user, 'client_profile') if user else None
 
     def _primary_owner_relation(self):
         if getattr(self, 'pk', None) is None:
@@ -3573,7 +3635,7 @@ class AuditLog(models.Model):
         verbose_name='Инициатор',
     )
     created_at = models.DateTimeField(default=timezone.now, db_index=True, verbose_name='Дата создания')
-    objects = AliasManager()
+    objects = AuditLogManager()
 
     class Meta:
         db_table = 'audit_logs'
@@ -3594,18 +3656,26 @@ class AuditLog(models.Model):
 
     @property
     def property(self):
+        if self.entity_type_id and self.entity_type.code == 'property':
+            return self.entity_id
         return None
 
     @_property
     def request(self):
+        if self.entity_type_id and self.entity_type.code == 'request':
+            return self.entity_id
         return None
 
     @_property
     def task(self):
+        if self.entity_type_id and self.entity_type.code == 'task':
+            return self.entity_id
         return None
 
     @_property
     def deal(self):
+        if self.entity_type_id and self.entity_type.code == 'deal':
+            return self.entity_id
         return None
 
     def __str__(self):

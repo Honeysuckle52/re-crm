@@ -2,9 +2,11 @@
 """Сериализаторы DRF."""
 import re
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.core.files.storage import default_storage
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
@@ -225,6 +227,11 @@ class ContactMethodSerializer(CodeNameLookupSerializer):
 class ContractStatusSerializer(CodeNameLookupSerializer):
     class Meta(CodeNameLookupSerializer.Meta):
         model = models.ContractStatus
+
+
+class DealParticipantRoleSerializer(CodeNameLookupSerializer):
+    class Meta(CodeNameLookupSerializer.Meta):
+        model = models.DealParticipantRole
 
 
 class UserTypeSerializer(CodeNameLookupSerializer):
@@ -964,7 +971,23 @@ class PropertyPhotoSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(value)
         return value
 
+    def _stored_media_exists(self, value):
+        if not value or not isinstance(value, str):
+            return False
+        media_url = settings.MEDIA_URL or '/media/'
+        if not value.startswith(media_url):
+            return True
+        relative_path = value[len(media_url):].lstrip('/')
+        if not relative_path:
+            return False
+        try:
+            return default_storage.exists(relative_path)
+        except Exception:  # noqa: BLE001
+            return False
+
     def get_image_url(self, obj) -> str | None:
+        if not self._stored_media_exists(obj.url):
+            return None
         return self._build_absolute_url(obj.url)
 
     def validate(self, attrs):
@@ -1007,14 +1030,43 @@ class PropertyPhotoSerializer(serializers.ModelSerializer):
 
 
 class PropertyDocumentSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(write_only=True, required=False, allow_null=True)
+    file_url = serializers.CharField(required=False, allow_blank=True)
     verified_by_username = serializers.CharField(source='verified_by.username',
                                                  read_only=True)
 
     class Meta:
         model = models.PropertyDocument
-        fields = ['id', 'property', 'document_name', 'file_url',
+        fields = ['id', 'property', 'document_name', 'file', 'file_url',
                   'is_verified', 'verified_by', 'verified_by_username',
                   'verified_at', 'uploaded_at']
+        read_only_fields = ['uploaded_at', 'verified_by_username']
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        upload = attrs.get('file')
+        raw_url = self.initial_data.get('file_url')
+        file_url = (raw_url or attrs.get('file_url') or '').strip()
+        if not upload and not file_url:
+            raise serializers.ValidationError({
+                'file_url': 'Нужно указать ссылку на файл или загрузить документ.',
+            })
+        if file_url:
+            attrs['file_url'] = file_url
+        return attrs
+
+    def create(self, validated_data):
+        upload = validated_data.pop('file', None)
+        if upload:
+            from django.core.files.storage import default_storage
+
+            file_name = getattr(upload, 'name', '') or 'property-document'
+            saved_path = default_storage.save(
+                f'property-documents/{timezone.now():%Y/%m}/{file_name}',
+                upload,
+            )
+            validated_data['file_url'] = default_storage.url(saved_path)
+        return super().create(validated_data)
         read_only_fields = ['uploaded_at']
 
 
@@ -1128,7 +1180,10 @@ class PropertyTypeField(serializers.RelatedField):
         obj = self.get_queryset().filter(code=code).first()
         if obj is not None:
             return obj
-        raise serializers.ValidationError('Неизвестный тип помещения.')
+        return models.PropertyType.objects.create(
+            code=code,
+            name=models._lookup_default_name(models.PropertyType, code),
+        )
 
 
 class PropertySerializer(serializers.ModelSerializer):
@@ -1315,6 +1370,7 @@ class PropertySerializer(serializers.ModelSerializer):
         return {
             'property': relation.property_id,
             'client_profile': profile.pk if profile else None,
+            'client_user_id': getattr(user, 'pk', None),
             'client_username': getattr(user, 'username', None),
             'client_email': getattr(user, 'email', None),
             'client_phone': getattr(user, 'phone', None),
@@ -1325,27 +1381,53 @@ class PropertySerializer(serializers.ModelSerializer):
             'created_at': relation.created_at,
         }
 
+    def _fallback_owner_user(self, obj):
+        legacy_owner = getattr(obj, 'owner', None)
+        if legacy_owner is not None:
+            return legacy_owner
+        owner_id = getattr(obj, 'owner_id', None)
+        if owner_id:
+            return User.objects.filter(pk=owner_id).first()
+        return None
+
+    def _primary_owner_relation(self, obj):
+        return obj.owners.select_related('client_profile__user').order_by(
+            'created_at', 'client_profile_id'
+        ).first()
+
     def get_owner(self, obj):
-        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
-        return relation.client_profile.user_id if relation else None
+        relation = self._primary_owner_relation(obj)
+        if relation:
+            return relation.client_profile.user_id
+        fallback_user = self._fallback_owner_user(obj)
+        return getattr(fallback_user, 'id', None)
 
     def get_owner_profile(self, obj):
-        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
+        relation = self._primary_owner_relation(obj)
         if relation is None:
             return None
         return PropertyOwnerSerializer(relation).data
 
     def get_owner_username(self, obj):
-        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
-        return relation.client_profile.user.username if relation else None
+        relation = self._primary_owner_relation(obj)
+        if relation:
+            return relation.client_profile.user.username
+        fallback_user = self._fallback_owner_user(obj)
+        return getattr(fallback_user, 'username', None)
 
     def get_owner_email(self, obj):
-        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
-        return relation.client_profile.user.email if relation else None
+        relation = self._primary_owner_relation(obj)
+        if relation:
+            return relation.client_profile.user.email
+        fallback_user = self._fallback_owner_user(obj)
+        return getattr(fallback_user, 'email', None)
 
     def get_owner_phone(self, obj):
-        relation = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id').first()
-        return relation.client_profile.user.phone if relation else None
+        relation = self._primary_owner_relation(obj)
+        if relation:
+            return relation.client_profile.user.phone
+        fallback_user = self._fallback_owner_user(obj)
+        return getattr(fallback_user, 'phone', None)
 
     def get_owners(self, obj):
         qs = obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id')
@@ -1438,6 +1520,11 @@ class PropertySerializer(serializers.ModelSerializer):
             models.CommercialPropertyDetails.objects.filter(property=property_obj).delete()
             return
         defaults = dict(payload)
+        if defaults.get('commercial_type') is None:
+            defaults['commercial_type'], _ = models.CommercialPropertyType.objects.get_or_create(
+                code='free_purpose',
+                defaults={'name': 'Свободное назначение'},
+            )
         defaults.setdefault('has_separate_entrance', False)
         defaults.setdefault('has_display_windows', False)
         defaults.setdefault('is_first_line', False)
@@ -1551,17 +1638,30 @@ class PropertySerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = self.instance
+        original_attrs = dict(attrs)
         premises_type, schema = self._sanitize_property_attrs(attrs, instance)
 
         errors = {}
+        raw_values = {
+            field: original_attrs.get(field, getattr(instance, field, None))
+            for field in ('rooms_count', 'floor_number', 'total_floors')
+        }
 
-        # Автоматически очищаем запрещённые поля вместо ошибки,
-        # чтобы фронт не мог случайно прислать мусор, и при этом
-        # форма не ломалась, если поле скрыто.
         for field in schema.get('required', ()):
             val = attrs.get(field, getattr(instance, field, None))
             if val in (None, ''):
                 errors[field] = f'Для данного типа объекта поле "{field}" обязательно.'
+
+        if premises_type == models.Property.PROPERTY_TYPE_COMMERCIAL:
+            if raw_values['rooms_count'] not in (None, ''):
+                errors['rooms_count'] = 'Для офиса или склада количество комнат не используется.'
+            if raw_values['floor_number'] not in (None, ''):
+                errors['floor_number'] = 'Для офиса или склада этаж объекта не используется.'
+            if raw_values['total_floors'] not in (None, ''):
+                errors['total_floors'] = 'Для офиса или склада этажность дома заполняется в характеристиках здания.'
+
+        if premises_type == models.Property.PROPERTY_TYPE_HOUSE and raw_values['floor_number'] not in (None, ''):
+            errors['floor_number'] = 'Для частного дома отдельный этаж объекта не указывается.'
 
         if errors:
             raise serializers.ValidationError(errors)
@@ -1884,10 +1984,16 @@ class DealSerializer(serializers.ModelSerializer):
         source='get_contract_status_display', read_only=True,
     )
     allowed_status_ids = serializers.SerializerMethodField()
+    property_full_address = serializers.SerializerMethodField()
+    property_owners = serializers.SerializerMethodField()
+    participants = serializers.SerializerMethodField()
+    participant_roles = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Deal
         fields = ['id', 'deal_number', 'property', 'property_title',
+                  'property_full_address', 'property_owners',
+                  'participants', 'participant_roles',
                   'agent', 'agent_username', 'agent_full_name',
                   'client', 'client_username',
                   'client_full_name',
@@ -1967,6 +2073,56 @@ class DealSerializer(serializers.ModelSerializer):
             for code in business_rules.deal_allowed_transition_codes(obj)
             if (status_id := statuses_by_code.get(code)) is not None
         ]
+
+    def get_property_full_address(self, obj) -> str:
+        property_obj = getattr(obj, 'property', None)
+        if property_obj is None:
+            return ''
+        return str(property_obj.address) if getattr(property_obj, 'address', None) else ''
+
+    def get_property_owners(self, obj) -> list[dict]:
+        property_obj = getattr(obj, 'property', None)
+        if property_obj is None:
+            return []
+
+        serializer = PropertySerializer(context=self.context)
+        cache = getattr(property_obj, '_prefetched_objects_cache', {})
+        if 'owners' in cache:
+            relations = property_obj.owners.all()
+        else:
+            relations = property_obj.owners.select_related('client_profile__user').order_by('created_at', 'client_profile_id')
+        return [serializer._serialize_owner_relation(relation) for relation in relations]
+
+    def get_participant_roles(self, obj) -> list[dict]:
+        operation_code = getattr(getattr(obj, 'operation_type', None), 'code', None)
+        preferred_codes = ['buyer', 'seller'] if operation_code == 'sale' else ['tenant', 'landlord']
+        roles = list(models.DealParticipantRole.objects.all())
+        ordered = [role for code in preferred_codes for role in roles if role.code == code]
+        remaining = [role for role in roles if role.code not in preferred_codes]
+        return DealParticipantRoleSerializer(ordered + remaining, many=True).data
+
+    def get_participants(self, obj) -> list[dict]:
+        queryset = obj.participants.select_related(
+            'client_profile__user',
+            'client_profile__company_details',
+            'client_profile__individual_details',
+            'role',
+        ).order_by('role__name', 'created_at', 'client_profile_id')
+        items = []
+        for participant in queryset:
+            profile = participant.client_profile
+            user = getattr(profile, 'user', None)
+            items.append({
+                'id': participant.pk,
+                'role': participant.role_id,
+                'role_code': getattr(participant.role, 'code', None),
+                'role_name': getattr(participant.role, 'name', None),
+                'client': getattr(user, 'pk', None),
+                'client_username': getattr(user, 'username', None),
+                'client_full_name': self._display_client_name(user),
+                'client_profile': profile.pk if profile else None,
+            })
+        return items
 
 
 class PropertyStatusHistorySerializer(serializers.ModelSerializer):

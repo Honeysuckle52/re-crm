@@ -1,3 +1,31 @@
+<template>
+  <section class="panel panel--light">
+    <div class="surface-head audit-log__head">
+      <div>
+        <div class="surface-head__meta">{{ title }}</div>
+        <div v-if="caption" class="surface-head__caption">{{ caption }}</div>
+      </div>
+    </div>
+
+    <div v-if="loading" class="muted">Загружаем журнал действий…</div>
+    <div v-else-if="errorText" class="audit-log__error">{{ errorText }}</div>
+    <div v-else-if="!entries.length" class="muted">{{ emptyText }}</div>
+    <div v-else class="audit-log__list">
+      <article v-for="entry in entries" :key="entry.id" class="audit-log__item">
+        <div class="audit-log__item-head">
+          <div class="audit-log__meta">
+            <span class="audit-log__badge">{{ entry.action_label || entry.action_code || 'Событие' }}</span>
+            <span v-if="entry.entity_type_display" class="muted">{{ entry.entity_type_display }}</span>
+            <span v-if="entry.actor_username" class="muted">{{ entry.actor_username }}</span>
+          </div>
+          <time class="audit-log__time">{{ formatDateTime(entry.created_at) }}</time>
+        </div>
+        <div class="audit-log__message">{{ entry.message || 'Без описания' }}</div>
+      </article>
+    </div>
+  </section>
+</template>
+
 <script setup>
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { listAuditLogs } from '@/api/audit'

@@ -1,24 +1,5 @@
-<!--
-  TaskWorkflow — пошаговый экран выполнения задачи сотрудником.
-
-  Открывается кнопкой «Открыть задачу» из таблицы /tasks и виджета
-  CurrentTaskWidget. Идея — провести сотрудника по понятному пути:
-
-    1) Контакт      — позвонил / написал / не дозвонился
-    2) Заявка       — подтвердить существующую заявку клиента
-                      или быстро создать новую, если её нет
-    3) Подбор       — для задач подбора: подобрал объект /
-                      назначил показ / подтвердил вариант
-                      (для остальных задач шаг автоматически «пропускается»)
-    4) Завершение   — зафиксировать результат и закрыть задачу
-
-  Каждое действие, которое сотрудник выполняет внутри шага, уходит
-  на бэкенд как POST /tasks/:id/record_step/. Это пишет запись в
-  Task.steps_log — будущий лог удобно показывать в истории.
--->
 <template>
-  <section class="stack" v-if="task">
-    <!-- Шапка с контекстом -->
+  <section v-if="task" class="stack">
     <div class="hero" style="padding: 24px 28px">
       <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
         <div>
@@ -41,38 +22,34 @@
       </div>
     </div>
 
-    <!-- Тосты -->
     <Transition name="toast">
       <div v-if="toast.show" class="toast" :class="'toast--' + toast.type">
         {{ toast.message }}
       </div>
     </Transition>
 
-    <!-- Прогресс-бар этапов -->
     <div class="panel panel--light">
       <ol class="steps">
-        <li v-for="(s, i) in steps" :key="s.id"
-            class="step"
-            :class="{
-              'step--done': i < currentStepIdx,
-              'step--active': i === currentStepIdx,
-              'step--skipped': s.skipped,
-            }">
-          <span class="step__num">{{ i + 1 }}</span>
-          <span class="step__label">{{ s.label }}</span>
-          <span v-if="s.skipped" class="step__hint">пропущено</span>
+        <li
+          v-for="(step, index) in steps"
+          :key="step.id"
+          class="step"
+          :class="{
+            'step--done': step.done,
+            'step--active': step.current,
+          }"
+        >
+          <span class="step__num">{{ index + 1 }}</span>
+          <span class="step__label">{{ step.label }}</span>
         </li>
       </ol>
     </div>
 
-    <!-- Тело текущего шага -->
     <div class="panel panel--light workflow-body">
-
-      <!-- ШАГ 1 — Контакт -->
       <template v-if="currentStep.id === 'contact'">
-        <h2 class="h3">Шаг 1. Связаться с клиентом</h2>
+        <h2 class="h3">Шаг {{ currentStepNumber }}. Связаться с клиентом</h2>
         <p class="muted" style="margin-top: 4px">
-          Зафиксируйте факт связи. После — перейдёте к работе с заявкой.
+          Зафиксируйте контакт с клиентом и переходите к заявке.
         </p>
 
         <div v-if="clientContacts" class="contact-card">
@@ -87,134 +64,111 @@
         </div>
 
         <div class="field" style="margin-top: 14px">
-          <label>Комментарий (опционально)</label>
-          <textarea class="textarea" v-model="contactNote" rows="2"
-                    placeholder="Например: согласовали встречу на среду"></textarea>
+          <label>Комментарий</label>
+          <textarea
+            v-model="contactNote"
+            class="textarea"
+            rows="2"
+            placeholder="Например: созвонились, договорились о времени"
+          />
         </div>
 
         <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 12px">
-          <button class="btn btn--accent" :disabled="busy"
-                  @click="submitContact('called')">
+          <button class="btn btn--accent" :disabled="busy" @click="submitContact('called')">
             Позвонил
           </button>
-          <button class="btn btn--accent" :disabled="busy"
-                  @click="submitContact('messaged')">
+          <button class="btn btn--accent" :disabled="busy" @click="submitContact('messaged')">
             Написал
           </button>
-          <button class="btn btn--accent" :disabled="busy"
-                  @click="submitContact('in_person')">
+          <button class="btn btn--accent" :disabled="busy" @click="submitContact('in_person')">
             Клиент присутствует лично
           </button>
-          <button class="btn" :disabled="busy"
-                  @click="submitContact('missed')">
+          <button class="btn" :disabled="busy" @click="submitContact('missed')">
             Не дозвонился
           </button>
         </div>
       </template>
 
-      <!-- ШАГ 2 — Заявка -->
       <template v-else-if="currentStep.id === 'request'">
-        <h2 class="h3">Шаг 2. Заявка клиента</h2>
+        <h2 class="h3">Шаг {{ currentStepNumber }}. Заявка клиента</h2>
 
-        <!-- Сценарий А: к задаче уже привязана заявка -->
-        <div v-if="task.request">
-          <p class="muted" style="margin-top: 4px">
-            Задача связана с заявкой. Откройте её, чтобы обсудить подбор.
-          </p>
-          <div class="linked-request">
-            <div>
-              <b>Заявка №{{ task.request }}</b>
-              <div class="muted" style="font-size: 13px">
-                {{ linkedRequest?.status_name || '—' }} ·
-                {{ linkedRequest?.operation_type_name || '—' }}
-              </div>
+        <div v-if="task.request" class="linked-request" style="margin-top: 14px">
+          <div>
+            <b>Заявка №{{ task.request }}</b>
+            <div class="muted" style="font-size: 13px">
+              {{ linkedRequest?.status_name || '—' }} · {{ linkedRequest?.operation_type_name || '—' }}
             </div>
-            <div class="row" style="gap: 6px">
-              <router-link :to="`/requests/${task.request}`"
-                           class="btn btn--sm btn--primary">
-                Перейти к заявке
-              </router-link>
-              <button class="btn btn--sm btn--accent" :disabled="busy"
-                      @click="submitRequestStep('linked')">
-                Далее
-              </button>
-            </div>
+          </div>
+          <div class="row" style="gap: 6px">
+            <router-link :to="`/requests/${task.request}`" class="btn btn--sm btn--primary">
+              Перейти к заявке
+            </router-link>
+            <button class="btn btn--sm btn--accent" :disabled="busy" @click="submitRequestStep('linked')">
+              Далее
+            </button>
           </div>
         </div>
 
-        <!-- Сценарий Б: у клиента есть активная заявка, но она не привязана -->
-        <div v-else-if="clientActiveRequest">
-          <p class="muted" style="margin-top: 4px">
-            У клиента есть активная заявка — можно продолжить работу по ней.
-          </p>
-          <div class="linked-request">
-            <div>
-              <b>Заявка №{{ clientActiveRequest.id }}</b>
-              <div class="muted" style="font-size: 13px">
-                {{ clientActiveRequest.status_name }} ·
-                {{ clientActiveRequest.operation_type_name }}
-              </div>
+        <div v-else-if="clientActiveRequest" class="linked-request" style="margin-top: 14px">
+          <div>
+            <b>Заявка №{{ clientActiveRequest.id }}</b>
+            <div class="muted" style="font-size: 13px">
+              {{ clientActiveRequest.status_name }} · {{ clientActiveRequest.operation_type_name }}
             </div>
-            <div class="row" style="gap: 6px">
-              <router-link :to="`/requests/${clientActiveRequest.id}`"
-                           class="btn btn--sm btn--primary">
-                Перейти к заявке
-              </router-link>
-              <button class="btn btn--sm btn--accent" :disabled="busy"
-                      @click="submitRequestStep('exists', clientActiveRequest.id)">
-                Далее
-              </button>
-            </div>
+          </div>
+          <div class="row" style="gap: 6px">
+            <router-link :to="`/requests/${clientActiveRequest.id}`" class="btn btn--sm btn--primary">
+              Перейти к заявке
+            </router-link>
+            <button class="btn btn--sm btn--accent" :disabled="busy" @click="submitRequestStep('exists', clientActiveRequest.id)">
+              Далее
+            </button>
           </div>
         </div>
 
-        <!-- Сценарий В: заявки нет — форма быстрого создания -->
         <div v-else>
           <p class="muted" style="margin-top: 4px">
-            У клиента нет активной заявки. Создайте её из разговора.
+            У клиента нет активной заявки. Создайте её прямо из разговора.
           </p>
           <div v-if="!task.client" class="warn">
-            У задачи не указан клиент — создать заявку из этого экрана
-            нельзя. Укажите клиента на странице задачи.
+            У задачи не указан клиент. Сначала укажите клиента на карточке задачи.
           </div>
-          <form v-else class="grid grid--2" style="margin-top: 12px"
-                @submit.prevent="createRequest">
+          <form v-else class="grid grid--2" style="margin-top: 12px" @submit.prevent="createRequest">
             <div class="field">
               <label>Тип операции</label>
-              <select class="select" v-model.number="newRequest.operation_type" required>
+              <select v-model.number="newRequest.operation_type" class="select" required>
                 <option :value="null" disabled>— выберите —</option>
-                <option v-for="o in operationTypes" :key="o.id" :value="o.id">
-                  {{ o.name }}
+                <option v-for="option in operationTypes" :key="option.id" :value="option.id">
+                  {{ option.name }}
                 </option>
               </select>
             </div>
             <div class="field">
               <label>Тип недвижимости</label>
-              <input class="input" v-model="newRequest.property_type"
-                     placeholder="Квартира / дом / коммерция…" />
+              <input v-model="newRequest.property_type" class="input" placeholder="Квартира / дом / коммерция" />
             </div>
             <div class="field">
               <label>Цена от</label>
-              <input class="input" type="number" v-model.number="newRequest.min_price" />
+              <input v-model.number="newRequest.min_price" class="input" type="number" />
             </div>
             <div class="field">
               <label>Цена до</label>
-              <input class="input" type="number" v-model.number="newRequest.max_price" />
+              <input v-model.number="newRequest.max_price" class="input" type="number" />
             </div>
             <div class="field">
               <label>Комнат</label>
-              <input class="input" type="number" v-model.number="newRequest.rooms_count" />
+              <input v-model.number="newRequest.rooms_count" class="input" type="number" />
             </div>
             <div class="field">
               <label>Район / адрес</label>
-              <input class="input" v-model="newRequest.address_preferences" />
+              <input v-model="newRequest.address_preferences" class="input" />
             </div>
             <div class="field" style="grid-column: 1 / -1">
               <label>Пожелания</label>
-              <textarea class="textarea" v-model="newRequest.description" rows="2"></textarea>
+              <textarea v-model="newRequest.description" class="textarea" rows="2" />
             </div>
             <div class="row" style="grid-column: 1 / -1; justify-content: flex-end">
-              <button type="submit" class="btn btn--accent" :disabled="busy">
+              <button class="btn btn--accent" type="submit" :disabled="busy">
                 Создать заявку и продолжить
               </button>
             </div>
@@ -222,69 +176,125 @@
         </div>
       </template>
 
-      <!-- ШАГ 3 — Подбор/выполнение (только для подборных задач) -->
       <template v-else-if="currentStep.id === 'match'">
-        <h2 class="h3">Шаг 3. Подбор объекта</h2>
-        <p class="muted" style="margin-top: 4px">
-          Подберите объекты для клиента в заявке, затем зафиксируйте,
-          какой вариант он подтвердил.
-        </p>
+        <h2 class="h3">Шаг {{ currentStepNumber }}. {{ currentStep.label }}</h2>
 
-        <div v-if="activeRequestId" class="linked-request">
+        <div v-if="activeRequestId" class="linked-request" style="margin-top: 14px">
           <div>
             <b>Заявка №{{ activeRequestId }}</b>
             <div class="muted" style="font-size: 13px">
-              Работа с подборкой ведётся на странице заявки.
+              Работа по подбору ведётся на странице заявки.
             </div>
           </div>
           <div class="row" style="gap: 6px">
-            <router-link :to="`/requests/${activeRequestId}`"
-                         class="btn btn--sm btn--primary">
+            <router-link :to="`/requests/${activeRequestId}`" class="btn btn--sm btn--primary">
               Открыть подборку
             </router-link>
           </div>
         </div>
 
-        <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 14px">
-          <button class="btn btn--accent" :disabled="busy"
-                  @click="submitMatchStep('proposed')">
+        <template v-if="isShowingTask">
+          <div v-if="!task.client || !task.property" class="warn" style="margin-top: 14px">
+            Для назначения просмотра у задачи должны быть указаны клиент и объект.
+          </div>
+
+          <div v-else class="payment-block" style="margin-top: 20px">
+            <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px">
+              Назначение реального просмотра
+            </div>
+            <p class="muted" style="font-size: 13px; margin-bottom: 12px">
+              Агент назначает дату и комментарий прямо из задачи. После этого откроется шаг оплаты предпросмотра.
+            </p>
+
+            <div v-if="payment.loadingViewing" class="muted" style="font-size: 13px; margin-bottom: 10px">
+              Ищем текущую запись просмотра…
+            </div>
+
+            <div v-if="showing.id" class="payment-status-card" style="margin-bottom: 14px">
+              <div class="row" style="gap: 12px; flex-wrap: wrap; align-items: center">
+                <div>
+                  <div style="font-size: 12px; color: #6a7a77; margin-bottom: 2px">Просмотр</div>
+                  <code style="font-size: 12px">#{{ showing.id }}</code>
+                </div>
+                <div v-if="showing.scheduledAt">
+                  <div style="font-size: 12px; color: #6a7a77; margin-bottom: 2px">Дата</div>
+                  <span>{{ formatDate(showing.scheduledAt) }}</span>
+                </div>
+                <div v-if="showing.statusName">
+                  <div style="font-size: 12px; color: #6a7a77; margin-bottom: 2px">Статус</div>
+                  <span>{{ showing.statusName }}</span>
+                </div>
+              </div>
+              <div v-if="showing.note" class="muted" style="font-size: 13px; margin-top: 8px">
+                {{ showing.note }}
+              </div>
+            </div>
+
+            <form class="grid grid--2" @submit.prevent="scheduleViewing">
+              <div class="field">
+                <label>Дата и время показа</label>
+                <input v-model="viewingForm.scheduledAt" class="input" type="datetime-local" required />
+              </div>
+              <div class="field">
+                <label>Комментарий агента</label>
+                <input
+                  v-model="viewingForm.note"
+                  class="input"
+                  type="text"
+                  placeholder="Например: клиент будет на месте за 10 минут"
+                />
+              </div>
+              <div class="row" style="grid-column: 1 / -1; justify-content: flex-end">
+                <button class="btn btn--accent" type="submit" :disabled="busy || payment.busy">
+                  {{ showing.id ? 'Переназначить просмотр' : 'Назначить просмотр' }}
+                </button>
+              </div>
+            </form>
+          </div>
+        </template>
+
+        <div v-else class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 14px">
+          <button class="btn btn--accent" :disabled="busy" @click="submitMatchStep('proposed')">
             Предложил варианты
           </button>
-          <button class="btn btn--accent" :disabled="busy"
-                  @click="submitMatchStep('showing_scheduled')">
+          <button class="btn btn--accent" :disabled="busy" @click="submitMatchStep('showing_scheduled')">
             Назначил показ
           </button>
-          <button class="btn btn--accent" :disabled="busy"
-                  @click="submitMatchStep('confirmed')">
+          <button class="btn btn--accent" :disabled="busy" @click="submitMatchStep('confirmed')">
             Клиент подтвердил вариант
           </button>
         </div>
+      </template>
 
-        <!-- SmartPay: оплата просмотра (только для задач типа «Показ объекта») -->
-        <div v-if="task.task_type === 'showing'" class="payment-block" style="margin-top: 20px">
+      <template v-else-if="currentStep.id === 'payment'">
+        <h2 class="h3">Шаг {{ currentStepNumber }}. Оплата предпросмотра</h2>
+        <p class="muted" style="margin-top: 4px">
+          Сформируйте ссылку на оплату и контролируйте статус платежа прямо из задачи.
+        </p>
+
+        <div class="payment-block" style="margin-top: 20px">
           <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px">
-            Оплата предосмотра
+            Оплата предпросмотра
           </div>
 
-          <!-- Просмотр ещё не найден/загружается -->
           <div v-if="payment.loadingViewing" class="muted" style="font-size: 13px">
             Ищем запись просмотра…
           </div>
 
-          <!-- Просмотр не найден -->
           <div v-else-if="!payment.viewingId" class="warn">
-            Запись просмотра не найдена. Убедитесь, что просмотр создан в системе для этого клиента и объекта.
+            Запись просмотра не найдена. Вернитесь к шагу назначения показа и сохраните просмотр в системе.
           </div>
 
-          <!-- Просмотр найден — блок оплаты -->
           <template v-else>
-            <!-- Ещё не инициировали -->
+            <div v-if="showing.scheduledAt" class="muted" style="font-size: 13px; margin-bottom: 10px">
+              Просмотр №{{ payment.viewingId }} запланирован на {{ formatDate(showing.scheduledAt) }}.
+            </div>
+
             <div v-if="!payment.paymentId">
               <p class="muted" style="font-size: 13px; margin-bottom: 10px">
                 Создайте ссылку на оплату для просмотра №{{ payment.viewingId }}.
               </p>
-              <button class="btn btn--primary" :disabled="payment.busy"
-                      @click="initiatePayment()">
+              <button class="btn btn--primary" :disabled="payment.busy" @click="initiatePayment()">
                 {{ payment.busy ? 'Создаём ссылку…' : 'Выставить ссылку на оплату' }}
               </button>
               <div v-if="payment.error" class="warn" style="margin-top: 8px">
@@ -292,7 +302,6 @@
               </div>
             </div>
 
-            <!-- Счёт создан — показываем статус -->
             <div v-else class="payment-status-card">
               <div class="row" style="gap: 12px; flex-wrap: wrap; align-items: center">
                 <div>
@@ -309,15 +318,16 @@
                     {{ paymentStatusLabel(payment.status) }}
                   </span>
                 </div>
-                <a v-if="payment.paymentUrl && ['pending', 'failed'].includes(payment.status)"
-                   class="btn btn--sm btn--primary"
-                   :href="payment.paymentUrl"
-                   target="_blank"
-                   rel="noopener noreferrer">
+                <a
+                  v-if="payment.paymentUrl && ['pending', 'failed'].includes(payment.status)"
+                  class="btn btn--sm btn--primary"
+                  :href="payment.paymentUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   Перейти к оплате
                 </a>
-                <button class="btn btn--sm" :disabled="payment.busy"
-                        @click="checkPaymentStatus()">
+                <button class="btn btn--sm" :disabled="payment.busy" @click="checkPaymentStatus()">
                   {{ payment.busy ? '…' : 'Обновить статус' }}
                 </button>
               </div>
@@ -329,17 +339,14 @@
         </div>
       </template>
 
-      <!-- ШАГ 4 — Завершение -->
       <template v-else-if="currentStep.id === 'complete'">
-        <h2 class="h3">Шаг 4. Завершить задачу</h2>
+        <h2 class="h3">Шаг {{ currentStepNumber }}. Завершить задачу</h2>
         <p class="muted" style="margin-top: 4px">
-          Опишите итог — это попадёт в историю и в отчёты.
+          Опишите итог. Это попадёт в историю и отчёты.
         </p>
 
-        <!-- Краткая сводка по шагам, чтобы сотрудник видел, что он
-             только что сделал, и не дублировал в итог. -->
         <div v-if="task.steps_log?.length" class="steps-log">
-          <div v-for="(entry, i) in task.steps_log" :key="i" class="steps-log__row">
+          <div v-for="(entry, index) in task.steps_log" :key="index" class="steps-log__row">
             <span class="steps-log__time">{{ formatDate(entry.at) }}</span>
             <span class="steps-log__body">
               <b>{{ stepLabel(entry.step) }}</b>
@@ -351,8 +358,12 @@
 
         <div class="field" style="margin-top: 14px">
           <label>Результат</label>
-          <textarea class="textarea" v-model="completionSummary" rows="4"
-                    placeholder="Например: клиент согласился на объект №12, договорились подписать договор 20 мая"></textarea>
+          <textarea
+            v-model="completionSummary"
+            class="textarea"
+            rows="4"
+            placeholder="Например: просмотр подтверждён, клиент оплатил предпросмотр"
+          />
         </div>
         <div class="row" style="gap: 8px; justify-content: flex-end">
           <button class="btn btn--accent" :disabled="busy" @click="submitComplete">
@@ -360,8 +371,6 @@
           </button>
         </div>
       </template>
-
-      <!-- После финального шага (редиректит вверх), ничего не показываем. -->
     </div>
   </section>
   <div v-else class="empty">Загрузка задачи…</div>
@@ -375,7 +384,6 @@ import * as tasksApi from '../api/tasks'
 import * as viewingPaymentsApi from '../api/viewingPayments'
 import { useAuthStore } from '../store/auth'
 import { useWorkloadStore } from '../store/workload'
-// Общий форматтер «DD.MM HH:MM» вынесен в utils/formatters.
 import { formatDateShort as formatDate } from '@/utils/formatters'
 
 const route = useRoute()
@@ -390,8 +398,10 @@ const operationTypes = ref([])
 const busy = ref(false)
 const contactNote = ref('')
 const completionSummary = ref('')
+const clientContacts = ref(null)
 
-// SmartPay — состояние оплаты просмотра
+const isShowingTask = computed(() => task.value?.task_type === 'showing')
+
 const payment = reactive({
   viewingId: null,
   paymentId: null,
@@ -404,7 +414,18 @@ const payment = reactive({
   loadingViewing: false,
 })
 
-// Форма быстрой заявки
+const showing = reactive({
+  id: null,
+  scheduledAt: null,
+  statusName: null,
+  note: '',
+})
+
+const viewingForm = reactive({
+  scheduledAt: '',
+  note: '',
+})
+
 const newRequest = reactive({
   operation_type: null,
   property_type: '',
@@ -415,149 +436,216 @@ const newRequest = reactive({
   description: '',
 })
 
-// Тосты
 const toast = reactive({ show: false, message: '', type: 'success' })
-function showToast (message, type = 'success') {
+
+const FALLBACK_STEPS = {
+  default: [
+    { id: 'contact', label: 'Контакт с клиентом', done: false, current: true },
+    { id: 'request', label: 'Заявка', done: false, current: false },
+    { id: 'complete', label: 'Завершение', done: false, current: false },
+  ],
+  match: [
+    { id: 'contact', label: 'Контакт с клиентом', done: false, current: true },
+    { id: 'request', label: 'Заявка', done: false, current: false },
+    { id: 'match', label: 'Подбор/выполнение', done: false, current: false },
+    { id: 'complete', label: 'Завершение', done: false, current: false },
+  ],
+  showing: [
+    { id: 'contact', label: 'Контакт с клиентом', done: false, current: true },
+    { id: 'request', label: 'Заявка', done: false, current: false },
+    { id: 'match', label: 'Предпросмотр объекта', done: false, current: false },
+    { id: 'payment', label: 'Оплата просмотра', done: false, current: false },
+    { id: 'complete', label: 'Завершение', done: false, current: false },
+  ],
+}
+
+const steps = computed(() => {
+  const workflowSteps = task.value?.workflow_steps
+  if (Array.isArray(workflowSteps) && workflowSteps.length) {
+    return workflowSteps.map(step => ({
+      ...step,
+      done: Boolean(step.done),
+      current: Boolean(step.current),
+    }))
+  }
+  if (isShowingTask.value) return FALLBACK_STEPS.showing
+  if (task.value?.task_type === 'property_search') return FALLBACK_STEPS.match
+  return FALLBACK_STEPS.default
+})
+
+const currentStepIdx = computed(() => {
+  const currentId = task.value?.workflow_current_step
+  if (currentId) {
+    const index = steps.value.findIndex(step => step.id === currentId)
+    if (index >= 0) return index
+  }
+  const index = steps.value.findIndex(step => step.current)
+  return index >= 0 ? index : 0
+})
+
+const currentStep = computed(() => steps.value[currentStepIdx.value] || steps.value[0] || { id: 'contact', label: 'Контакт' })
+const currentStepNumber = computed(() => currentStepIdx.value + 1)
+const activeRequestId = computed(() => task.value?.request || clientActiveRequest.value?.id || null)
+
+const STEP_LABELS = {
+  contact: 'Контакт',
+  request: 'Заявка',
+  match: 'Подбор',
+  payment: 'Оплата',
+  complete: 'Завершение',
+  completed: 'Завершение',
+}
+
+const OUTCOME_LABELS = {
+  called: 'позвонил',
+  messaged: 'написал',
+  in_person: 'клиент присутствует лично',
+  missed: 'не дозвонился',
+  created: 'создана новая заявка',
+  linked: 'связана с существующей заявкой',
+  exists: 'использована активная заявка клиента',
+  proposed: 'предложил варианты',
+  showing_scheduled: 'назначил показ',
+  confirmed: 'клиент подтвердил вариант',
+  link_sent: 'отправил ссылку на оплату',
+}
+
+function showToast(message, type = 'success') {
   toast.message = message
   toast.type = type
   toast.show = true
-  setTimeout(() => { toast.show = false }, 4000)
+  setTimeout(() => {
+    toast.show = false
+  }, 4000)
 }
 
-// ---------------------------------------------------------------------------
-// Шаги мастера
-// ---------------------------------------------------------------------------
-// Шаг «match» нужен только задачам подбора/показа, для звонков/документов
-// он лишний — помечаем его как skipped и не выв��дим как активный.
-const MATCH_TASK_TYPES = ['property_search', 'showing']
+function stepLabel(id) {
+  return STEP_LABELS[id] || id
+}
 
-const steps = computed(() => {
-  const isMatchRelevant = MATCH_TASK_TYPES.includes(task.value?.task_type)
-  return [
-    { id: 'contact',  label: 'Контакт с клиентом', skipped: false },
-    { id: 'request',  label: 'Заявка',             skipped: false },
-    { id: 'match',    label: 'Подбор/выполнение',  skipped: !isMatchRelevant },
-    { id: 'complete', label: 'Завершение',         skipped: false },
-  ]
-})
+function outcomeLabel(id) {
+  return OUTCOME_LABELS[id] || id
+}
 
-// Какие шаги уже пройдены (есть запись в steps_log).
-const doneStepIds = computed(() => {
-  const ids = new Set()
-  for (const entry of task.value?.steps_log || []) {
-    if (entry?.step) ids.add(entry.step)
+function toDatetimeLocalValue(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = part => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function viewingDatePayload(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
+}
+
+function hydratePaymentState() {
+  const currentTask = task.value
+  if (!currentTask || currentTask.task_type !== 'showing') return
+  showing.id = currentTask.viewing_id || showing.id
+  payment.viewingId = currentTask.viewing_id || payment.viewingId
+  payment.paymentId = currentTask.showing_payment_id || payment.paymentId
+  payment.paymentUrl = currentTask.showing_payment_url || payment.paymentUrl
+  payment.status = currentTask.showing_payment_status || payment.status
+  payment.amount = currentTask.showing_payment_amount || payment.amount
+}
+
+function syncViewingState(viewing, { overwriteForm = false } = {}) {
+  if (!viewing) return
+  showing.id = viewing.id || showing.id
+  showing.scheduledAt = viewing.scheduled_date || viewing.viewing_date || showing.scheduledAt
+  showing.statusName = viewing.status_name || showing.statusName
+  showing.note = viewing.notes ?? viewing.comment ?? showing.note
+  payment.viewingId = viewing.id || payment.viewingId
+  payment.paymentId = viewing.payment_id || payment.paymentId
+  payment.paymentUrl = viewing.payment_url || payment.paymentUrl
+  payment.status = viewing.payment_status || payment.status
+  payment.amount = viewing.payment_amount || payment.amount
+  if (overwriteForm || !viewingForm.scheduledAt) {
+    viewingForm.scheduledAt = toDatetimeLocalValue(showing.scheduledAt)
   }
-  return ids
-})
-
-// Индекс «активного» шага: первый, который не пропущен и не сделан.
-const currentStepIdx = computed(() => {
-  const list = steps.value
-  for (let i = 0; i < list.length; i += 1) {
-    const s = list[i]
-    if (s.skipped) continue
-    if (!doneStepIds.value.has(s.id)) return i
+  if (overwriteForm || !viewingForm.note) {
+    viewingForm.note = showing.note || ''
   }
-  return list.length - 1
-})
-const currentStep = computed(() => steps.value[currentStepIdx.value])
+}
 
-// id заявки, по которой ведётся работа: приоритетно — привязанная
-// к задаче, иначе — активная заявка клиента, если мы её нашли.
-const activeRequestId = computed(() => (
-  task.value?.request || clientActiveRequest.value?.id || null
-))
+function paymentStatusLabel(status) {
+  const labels = {
+    pending: 'Ожидает оплаты',
+    paid: 'Оплачен',
+    failed: 'Ошибка оплаты',
+    refunded: 'Возврат',
+  }
+  return labels[status] || status || '—'
+}
 
-// Контакты клиента для шага 1 — берём из связанной заявки,
-// если клиент засветил их в заявке.
-const clientContacts = ref(null)
+function paymentStatusClass(status) {
+  return `payment-badge--${(status || 'pending').toLowerCase()}`
+}
 
-// ---------------------------------------------------------------------------
-// Загрузка данных
-// ---------------------------------------------------------------------------
-async function load () {
+function paymentAmountLabel(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  const amount = Number(value)
+  if (Number.isNaN(amount)) return value
+  return `${amount.toLocaleString('ru-RU')} ₽`
+}
+
+async function load() {
   const taskId = route.params.id
   const { data } = await api.get(`/tasks/${taskId}/`)
   task.value = data
 
-  // Безопасность на клиенте: если задача не моя и я не менеджер —
-  // возвращаем на /tasks, чтобы экран пошаговой работы не вводил в
-  // заблуждение (API всё равно запретит действия, но луч��е не
-  // рендерить экран вообще).
   if (task.value.assignee !== auth.user?.id && !auth.isManager) {
     router.replace('/tasks')
     return
   }
 
-  // Если задача завершена — нет смысла «работать» здесь, отправляем
-  // пользователя в историю.
   if (['done', 'cancelled'].includes(task.value.status_code)) {
     router.replace('/tasks')
     return
   }
 
   const extra = []
-  // 1) Справочник типов операций — нужен форме «создать заявку».
-  extra.push(api.get('/operation-types/').then((r) => {
-    operationTypes.value = r.data.results || r.data
-  }).catch(() => { /* справочник может быть на другом пу��и */ }))
 
-  // 2) Если у задачи уже есть заявка — подгружаем её для контекста.
+  extra.push(
+    api.get('/operation-types/').then(response => {
+      operationTypes.value = response.data.results || response.data
+    }).catch(() => {})
+  )
+
   if (task.value.request) {
-    extra.push(api.get(`/requests/${task.value.request}/`).then((r) => {
-      linkedRequest.value = r.data
-      clientContacts.value = {
-        phone: r.data.client_phone || null,
-        email: r.data.client_email || null,
-      }
-    }).catch(() => {}))
+    extra.push(
+      api.get(`/requests/${task.value.request}/`).then(response => {
+        linkedRequest.value = response.data
+        clientContacts.value = {
+          phone: response.data.client_phone || null,
+          email: response.data.client_email || null,
+        }
+      }).catch(() => {})
+    )
   } else if (task.value.client) {
-    // 3) Иначе ищем у клиента активную заявку (не закрытую).
-    extra.push(api.get('/requests/', {
-      params: { client: task.value.client, page_size: 5 },
-    }).then((r) => {
-      const list = r.data.results || r.data
-      const open = list.find(x => x.status_code !== 'closed')
-      clientActiveRequest.value = open || null
-    }).catch(() => {}))
+    extra.push(
+      api.get('/requests/', {
+        params: { client: task.value.client, page_size: 5 },
+      }).then(response => {
+        const list = response.data.results || response.data
+        clientActiveRequest.value = list.find(item => item.status_code !== 'closed') || null
+      }).catch(() => {})
+    )
   }
 
   await Promise.all(extra)
 
   hydratePaymentState()
-  if (!payment.viewingId) {
-    loadViewingForTask()
+  if (isShowingTask.value) {
+    await loadViewingForTask()
   }
 }
 
-// ---------------------------------------------------------------------------
-// Маппинг step'ов в человекочитаемые подписи (для журнала)
-// ---------------------------------------------------------------------------
-const STEP_LABELS = {
-  contact:  'Контакт',
-  request:  'Заявка',
-  match:    'Подбор',
-  complete: 'Завершение',
-}
-const OUTCOME_LABELS = {
-  called:             'позвонил',
-  messaged:           'написал',
-  in_person:          'клиент присутствует лично',
-  missed:             'не дозвонился',
-  created:            'создана новая заявка',
-  linked:             'связана с существующей заявкой',
-  exists:             'использована активная заявка клиента',
-  proposed:           'предложил варианты',
-  showing_scheduled:  'назначил показ',
-  confirmed:          'клиент подтвердил вариант',
-}
-function stepLabel (id) { return STEP_LABELS[id] || id }
-function outcomeLabel (id) { return OUTCOME_LABELS[id] || id }
-
-// ---------------------------------------------------------------------------
-// Обработчики шагов
-// ---------------------------------------------------------------------------
-async function submitContact (outcome) {
+async function submitContact(outcome) {
   busy.value = true
   const { ok, data, error } = await tasksApi.recordTaskStep(task.value.id, {
     step: 'contact',
@@ -574,11 +662,8 @@ async function submitContact (outcome) {
   busy.value = false
 }
 
-async function submitRequestStep (outcome, requestId = null) {
+async function submitRequestStep(outcome, requestId = null) {
   busy.value = true
-  // Если у задачи нет request, но мы её «привязываем» к существующей
-  // заявке клиента — сначала обновляем связь через PATCH, чтобы в
-  // RequestDetail, в истории и в фильтрах всё было согласовано.
   if (!task.value.request && requestId) {
     const patch = await tasksApi.patchTask(task.value.id, { request: requestId })
     if (!patch.ok) {
@@ -602,37 +687,32 @@ async function submitRequestStep (outcome, requestId = null) {
   busy.value = false
 }
 
-async function createRequest () {
+async function createRequest() {
   if (!task.value.client) return
   busy.value = true
-  // Собираем payload с отбрасыванием пустых полей, чтобы бэкенд
-  // не ругался валидаторами `Decimal/Integer` на строки.
   const payload = { client: task.value.client }
-  for (const [k, v] of Object.entries(newRequest)) {
-    if (v === null || v === '' || Number.isNaN(v)) continue
-    payload[k] = v
+  for (const [key, value] of Object.entries(newRequest)) {
+    if (value === null || value === '' || Number.isNaN(value)) continue
+    payload[key] = value
   }
   try {
-    const { data: req } = await api.post('/requests/', payload)
-    // Привязываем новую заявку к задаче, чтобы в дальнейшем она
-    // попала в /requests/{id}/ и в отчёты по задаче.
-    await tasksApi.patchTask(task.value.id, { request: req.id })
-    // И фиксируем шаг
-    const res = await tasksApi.recordTaskStep(task.value.id, {
+    const { data: requestObject } = await api.post('/requests/', payload)
+    await tasksApi.patchTask(task.value.id, { request: requestObject.id })
+    const result = await tasksApi.recordTaskStep(task.value.id, {
       step: 'request',
       outcome: 'created',
-      note: `Создана заявка №${req.id}`,
+      note: `Создана заявка №${requestObject.id}`,
     })
-    if (res.ok) task.value = res.data
-    clientActiveRequest.value = req
+    if (result.ok) task.value = result.data
+    clientActiveRequest.value = requestObject
     showToast('Заявка создана')
-  } catch (err) {
-    showToast(err.response?.data?.detail || 'Не удалось создать заявку', 'error')
+  } catch (error) {
+    showToast(error.response?.data?.detail || 'Не удалось создать заявку', 'error')
   }
   busy.value = false
 }
 
-async function submitMatchStep (outcome) {
+async function submitMatchStep(outcome) {
   busy.value = true
   const { ok, data, error } = await tasksApi.recordTaskStep(task.value.id, {
     step: 'match',
@@ -648,15 +728,55 @@ async function submitMatchStep (outcome) {
   busy.value = false
 }
 
-// Открыть список задач сразу на вкладке «История»
-function openTaskHistory () {
+async function scheduleViewing() {
+  const viewingDate = viewingDatePayload(viewingForm.scheduledAt)
+  if (!viewingDate) {
+    showToast('Укажите дату и время просмотра', 'error')
+    return
+  }
+
+  busy.value = true
+  const { ok, data, error } = await tasksApi.scheduleTaskViewing(task.value.id, {
+    viewing_date: viewingDate,
+    note: viewingForm.note || null,
+  })
+
+  if (!ok) {
+    busy.value = false
+    showToast(error || 'Не удалось назначить просмотр', 'error')
+    return
+  }
+
+  task.value = data.task || task.value
+  syncViewingState(data.viewing, { overwriteForm: true })
+  hydratePaymentState()
+
+  if (task.value?.workflow_current_step === 'match') {
+    const stepResult = await tasksApi.recordTaskStep(task.value.id, {
+      step: 'match',
+      outcome: 'showing_scheduled',
+      note: viewingForm.note || null,
+    })
+    if (stepResult.ok) {
+      task.value = stepResult.data
+      hydratePaymentState()
+      showToast('Просмотр назначен, можно переходить к оплате')
+    } else {
+      showToast(stepResult.error || 'Просмотр создан, но этап не удалось зафиксировать', 'error')
+    }
+  } else {
+    showToast('Просмотр назначен')
+  }
+
+  busy.value = false
+}
+
+function openTaskHistory() {
   router.push({ path: '/tasks', query: { view: 'history' } })
 }
 
-async function submitComplete () {
+async function submitComplete() {
   busy.value = true
-  // Оптимистично освобождаем слот сотрудника, чтобы он сразу
-  // мог взять следующую задачу из списка /tasks.
   workload.optimisticCompleteTask(task.value.id)
   const payload = completionSummary.value
     ? { summary: completionSummary.value }
@@ -665,84 +785,35 @@ async function submitComplete () {
   busy.value = false
   if (ok) {
     showToast('Задача завершена')
-    // Возвращаем пользователя в список — там он увидит её на
-    // вкладке «История» и сможет взять следующую.
     router.push('/tasks')
   } else {
-    // Откат нагрузки через server-truth.
     workload.refresh()
     showToast(error || 'Не удалось завершить задачу', 'error')
   }
 }
 
-// formatDate импортируется из utils/formatters (см. шапку script setup).
-
-// ---------------------------------------------------------------------------
-// SmartPay — загрузка записи просмотра для задачи типа showing
-// ---------------------------------------------------------------------------
-
-/**
- * Найти запись PropertyViewing, связанную с задачей типа «showing».
- * Ищем по клиенту + объекту. Результат сохраняется в payment.viewingId.
- */
 async function loadViewingForTask() {
-  const t = task.value
-  if (!t || t.task_type !== 'showing') return
-  if (t.viewing_id) {
-    payment.viewingId = t.viewing_id
-    return
-  }
-  if (!t.client || !t.property) return
+  const currentTask = task.value
+  if (!currentTask || currentTask.task_type !== 'showing') return
+  if (!currentTask.client || !currentTask.property) return
 
   payment.loadingViewing = true
   try {
-    const res = await api.get('/viewings/', {
-      params: { client: t.client, property: t.property, page_size: 5 },
+    const response = await api.get('/viewings/', {
+      params: {
+        client: currentTask.client,
+        property: currentTask.property,
+        page_size: 5,
+      },
     })
-    const list = (res.data.results || res.data || [])
+    const list = response.data.results || response.data || []
     if (list.length > 0) {
-      payment.viewingId = list[0].id
-      payment.paymentId = list[0].payment_id || payment.paymentId
-      payment.paymentUrl = list[0].payment_url || payment.paymentUrl
-      payment.status = list[0].payment_status || payment.status
-      payment.amount = list[0].payment_amount || payment.amount
+      syncViewingState(list[0])
     }
-  } catch (_e) {
+  } catch (_error) {
   } finally {
     payment.loadingViewing = false
   }
-}
-
-function hydratePaymentState() {
-  const t = task.value
-  if (!t || t.task_type !== 'showing') return
-  payment.viewingId = t.viewing_id || payment.viewingId
-  payment.paymentId = t.showing_payment_id || payment.paymentId
-  payment.paymentUrl = t.showing_payment_url || payment.paymentUrl
-  payment.status = t.showing_payment_status || payment.status
-  payment.amount = t.showing_payment_amount || payment.amount
-}
-
-const PAYMENT_STATUS_LABELS = {
-  pending: 'Ожидает оплаты',
-  paid: 'Оплачен',
-  failed: 'Ошибка оплаты',
-  refunded: 'Возврат',
-}
-
-function paymentStatusLabel(s) {
-  return PAYMENT_STATUS_LABELS[s] || s || '—'
-}
-
-function paymentStatusClass(status) {
-  return `payment-badge--${(status || 'pending').toLowerCase()}`
-}
-
-function paymentAmountLabel(value) {
-  if (value === null || value === undefined || value === '') return '—'
-  const amount = Number(value)
-  if (Number.isNaN(amount)) return value
-  return `${amount.toLocaleString('ru-RU')} ₽`
 }
 
 async function refreshTaskPaymentState() {
@@ -750,16 +821,16 @@ async function refreshTaskPaymentState() {
   if (!ok) return
   task.value = data
   hydratePaymentState()
+  await loadViewingForTask()
 }
 
 async function initiatePayment() {
-  if (!task.value?.id) {
-    return
-  }
+  if (!task.value?.id) return
   payment.busy = true
   payment.error = null
   const { ok, data, error } = await tasksApi.initiateViewingPayment(task.value.id)
   payment.busy = false
+
   if (ok) {
     task.value = data.task || task.value
     const payload = data.payment || {}
@@ -768,6 +839,18 @@ async function initiatePayment() {
     payment.paymentUrl = payload.payment_url || payment.paymentUrl
     payment.status = payload.status || payment.status
     payment.amount = payload.amount || payment.amount
+
+    if (task.value?.workflow_current_step === 'payment') {
+      const stepResult = await tasksApi.recordTaskStep(task.value.id, {
+        step: 'payment',
+        outcome: 'link_sent',
+        note: null,
+      })
+      if (stepResult.ok) {
+        task.value = stepResult.data
+      }
+    }
+
     showToast('Ссылка на оплату создана')
     if (payment.paymentUrl) {
       window.open(payment.paymentUrl, '_blank', 'noopener,noreferrer')
@@ -806,11 +889,7 @@ function _startPaymentPoll() {
   let attempts = 0
   payment.pollTimer = setInterval(async () => {
     attempts += 1
-    if (attempts > 12) {
-      _stopPaymentPoll()
-      return
-    }
-    if (!payment.paymentId) {
+    if (attempts > 12 || !payment.paymentId) {
       _stopPaymentPoll()
       return
     }
@@ -826,7 +905,7 @@ function _startPaymentPoll() {
         if (payment.status === 'paid') showToast('Оплата подтверждена')
       }
     }
-  }, 10_000)
+  }, 10000)
 }
 
 function _stopPaymentPoll() {
@@ -846,7 +925,6 @@ onBeforeUnmount(_stopPaymentPoll)
 
 .tag--type { background: #e8f4f3; color: #1a5a52; font-size: 11px; }
 
-/* Прогресс-бар шагов */
 .steps {
   display: flex;
   flex-wrap: wrap;
@@ -854,8 +932,8 @@ onBeforeUnmount(_stopPaymentPoll)
   margin: 0;
   padding: 4px 0;
   list-style: none;
-  counter-reset: step;
 }
+
 .step {
   display: inline-flex;
   align-items: center;
@@ -867,6 +945,7 @@ onBeforeUnmount(_stopPaymentPoll)
   font-size: 13px;
   font-weight: 500;
 }
+
 .step__num {
   display: inline-flex;
   align-items: center;
@@ -880,36 +959,31 @@ onBeforeUnmount(_stopPaymentPoll)
   font-weight: 700;
   font-size: 12px;
 }
-.step__hint {
-  font-size: 11px;
-  color: #8a9a97;
-  font-style: italic;
-}
+
 .step--done {
   background: #e0efe9;
   color: #0f3a33;
 }
+
 .step--done .step__num {
   background: #0f3a33;
   color: #fff;
 }
+
 .step--active {
   background: #0f3a33;
   color: #fff;
 }
+
 .step--active .step__num {
   background: #3ddbc7;
   color: #0f3a33;
 }
-.step--skipped {
-  opacity: .55;
-  text-decoration: line-through;
-}
 
-/* Тело этапа */
 .workflow-body { min-height: 200px; }
 
-.contact-card {
+.contact-card,
+.linked-request {
   margin-top: 14px;
   padding: 14px 16px;
   background: var(--c-paper-2, #f5f7f6);
@@ -921,15 +995,9 @@ onBeforeUnmount(_stopPaymentPoll)
 }
 
 .linked-request {
-  margin-top: 14px;
-  padding: 14px 16px;
-  background: var(--c-paper-2, #f5f7f6);
-  border-radius: 8px;
-  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .warn {
@@ -964,6 +1032,7 @@ onBeforeUnmount(_stopPaymentPoll)
   background: #e8f0ef;
   color: #4a6d68;
 }
+
 .payment-badge--paid { background: #d4f5e9; color: #0a5c38; }
 .payment-badge--failed,
 .payment-badge--refunded { background: #fdece9; color: #9a3b32; }
@@ -979,33 +1048,43 @@ onBeforeUnmount(_stopPaymentPoll)
   gap: 6px;
   font-size: 13px;
 }
+
 .steps-log__row {
   display: flex;
   gap: 10px;
   align-items: baseline;
 }
+
 .steps-log__time {
   color: #8a9a97;
   font-size: 12px;
   flex: 0 0 auto;
   min-width: 90px;
 }
+
 .steps-log__body b { font-weight: 700; color: #0f3a33; }
 
-/* Тосты (такие же, как в Tasks.vue) */
 .toast {
   position: fixed;
-  top: 20px; right: 20px;
+  top: 20px;
+  right: 20px;
   z-index: 1000;
   padding: 14px 20px;
   border-radius: 8px;
-  font-size: 14px; font-weight: 500;
+  font-size: 14px;
+  font-weight: 500;
   box-shadow: 0 4px 16px rgba(0,0,0,.15);
 }
+
 .toast--success { background: #0f3a33; color: #fff; }
 .toast--error { background: #c2554a; color: #fff; }
-.toast-enter-active, .toast-leave-active { transition: all .3s ease; }
-.toast-enter-from, .toast-leave-to {
-  opacity: 0; transform: translateX(30px);
+
+.toast-enter-active,
+.toast-leave-active { transition: all .3s ease; }
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
 }
 </style>

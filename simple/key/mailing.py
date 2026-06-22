@@ -22,6 +22,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from . import models
+from .queue_runtime import trigger_background_processing
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ TEMPLATE_TASK_ASSIGNED = 'task_assigned'
 TEMPLATE_TASK_ASSIGNED_CALL = 'task_assigned_call'
 TEMPLATE_TASK_ASSIGNED_SHOWING = 'task_assigned_showing'
 TEMPLATE_TASK_ASSIGNED_DOCUMENTS = 'task_assigned_documents'
+TEMPLATE_DEAL_STATUS_CHANGED = 'deal_status_changed'
 LEGACY_HTML_MARKER = '\n\n---- HTML ----\n'
 EMAIL_CLAIM_TIMEOUT = timedelta(minutes=15)
 
@@ -473,6 +475,7 @@ def _enqueue_by_template(
         trigger_code, recipient.pk, getattr(request, 'pk', None),
         getattr(task, 'pk', None), getattr(property_obj, 'pk', None),
     )
+    trigger_background_processing(reason=f'email:{trigger_code}')
     return email
 
 
@@ -579,6 +582,42 @@ def enqueue_task_assigned(*, task: models.Task) -> models.OutgoingEmail | None:
     )
 
 
+def enqueue_deal_status_changed(
+    *,
+    deal: models.Deal,
+    previous_status=None,
+    actor: models.User | None = None,
+) -> models.OutgoingEmail | None:
+    """Клиенту: статус сделки изменён."""
+    client = deal.client
+    ctx = {
+        'agency_name': settings.AGENCY_NAME,
+        'public_url': settings.AGENCY_PUBLIC_URL,
+        'client_name': getattr(client, 'username', 'клиент'),
+        'deal': deal,
+        'property': deal.property,
+        'request': deal.request,
+        'previous_status_name': getattr(previous_status, 'name', ''),
+        'previous_status_code': getattr(previous_status, 'code', ''),
+        'current_status_name': getattr(deal.status, 'name', ''),
+        'current_status_code': getattr(deal.status, 'code', ''),
+        'deal_url': f'{settings.AGENCY_PUBLIC_URL.rstrip("/")}/deals',
+        'contract_url': (
+            f'{settings.AGENCY_PUBLIC_URL.rstrip("/")}/deals'
+            if deal.contract_status == 'ready' else ''
+        ),
+    }
+    return _enqueue_by_template(
+        template=TEMPLATE_DEAL_STATUS_CHANGED,
+        trigger_code='deal_status_changed',
+        context=ctx,
+        recipient=client,
+        sender=actor,
+        request=deal.request,
+        property_obj=deal.property,
+    )
+
+
 def resend(email: models.OutgoingEmail) -> None:
     """Повторная постановка письма в очередь."""
     if email.status == 'sent':
@@ -596,3 +635,4 @@ def resend(email: models.OutgoingEmail) -> None:
         'Email re-queued: id=%s trigger=%s',
         email.pk, email.trigger_code,
     )
+    trigger_background_processing(reason=f'email-resend:{email.trigger_code}')

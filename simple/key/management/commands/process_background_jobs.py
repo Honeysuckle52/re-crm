@@ -12,7 +12,9 @@ from ... import deals_service, mailing
 from ..background_worker import (
     DEFAULT_WORKER_LIMIT,
     DEFAULT_WORKER_SLEEP,
+    DEFAULT_WORKER_MAX_SLEEP,
     normalize_worker_limit,
+    normalize_worker_max_sleep,
     normalize_worker_sleep,
 )
 
@@ -42,6 +44,12 @@ class Command(BaseCommand):
             default=DEFAULT_WORKER_SLEEP,
             help='Пауза между циклами в режиме --loop, если очередь пуста.',
         )
+        parser.add_argument(
+            '--max-sleep',
+            type=float,
+            default=DEFAULT_WORKER_MAX_SLEEP,
+            help='Максимальная пауза между пустыми циклами в режиме --loop.',
+        )
 
     def _request_shutdown(self, signum, frame):  # noqa: ARG002
         """Помечаем, что нужно завершиться, и прерываем сон."""
@@ -68,6 +76,11 @@ class Command(BaseCommand):
         limit = normalize_worker_limit(options['limit'])
         loop = bool(options['loop'])
         sleep_seconds = normalize_worker_sleep(options['sleep'])
+        max_sleep_seconds = normalize_worker_max_sleep(
+            options['max_sleep'],
+            base_sleep=sleep_seconds,
+        )
+        idle_sleep_seconds = sleep_seconds
 
         # Перехватываем SIGINT (Ctrl+C) и SIGTERM, чтобы выйти без traceback.
         previous_sigint = signal.signal(signal.SIGINT, self._request_shutdown)
@@ -81,7 +94,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.HTTP_INFO(
                     f'Воркер запущен в режиме --loop '
-                    f'(limit={limit}, sleep={sleep_seconds}s). '
+                    f'(limit={limit}, sleep={sleep_seconds}s, max_sleep={max_sleep_seconds}s). '
                     f'Нажмите Ctrl+C для остановки.'
                 ),
             )
@@ -138,7 +151,10 @@ class Command(BaseCommand):
                 if not loop:
                     break
                 if processed_total == 0:
-                    self._interruptible_sleep(sleep_seconds)
+                    idle_sleep_seconds = min(idle_sleep_seconds * 2, max_sleep_seconds)
+                    self._interruptible_sleep(idle_sleep_seconds)
+                else:
+                    idle_sleep_seconds = sleep_seconds
         finally:
             # Восстанавливаем прежние обработчики сигналов.
             signal.signal(signal.SIGINT, previous_sigint)

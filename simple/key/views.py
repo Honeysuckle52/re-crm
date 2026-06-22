@@ -27,6 +27,7 @@ from rest_framework_simplejwt.views import TokenRefreshView as BaseTokenRefreshV
 from django.http import FileResponse, Http404, HttpResponseForbidden, HttpResponseRedirect
 
 from . import audit as audit_service
+from . import documents
 from . import email_verification
 from . import business_rules, data_exchange, deals_service, models, reports, serializers
 from .business_rules import WorkloadLimitExceeded
@@ -34,6 +35,7 @@ from .dadata import DadataClient
 from .twogis import TwoGisClient, apply_property_enrichment
 from .mailing import (
     resend as resend_email,
+    enqueue_deal_status_changed,
     enqueue_task_assigned,
 )
 from .viewing_payments import (
@@ -55,9 +57,15 @@ from .permissions import (
     IsOwnClientProfileOrEmployee,
 )
 from . import request_lifecycle
+from . import task_timers
 
 User = get_user_model()
 log = logging.getLogger(__name__)
+
+
+def _apply_task_timeouts():
+    """Синхронизировать автоматические статусы задач перед связанными выборками."""
+    task_timers.apply_task_timeouts()
 
 
 class TokenRefreshSerializer(BaseTokenRefreshSerializer):
@@ -543,6 +551,12 @@ class ContractStatusViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrManagerOrReadOnly]
 
 
+class DealParticipantRoleViewSet(viewsets.ModelViewSet):
+    queryset = models.DealParticipantRole.objects.all()
+    serializer_class = serializers.DealParticipantRoleSerializer
+    permission_classes = [IsAdminOrManagerOrReadOnly]
+
+
 class UserTypeViewSet(viewsets.ModelViewSet):
     queryset = models.UserType.objects.all()
     serializer_class = serializers.UserTypeSerializer
@@ -776,6 +790,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 'can_take_task': False,
                 'can_start_task': False,
             })
+        _apply_task_timeouts()
         return Response(business_rules.snapshot_for(request.user).as_dict())
 
     @action(detail=True, methods=['get'], url_path='workload',
@@ -788,6 +803,7 @@ class UserViewSet(viewsets.ModelViewSet):
                 {'detail': 'Учитывается только загрузка сотрудников.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        _apply_task_timeouts()
         return Response(business_rules.snapshot_for(target).as_dict())
 
 
@@ -885,6 +901,17 @@ class PropertyViewSet(viewsets.ModelViewSet):
         if params.get('owner') == 'me' and user.is_authenticated:
             qs = qs.filter(owners__client_profile__user=user).distinct()
         return _apply_property_filters(qs, params)
+
+    @action(detail=True, methods=['get'], url_path='summary-pdf')
+    def summary_pdf(self, request, pk=None):
+        property_obj = self.get_object()
+        pdf_file = documents.render_property_summary_pdf(property_obj)
+        return FileResponse(
+            pdf_file,
+            as_attachment=True,
+            filename=f'property-{property_obj.pk}.pdf',
+            content_type='application/pdf',
+        )
 
     @staticmethod
     def _fetch_twogis_photos(property_obj) -> int:
@@ -1460,6 +1487,7 @@ class PropertyDocumentViewSet(viewsets.ModelViewSet):
     queryset = models.PropertyDocument.objects.select_related('verified_by').all()
     serializer_class = serializers.PropertyDocumentSerializer
     permission_classes = [IsEmployee]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1980,11 +2008,15 @@ class DealViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if getattr(self, 'action', None) in {'contract', 'regenerate_contract'}:
+        if getattr(self, 'action', None) in {'retrieve', 'update', 'partial_update', 'contract', 'regenerate_contract'}:
             qs = qs.prefetch_related(
                 'property__owners__client_profile__user',
                 'property__owners__client_profile__individual_details',
                 'property__owners__client_profile__company_details',
+                'participants__client_profile__user',
+                'participants__client_profile__individual_details',
+                'participants__client_profile__company_details',
+                'participants__role',
             )
         user = self.request.user
         if user.is_authenticated and user.is_client:
@@ -2015,6 +2047,82 @@ class DealViewSet(viewsets.ModelViewSet):
             field_name='deal_date',
         )
         return qs
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        changed_fields = sorted(serializer.validated_data.keys())
+        before_snapshot = audit_service.snapshot_fields(instance, changed_fields)
+        deal = serializer.save()
+        participants_payload = self.request.data.get('participants')
+        participants_changed = participants_payload is not None
+        if participants_changed:
+            self._replace_deal_participants(deal, participants_payload)
+        field_changes = audit_service.diff_field_snapshots(
+            before_snapshot,
+            audit_service.snapshot_fields(deal, changed_fields),
+        )
+        audit_service.log_event(
+            entity=deal,
+            action_code='updated',
+            action_label='Редактирование сделки',
+            actor=self.request.user,
+            message='Карточка сделки обновлена.',
+            metadata={
+                'changed_fields': changed_fields + (['participants'] if participants_changed else []),
+                'field_changes': field_changes,
+            },
+            property_obj=deal.property,
+            request_obj=deal.request,
+            deal_obj=deal,
+        )
+        deals_service.queue_contract_generation(
+            deal,
+            force=True,
+            actor=self.request.user,
+        )
+        deals_service.process_contract_queue(limit=1)
+
+    @staticmethod
+    def _replace_deal_participants(deal, payload):
+        if payload in (None, ''):
+            deal.participants.all().delete()
+            return
+        if not isinstance(payload, list):
+            raise ValidationError({'participants': ['Ожидается список участников сделки.']})
+
+        role_map = {
+            role.pk: role for role in models.DealParticipantRole.objects.all()
+        }
+        normalized = []
+        seen = set()
+        for item in payload:
+            if not isinstance(item, dict):
+                raise ValidationError({'participants': ['Каждый участник должен быть объектом.']})
+            role_id = item.get('role')
+            client_id = item.get('client')
+            if not role_id or not client_id:
+                raise ValidationError({'participants': ['Для участника обязательны role и client.']})
+            role = role_map.get(int(role_id))
+            if role is None:
+                raise ValidationError({'participants': [f'Роль участника {role_id} не найдена.']})
+            user = User.objects.filter(pk=client_id, user_type='client').select_related('client_profile').first()
+            if user is None or not hasattr(user, 'client_profile'):
+                raise ValidationError({'participants': [f'Клиент {client_id} не найден или не имеет профиля.']})
+            key = (role.pk, user.client_profile.pk)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append((role, user.client_profile))
+
+        deal.participants.all().delete()
+        models.DealParticipant.objects.bulk_create([
+            models.DealParticipant(
+                deal=deal,
+                role=role,
+                client_profile=client_profile,
+            )
+            for role, client_profile in normalized
+        ])
 
     @action(
         detail=False,
@@ -2081,6 +2189,17 @@ class DealViewSet(viewsets.ModelViewSet):
             property_obj=deal.property,
             request_obj=deal.request,
         )
+        try:
+            enqueue_deal_status_changed(
+                deal=deal,
+                previous_status=previous_status,
+                actor=request.user,
+            )
+        except Exception:
+            log.exception(
+                'Failed to enqueue deal_status_changed email for deal pk=%s',
+                deal.pk,
+            )
         return Response(serializers.DealSerializer(deal).data)
 
     @action(detail=True, methods=['get'], url_path='contract')
@@ -2134,6 +2253,8 @@ class DealViewSet(viewsets.ModelViewSet):
             force=True,
             actor=request.user,
         )
+        deals_service.process_contract_queue(limit=1)
+        deal.refresh_from_db()
         return Response(serializers.DealSerializer(deal).data)
 
 
@@ -2345,6 +2466,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     ]
 
     def get_queryset(self):
+        task_timers.apply_task_timeouts()
         qs = super().get_queryset()
         qs = qs.exclude(
             completed_at__isnull=False,
@@ -2895,8 +3017,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         """Текущая задача в работе."""
         if not request.user.is_employee:
             return Response(None)
+        _apply_task_timeouts()
         task = models.Task.objects.select_related(
-            'status', 'request', 'client', 'property',
+            'status', 'request', 'client_profile__user', 'property',
         ).filter(
             assignee=request.user,
             status__code='in_progress',
@@ -2956,22 +3079,30 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
 
         if user.is_authenticated and user.is_employee and not user.is_admin_or_manager:
+            allowed_request_ids = models.Request.objects.filter(
+                employee_profile__user=user,
+            ).values_list('pk', flat=True)
+            allowed_deal_ids = models.Deal.objects.filter(
+                employee_profile__user=user,
+            ).values_list('pk', flat=True)
+            allowed_task_ids = models.Task.objects.filter(
+                Q(assignee=user) | Q(created_by=user),
+            ).values_list('pk', flat=True)
             qs = qs.filter(
-                Q(property__isnull=False)
-                | Q(request__agent=user)
-                | Q(deal__agent=user)
-                | Q(task__assignee=user)
-                | Q(task__created_by=user)
+                Q(entity_type_id=models.AuditEntityType.objects.filter(code='property').values('pk')[:1])
+                | Q(entity_type_id=models.AuditEntityType.objects.filter(code='request').values('pk')[:1], entity_id__in=allowed_request_ids)
+                | Q(entity_type_id=models.AuditEntityType.objects.filter(code='deal').values('pk')[:1], entity_id__in=allowed_deal_ids)
+                | Q(entity_type_id=models.AuditEntityType.objects.filter(code='task').values('pk')[:1], entity_id__in=allowed_task_ids)
             ).distinct()
 
         if params.get('property'):
-            qs = qs.filter(property_id=params['property'])
+            qs = qs.filter(property=params['property'])
         if params.get('request'):
-            qs = qs.filter(request_id=params['request'])
+            qs = qs.filter(request=params['request'])
         if params.get('task'):
-            qs = qs.filter(task_id=params['task'])
+            qs = qs.filter(task=params['task'])
         if params.get('deal'):
-            qs = qs.filter(deal_id=params['deal'])
+            qs = qs.filter(deal=params['deal'])
         if params.get('entity_type'):
             entity_type = str(params['entity_type']).strip()
             if entity_type.isdigit():
@@ -3013,6 +3144,7 @@ class DashboardStatsView(APIView):
 
     def get(self, request):
         user = request.user
+        _apply_task_timeouts()
         data = {
             'properties_total': models.Property.objects.count(),
             'properties_active': models.Property.objects.filter(

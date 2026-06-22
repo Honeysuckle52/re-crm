@@ -1,50 +1,79 @@
 <template>
-  <div class="field" style="position: relative;">
+  <div ref="rootRef" class="field" style="position: relative;">
     <label>{{ label }}</label>
     <input
+      ref="inputRef"
       class="input"
       :value="modelValue"
       @input="onInput"
-      @focus="open = true"
+      @focus="handleFocus"
       @blur="handleBlur"
       :placeholder="placeholder"
       autocomplete="off"
     />
-    <div v-if="open && results.length" class="autocomplete">
-      <button
-        v-for="(r, i) in results"
-        :key="r.address_external_id || r.value + i"
-        class="autocomplete__item"
-        @mousedown.prevent="pick(r)"
-        type="button"
+    <Teleport to="body">
+      <div
+        v-if="open && results.length"
+        class="autocomplete autocomplete--floating"
+        :style="menuStyle"
       >
-        <span class="autocomplete__value">{{ r.value }}</span>
-        <span v-if="r.postal_code" class="autocomplete__hint">
-          {{ r.postal_code }}
-        </span>
-      </button>
-    </div>
+        <button
+          v-for="(r, i) in results"
+          :key="r.address_external_id || r.value + i"
+          class="autocomplete__item"
+          @mousedown.prevent="pick(r)"
+          type="button"
+        >
+          <span class="autocomplete__value">{{ r.value }}</span>
+          <span v-if="r.postal_code" class="autocomplete__hint">
+            {{ r.postal_code }}
+          </span>
+        </button>
+      </div>
+    </Teleport>
     <small v-if="loading" class="muted">Поиск адреса…</small>
     <small v-if="error" class="error">{{ error }}</small>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import api from '../api'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   label: { type: String, default: 'Адрес' },
   placeholder: { type: String, default: 'Начните вводить адрес…' },
+  count: { type: Number, default: 10 },
 })
 const emit = defineEmits(['update:modelValue', 'pick'])
 
+const rootRef = ref(null)
+const inputRef = ref(null)
 const results = ref([])
 const open = ref(false)
 const loading = ref(false)
 const error = ref('')
+const menuStyle = ref({})
 let timer = null
+let blurTimer = null
+
+function updateMenuPosition() {
+  const input = inputRef.value
+  if (!input) return
+  const rect = input.getBoundingClientRect()
+  menuStyle.value = {
+    position: 'fixed',
+    top: `${rect.bottom + 8}px`,
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+  }
+}
+
+function syncMenuPosition() {
+  if (!open.value || !results.value.length) return
+  updateMenuPosition()
+}
 
 function onInput(e) {
   const v = e.target.value
@@ -59,14 +88,16 @@ function onInput(e) {
   timer = setTimeout(async () => {
     loading.value = true
     try {
-      const { data } = await api.get('/dadata/suggest-address/',
-        { params: { q: v } })
+      const { data } = await api.get('/dadata/suggest-address/', {
+        params: { q: v, count: props.count },
+      })
       results.value = data.results || []
       open.value = results.value.length > 0
+      await nextTick()
+      syncMenuPosition()
     } catch (e) {
       const detail = e?.response?.data?.detail
-      error.value = detail || 'Сервис подсказок адресов недоступен. '
-        + 'Адрес можно ввести вручную.'
+      error.value = detail || 'Сервис подсказок адресов недоступен. Адрес можно ввести вручную.'
     } finally {
       loading.value = false
     }
@@ -74,23 +105,41 @@ function onInput(e) {
 }
 
 function pick(r) {
+  clearTimeout(blurTimer)
   emit('update:modelValue', r.value)
   emit('pick', r)
   open.value = false
   results.value = []
 }
 
-function handleBlur() {
-  setTimeout(() => { open.value = false }, 150)
+function handleFocus() {
+  open.value = results.value.length > 0
+  nextTick(syncMenuPosition)
 }
+
+function handleBlur() {
+  blurTimer = setTimeout(() => {
+    open.value = false
+  }, 150)
+}
+
+watch(results, () => {
+  nextTick(syncMenuPosition)
+})
+
+window.addEventListener('resize', syncMenuPosition)
+window.addEventListener('scroll', syncMenuPosition, true)
+
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+  clearTimeout(blurTimer)
+  window.removeEventListener('resize', syncMenuPosition)
+  window.removeEventListener('scroll', syncMenuPosition, true)
+})
 </script>
 
 <style scoped>
 .autocomplete {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
   z-index: 200;
   max-height: 320px;
   overflow: auto;
@@ -100,6 +149,10 @@ function handleBlur() {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-glow);
+}
+
+.autocomplete--floating {
+  z-index: 1200;
 }
 
 .autocomplete__item {

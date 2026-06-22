@@ -1,5 +1,29 @@
 import api from '@/api'
+import { extractError } from '@/store/toasts'
 import { useWorkloadStore } from '@/store/workload'
+
+function isHtmlErrorResponse(value) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized.startsWith('<!doctype html') || normalized.startsWith('<html')
+}
+
+function taskRequestFallback(status) {
+  if (status === 400) {
+    return 'Сервер отклонил запрос до создания задачи. Проверьте адрес CRM и попробуйте ещё раз.'
+  }
+  if (status && status >= 500) {
+    return 'Не удалось обработать задачу из-за ошибки сервера. Попробуйте ещё раз.'
+  }
+  return 'Не удалось выполнить запрос'
+}
+
+function validateShowingPayload(payload) {
+  if (payload?.task_type !== 'showing') return ''
+  if (!payload?.client) return 'Для задачи на показ нужно выбрать клиента.'
+  if (!payload?.property) return 'Для задачи на показ нужно выбрать объект.'
+  return ''
+}
 
 async function call(fn, opts = {}) {
   const { bump = true, bumpDelayMs = 1500 } = opts
@@ -14,16 +38,17 @@ async function call(fn, opts = {}) {
     return { ok: true, data: response.data, error: null }
   } catch (error) {
     const response = error?.response
-    const detail = response?.data?.detail
-      || response?.data?.non_field_errors?.[0]
-      || error?.message
-      || 'Не удалось выполнить запрос'
+    const responseData = response?.data
+    const fallback = taskRequestFallback(response?.status ?? null)
+    const detail = isHtmlErrorResponse(responseData)
+      ? fallback
+      : extractError(error, fallback)
     return {
       ok: false,
-      data: response?.data ?? null,
+      data: responseData ?? null,
       error: detail,
       status: response?.status ?? null,
-      code: response?.data?.code ?? null,
+      code: responseData?.code ?? null,
       raw: error,
     }
   }
@@ -49,10 +74,32 @@ export function getTask(id) {
 }
 
 export function createTask(payload) {
+  const validationError = validateShowingPayload(payload)
+  if (validationError) {
+    return Promise.resolve({
+      ok: false,
+      data: null,
+      error: validationError,
+      status: 400,
+      code: 'showing_validation',
+      raw: null,
+    })
+  }
   return call(() => api.post('/tasks/', payload))
 }
 
 export function patchTask(id, payload) {
+  const validationError = validateShowingPayload(payload)
+  if (validationError) {
+    return Promise.resolve({
+      ok: false,
+      data: null,
+      error: validationError,
+      status: 400,
+      code: 'showing_validation',
+      raw: null,
+    })
+  }
   return call(() => api.patch(`/tasks/${id}/`, payload))
 }
 

@@ -417,35 +417,13 @@ def _deal_owner_relations(deal):
 
 
 def _build_customer_entries(deal) -> tuple[list[dict], bool]:
-    owners = _deal_owner_relations(deal)
-    if owners:
-        entries = []
-        total = len(owners)
-        for index, owner in enumerate(owners, start=1):
-            profile = getattr(owner, 'client_profile', None)
-            user = getattr(profile, 'user', None) if profile else None
-            if not user:
-                continue
-            label = 'Заказчик' if total == 1 else f'Заказчик {index}'
-            share = ''
-            if total > 1 and owner.ownership_share not in (None, ''):
-                share = _format_decimal(owner.ownership_share)
-            if share:
-                label = f'{label} ({share}%)'
-            entries.append(
-                {
-                    'label': label,
-                    'name': _customer_display_name(user),
-                    'requisites_label': _client_requisites_label(user),
-                    'requisites_line': _client_requisites_line(user),
-                    'contact_line': _client_contact_line(
-                        user,
-                        include_preferred_contact_method=False,
-                    ),
-                },
-            )
-        if entries:
-            return entries, True
+    participant_entries = _build_participant_entries(
+        deal,
+        role_codes={'buyer', 'tenant'},
+        default_label='Заказчик',
+    )
+    if participant_entries:
+        return participant_entries, len(participant_entries) > 1
 
     client = getattr(deal, 'client', None)
     if client:
@@ -460,6 +438,87 @@ def _build_customer_entries(deal) -> tuple[list[dict], bool]:
         ], False
 
     return [], False
+
+
+def _build_owner_entries(deal) -> list[dict]:
+    participant_entries = _build_participant_entries(
+        deal,
+        role_codes={'seller', 'landlord'},
+        default_label='Сторона объекта',
+    )
+    if participant_entries:
+        return participant_entries
+
+    owners = _deal_owner_relations(deal)
+    if not owners:
+        return []
+
+    entries = []
+    total = len(owners)
+    for index, owner in enumerate(owners, start=1):
+        profile = getattr(owner, 'client_profile', None)
+        user = getattr(profile, 'user', None) if profile else None
+        if not user:
+            continue
+        label = 'Собственник' if total == 1 else f'Собственник {index}'
+        share = ''
+        if total > 1 and owner.ownership_share not in (None, ''):
+            share = _format_decimal(owner.ownership_share)
+        if share:
+            label = f'{label} ({share}%)'
+        entries.append(
+            {
+                'label': label,
+                'name': _customer_display_name(user),
+                'requisites_label': _client_requisites_label(user),
+                'requisites_line': _client_requisites_line(user),
+                'contact_line': _client_contact_line(
+                    user,
+                    include_preferred_contact_method=False,
+                ),
+            },
+        )
+    return entries
+
+
+def _build_participant_entries(deal, *, role_codes: set[str], default_label: str) -> list[dict]:
+    participants = list(
+        deal.participants.select_related(
+            'client_profile__user',
+            'client_profile__individual_details',
+            'client_profile__company_details',
+            'role',
+        ).all()
+    )
+    if not participants:
+        return []
+
+    matched = [item for item in participants if getattr(getattr(item, 'role', None), 'code', None) in role_codes]
+    if not matched:
+        return []
+
+    entries = []
+    total = len(matched)
+    for index, participant in enumerate(matched, start=1):
+        profile = getattr(participant, 'client_profile', None)
+        user = getattr(profile, 'user', None) if profile else None
+        if not user:
+            continue
+        role_name = getattr(participant.role, 'name', None) or default_label
+        label = role_name if total == 1 else f'{role_name} {index}'
+        entries.append(
+            {
+                'label': label,
+                'name': _customer_display_name(user),
+                'requisites_label': _client_requisites_label(user),
+                'requisites_line': _client_requisites_line(user),
+                'contact_line': _client_contact_line(
+                    user,
+                    include_preferred_contact_method=False,
+                ),
+            },
+        )
+    return entries
 
 
 def _customer_intro_text(entries, *, owner_mode: bool) -> str:
@@ -647,6 +706,14 @@ def _info_table(rows, *, label_style, value_style, col_widths=None) -> Table:
         ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
     ]))
     return table
+
+
+def _key_value_table(rows, styles) -> Table:
+    return _info_table(
+        rows,
+        label_style=styles['label'],
+        value_style=styles['table_value'],
+    )
 
 
 def _meta_header_table(deal, *, styles) -> Table:
@@ -936,6 +1003,7 @@ def render_contract_pdf(deal) -> ContentFile:
     ])
 
     customer_entries, owner_mode = _build_customer_entries(deal)
+    owner_entries = _build_owner_entries(deal)
 
     story.append(_section_heading('1. Стороны договора', styles['section']))
     story.append(
@@ -961,7 +1029,8 @@ def render_contract_pdf(deal) -> ContentFile:
                 ('Основание полномочий', _agency_signatory_basis()),
                 ('Контакты исполнителя', _agency_contact_line()),
             ]
-            + _customer_info_rows(customer_entries),
+            + _customer_info_rows(customer_entries)
+            + _customer_info_rows(owner_entries),
             label_style=styles['label'],
             value_style=styles['table_value'],
         ),
@@ -1124,3 +1193,233 @@ def render_contract_pdf(deal) -> ContentFile:
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return ContentFile(pdf_bytes, name=f'contract-{deal.deal_number}.pdf')
+
+
+def _pdf_styles() -> dict[str, ParagraphStyle]:
+    base = getSampleStyleSheet()['BodyText']
+    return {
+        'body': ParagraphStyle(
+            'body',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=10.5,
+            leading=14,
+            alignment=TA_JUSTIFY,
+            textColor=COLOR_TEXT,
+        ),
+        'clause': ParagraphStyle(
+            'clause',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=10.5,
+            leading=14,
+            alignment=TA_JUSTIFY,
+            firstLineIndent=8 * mm,
+            spaceAfter=2,
+            textColor=COLOR_TEXT,
+        ),
+        'table_value': ParagraphStyle(
+            'table_value',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=10,
+            leading=13,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+        ),
+        'label': ParagraphStyle(
+            'label',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=9.5,
+            leading=12,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+        ),
+        'small': ParagraphStyle(
+            'small',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=8.5,
+            leading=10,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+        ),
+        'meta_header_left': ParagraphStyle(
+            'meta_header_left',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=9,
+            leading=11,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+        ),
+        'meta_header_right': ParagraphStyle(
+            'meta_header_right',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=9,
+            leading=11,
+            alignment=TA_RIGHT,
+            textColor=COLOR_TEXT,
+        ),
+        'meta': ParagraphStyle(
+            'meta',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=8.5,
+            leading=10,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+        ),
+        'title': ParagraphStyle(
+            'title',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=15,
+            leading=18,
+            alignment=TA_CENTER,
+            textColor=COLOR_TEXT,
+            spaceAfter=2,
+        ),
+        'subtitle': ParagraphStyle(
+            'subtitle',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=10,
+            leading=12,
+            alignment=TA_CENTER,
+            textColor=COLOR_TEXT,
+        ),
+        'section': ParagraphStyle(
+            'section',
+            parent=base,
+            fontName=FONT_BOLD,
+            fontSize=11.5,
+            leading=14,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+            spaceBefore=4,
+            spaceAfter=4,
+        ),
+        'signature': ParagraphStyle(
+            'signature',
+            parent=base,
+            fontName=FONT_REGULAR,
+            fontSize=9.5,
+            leading=12,
+            alignment=TA_LEFT,
+            textColor=COLOR_TEXT,
+        ),
+        'signature_note': ParagraphStyle(
+            'signature_note',
+            parent=base,
+            fontName=FONT_ITALIC,
+            fontSize=8.5,
+            leading=10,
+            alignment=TA_CENTER,
+            textColor=COLOR_TEXT,
+        ),
+    }
+
+
+def render_property_summary_pdf(property_obj) -> ContentFile:
+    _ensure_fonts_registered()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=PAGE_MARGIN_LEFT,
+        rightMargin=PAGE_MARGIN_RIGHT,
+        topMargin=PAGE_MARGIN_TOP,
+        bottomMargin=PAGE_MARGIN_BOTTOM,
+        title=f'Карточка объекта #{property_obj.pk}',
+        author=_agency_name(),
+    )
+    styles = _pdf_styles()
+    story = [
+        Paragraph('Карточка объекта недвижимости', styles['title']),
+        Spacer(1, 4 * mm),
+        Paragraph(_paragraph_text(property_obj.title or f'Объект #{property_obj.pk}'), styles['subtitle']),
+        Spacer(1, 4 * mm),
+        _section_heading('Основная информация', styles['section']),
+        _key_value_table([
+            ('ID объекта', property_obj.pk),
+            ('Тип операции', getattr(getattr(property_obj, 'operation_type', None), 'name', None)),
+            ('Статус', getattr(getattr(property_obj, 'status', None), 'name', None)),
+            ('Тип объекта', getattr(getattr(property_obj, 'property_type_ref', None), 'name', None)),
+            ('Адрес', _property_address(property_obj)),
+            ('Стоимость', _money(getattr(property_obj, 'price', None))),
+            ('Площадь', _format_decimal(getattr(property_obj, 'area_total', None), ' м²')),
+            ('Комнат', getattr(property_obj, 'rooms_count', None)),
+            ('Этаж', getattr(property_obj, 'floor_number', None)),
+            ('Кадастровый номер', getattr(property_obj, 'cadastral_number', None)),
+            ('Опубликован', 'Да' if getattr(property_obj, 'is_published', False) else 'Нет'),
+            ('Создан', _format_date(getattr(property_obj, 'created_at', None))),
+        ], styles),
+    ]
+
+    details = getattr(property_obj, 'details', None)
+    if details is not None:
+        story.extend([
+            Spacer(1, 4 * mm),
+            _section_heading('Характеристики помещения', styles['section']),
+            _key_value_table([
+                ('Жилая площадь', _format_decimal(getattr(details, 'living_area', None), ' м²')),
+                ('Площадь кухни', _format_decimal(getattr(details, 'kitchen_area', None), ' м²')),
+                ('Высота потолков', _format_decimal(getattr(details, 'ceiling_height', None), ' м')),
+                ('Балконы', getattr(details, 'balcony_count', None)),
+                ('Санузлы', getattr(details, 'bathroom_count', None)),
+                ('Тип санузла', getattr(getattr(details, 'bathroom_type', None), 'name', None)),
+                ('Ремонт', getattr(getattr(details, 'renovation_type', None), 'name', None)),
+                ('Спальни', getattr(details, 'bedrooms_count', None)),
+                ('Этажей в помещении', getattr(details, 'floors_count', None)),
+                ('Площадь участка', _format_decimal(getattr(details, 'land_area', None), ' м²')),
+            ], styles),
+        ])
+
+    commercial = getattr(property_obj, 'commercial_details', None)
+    if commercial is not None:
+        story.extend([
+            Spacer(1, 4 * mm),
+            _section_heading('Коммерческие параметры', styles['section']),
+            _key_value_table([
+                ('Тип коммерции', getattr(getattr(commercial, 'commercial_type', None), 'name', None)),
+                ('Полезная площадь', _format_decimal(getattr(commercial, 'usable_area', None), ' м²')),
+                ('Высота потолков', _format_decimal(getattr(commercial, 'ceiling_height', None), ' м')),
+                ('Нагрузка на пол', _format_decimal(getattr(commercial, 'floor_load', None), ' кг/м²')),
+                ('Электромощность', _format_decimal(getattr(commercial, 'electric_power_kw', None), ' кВт')),
+                ('Отдельный вход', 'Да' if getattr(commercial, 'has_separate_entrance', False) else 'Нет'),
+                ('Витринные окна', 'Да' if getattr(commercial, 'has_display_windows', False) else 'Нет'),
+                ('Первая линия', 'Да' if getattr(commercial, 'is_first_line', False) else 'Нет'),
+                ('Парковочные места', getattr(commercial, 'parking_spaces', None)),
+            ], styles),
+        ])
+
+    house = getattr(property_obj, 'house', None)
+    building = getattr(house, 'building_details', None) if house is not None else None
+    if building is not None:
+        story.extend([
+            Spacer(1, 4 * mm),
+            _section_heading('Параметры здания', styles['section']),
+            _key_value_table([
+                ('Год постройки', getattr(building, 'year_built', None)),
+                ('Этажность дома', getattr(building, 'total_floors', None)),
+                ('Материал', getattr(getattr(building, 'building_material', None), 'name', None)),
+                ('Лифты', getattr(building, 'elevators_count', None)),
+            ], styles),
+        ])
+
+    story.extend([
+        Spacer(1, 4 * mm),
+        _section_heading('Описание', styles['section']),
+        Paragraph(
+            _paragraph_text(getattr(property_obj, 'description', None), 'Описание не заполнено.'),
+            styles['table_value'],
+        ),
+    ])
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return ContentFile(pdf_bytes, name=f'property-{property_obj.pk}.pdf')
