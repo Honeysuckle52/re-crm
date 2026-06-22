@@ -3,11 +3,12 @@
 import logging
 from decimal import Decimal
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, login as auth_login
 from django.db import transaction
 from django.db.models import Count, Sum, Q, F
 from django.db.models.deletion import ProtectedError
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status, viewsets, filters, serializers as drf_serializers
@@ -18,11 +19,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.exceptions import InvalidToken
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer as BaseTokenRefreshSerializer
 from rest_framework_simplejwt.views import TokenRefreshView as BaseTokenRefreshView
 
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponseForbidden, HttpResponseRedirect
 
 from . import audit as audit_service
 from . import email_verification
@@ -383,6 +385,47 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(serializers.UserSerializer(request.user).data)
+
+
+class AdminAutoLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        token_str = (request.query_params.get('token') or '').strip()
+        if not token_str:
+            return HttpResponseForbidden('Токен не передан.')
+
+        try:
+            token = AccessToken(token_str)
+            user_id = token.get('user_id')
+        except (TokenError, InvalidToken):
+            return HttpResponseForbidden('Недействительный или просроченный токен.')
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return HttpResponseForbidden('Пользователь не найден.')
+
+        if not user.is_active:
+            return HttpResponseForbidden('Аккаунт отключён.')
+
+        if not (user.is_superuser or user.is_admin_role or user.is_manager_role):
+            return HttpResponseForbidden(
+                'Доступ в административный раздел разрешён только администраторам и менеджерам.',
+            )
+
+        if not user.is_staff:
+            user.is_staff = True
+            user.save(update_fields=['is_staff'])
+
+        auth_login(
+            request,
+            user,
+            backend='django.contrib.auth.backends.ModelBackend',
+        )
+
+        target = reverse('admin:crm_reports') if user.is_manager_role and not user.is_admin_role else '/admin/'
+        return HttpResponseRedirect(target)
 
 
 class OperationTypeViewSet(viewsets.ModelViewSet):

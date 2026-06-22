@@ -36,7 +36,10 @@ const initial = computed(() => (auth.displayName?.[0] || '?').toUpperCase())
 const canSeeDeals = computed(() => auth.isStaff || auth.isClient)
 const canSeeTasks = computed(() => auth.isStaff)
 const canSeeAdmin = computed(() => auth.isManager)
-const adminPanelHref = computed(() => (auth.isAdmin ? '/admin/' : '/admin'))
+const adminPanelHref = computed(() => {
+  const token = localStorage.getItem('access')
+  return token ? `/api/auth/admin-login/?token=${encodeURIComponent(token)}` : '/login'
+})
 
 async function logout() {
   await auth.logout()

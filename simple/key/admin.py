@@ -6,7 +6,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models as django_models
 from django.http import FileResponse, Http404, HttpResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import path
 
@@ -22,7 +22,19 @@ def _crm_admin_has_permission(request):
         and (
             getattr(user, 'is_superuser', False)
             or getattr(user, 'role_code', None) == 'admin'
+            or getattr(user, 'role_code', None) in {'manager', 'moderator'}
         )
+    )
+
+
+def _crm_admin_is_reports_only_manager(request):
+    user = request.user
+    return bool(
+        user.is_authenticated
+        and user.is_active
+        and user.is_staff
+        and getattr(user, 'role_code', None) in {'manager', 'moderator'}
+        and not getattr(user, 'is_superuser', False)
     )
 
 
@@ -84,6 +96,8 @@ def _build_admin_backup_context(request):
 
 
 def _admin_reports_view(request):
+    if not _crm_admin_has_permission(request):
+        return admin.site.login(request)
     report_type, payload, status_options, ordering_options = _build_admin_report_context(request)
     export_format = (request.GET.get('export') or '').strip().lower()
     if export_format:
@@ -151,6 +165,8 @@ def _admin_reports_view(request):
 
 
 def _admin_backups_view(request):
+    if _crm_admin_is_reports_only_manager(request):
+        return admin.site.login(request)
     if request.method == 'POST':
         try:
             backup_bytes, filename = db_backups.build_full_database_backup()
@@ -177,6 +193,8 @@ def _admin_backups_view(request):
 
 
 def _admin_backup_download_view(request, backup_id):
+    if _crm_admin_is_reports_only_manager(request):
+        return admin.site.login(request)
     backup = get_object_or_404(models.DatabaseBackup, pk=backup_id)
     if not backup.file:
         raise Http404('Файл резервной копии не найден.')
@@ -193,6 +211,8 @@ def _admin_backup_download_view(request, backup_id):
 
 
 def _admin_dashboard_view(request):
+    if _crm_admin_is_reports_only_manager(request):
+        return admin.site.login(request)
     return admin.site.index(
         request,
         extra_context={'title': 'Системная панель'},
@@ -230,6 +250,30 @@ def _crm_admin_get_urls():
 
 
 admin.site.get_urls = _crm_admin_get_urls
+
+if not hasattr(admin.site, '_crm_original_index'):
+    admin.site._crm_original_index = admin.site.index
+
+
+def _crm_admin_index(request, extra_context=None):
+    if _crm_admin_is_reports_only_manager(request):
+        return redirect('admin:crm_reports')
+    return admin.site._crm_original_index(request, extra_context=extra_context)
+
+
+admin.site.index = _crm_admin_index
+
+if not hasattr(admin.site, '_crm_original_get_app_list'):
+    admin.site._crm_original_get_app_list = admin.site.get_app_list
+
+
+def _crm_admin_get_app_list(request, app_label=None):
+    if _crm_admin_is_reports_only_manager(request):
+        return []
+    return admin.site._crm_original_get_app_list(request, app_label=app_label)
+
+
+admin.site.get_app_list = _crm_admin_get_app_list
 
 
 def _humanize_admin_name(name):

@@ -99,7 +99,10 @@ import { computed } from 'vue'
 import { useAuthStore } from '../store/auth'
 
 const auth = useAuthStore()
-const adminPanelHref = computed(() => (auth.isAdmin ? '/admin/' : '/admin'))
+const adminPanelHref = computed(() => {
+  const token = localStorage.getItem('access')
+  return token ? `/api/auth/admin-login/?token=${encodeURIComponent(token)}` : '/login'
+})
 const isClient = computed(() => auth.user?.user_type === 'client')
 
 const showcaseCards = computed(() => (
