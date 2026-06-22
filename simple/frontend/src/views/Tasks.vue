@@ -1,10 +1,10 @@
 <template>
   <section class="stack">
-    <div class="hero" style="padding: 24px 28px">
-      <div class="row row--between" style="flex-wrap: wrap; gap: 12px">
-        <div>
+    <div class="hero task-hero">
+      <div class="task-hero__row">
+        <div class="task-hero__intro">
           <div class="hero__eyebrow">Задачи</div>
-          <h1 class="h2" style="color: #fff; margin-top: 8px">Рабочие задачи</h1>
+          <h1 class="h2 task-hero__title">Рабочие задачи</h1>
           <div
             v-if="!auth.isManager"
             class="workload-banner"
@@ -17,11 +17,9 @@
             в работе
           </div>
         </div>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <button class="btn btn--accent" @click="toggleForm">
-            {{ showForm ? 'Скрыть форму' : '+ Новая задача' }}
-          </button>
-        </div>
+        <button class="btn btn--accent" @click="toggleForm">
+          {{ showForm ? 'Скрыть форму' : '+ Новая задача' }}
+        </button>
       </div>
     </div>
 
@@ -91,7 +89,7 @@
         />
         <div class="field task-form__property">
           <label>Связанный объект</label>
-          <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <div class="row task-form__property-actions">
             <button class="btn btn--sm btn--accent" type="button" @click="propertyPickerOpen = true">
               {{ form.property ? 'Заменить объект' : 'Выбрать объект' }}
             </button>
@@ -99,7 +97,7 @@
               Очистить
             </button>
           </div>
-          <div class="muted" style="margin-top: 8px">
+          <div class="muted task-form__property-label">
             {{ form.property ? selectedPropertyLabel : 'Объект ещё не выбран.' }}
           </div>
         </div>
@@ -110,7 +108,7 @@
         <textarea v-model="form.description" class="textarea" rows="3"></textarea>
       </div>
 
-      <div class="row" style="justify-content: flex-end">
+      <div class="row task-form__actions">
         <button v-if="isEditingTask" class="btn" type="button" @click="cancelTaskForm">
           Отмена
         </button>
@@ -141,7 +139,7 @@
       <div class="filter-row">
         <div class="filter-group">
           <span class="filter-label">Статус:</span>
-          <div class="row" style="gap: 6px; flex-wrap: wrap">
+          <div class="row status-chips">
             <button
               class="btn btn--sm"
               :class="{ 'btn--primary': statusFilter === '' }"
@@ -295,7 +293,7 @@
               </td>
               <td>
                 <b>{{ task.title }}</b>
-                <div v-if="task.property_title" class="muted" style="font-size: 12px">
+                <div v-if="task.property_title" class="muted task-subline">
                   Объект: {{ task.property_title }}
                 </div>
                 <div
@@ -316,7 +314,9 @@
               </td>
               <td>
                 <div class="assignee-cell">
-                  <span>{{ task.assignee_username }}</span>
+                  <span class="assignee-name" :title="`@${task.assignee_username}`">
+                    {{ task.assignee_name || '—' }}
+                  </span>
                   <TaskMineBadge :task="task" :user-id="auth.user?.id" mode="full" />
                 </div>
               </td>
@@ -521,7 +521,7 @@
             <tr v-for="task in history" :key="task.id">
               <td>
                 <b>{{ task.title }}</b>
-                <div v-if="task.property_title" class="muted" style="font-size: 12px">
+                <div v-if="task.property_title" class="muted task-subline">
                   Объект: {{ task.property_title }}
                 </div>
               </td>
@@ -530,7 +530,11 @@
                   {{ task.task_type_display || taskTypeLabel(task.task_type) }}
                 </span>
               </td>
-              <td>{{ task.assignee_username }}</td>
+              <td>
+                <span class="assignee-name" :title="`@${task.assignee_username}`">
+                  {{ task.assignee_name || '—' }}
+                </span>
+              </td>
               <td class="task-request-cell" :class="{ 'is-clickable': !!task.request }">
                 <router-link
                   v-if="task.request"
@@ -555,7 +559,7 @@
                 >
                   отменена
                 </div>
-                <div v-if="resultSummary(task)" class="muted" style="font-size: 12px; margin-top: 4px">
+                <div v-if="resultSummary(task)" class="muted task-subline task-subline--gap">
                   {{ resultSummary(task) }}
                 </div>
               </td>
@@ -806,7 +810,7 @@ function fillTaskForm(task) {
     client: task.client ?? null,
     property: task.property ?? null,
   })
-  selectedPropertyLabel.value = task.property ? (task.property_title || `?????? ?${task.property}`) : ''
+  selectedPropertyLabel.value = task.property ? (task.property_title || `Объект №${task.property}`) : ''
 }
 
 const TERMINAL_CODES = ['done', 'cancelled']
@@ -841,19 +845,24 @@ function countByStatus(id) {
   return source[String(id)] || 0
 }
 
+function displayName(user) {
+  // ФИО, если заполнено; иначе откатываемся на логин, чтобы сотрудника можно было найти.
+  return user.full_name && user.full_name !== '—' ? user.full_name : user.username
+}
+
 function mapAssigneeOption(user) {
   return {
     id: user.id,
-    label: user.username,
-    hint: [user.role_name, user.email].filter(Boolean).join(' · ') || 'Сотрудник',
+    label: displayName(user),
+    hint: [`@${user.username}`, user.role_name, user.email].filter(Boolean).join(' · ') || 'Сотрудник',
   }
 }
 
 function mapClientOption(user) {
   return {
     id: user.id,
-    label: user.username,
-    hint: [user.email, user.phone].filter(Boolean).join(' · ') || 'Клиент',
+    label: displayName(user),
+    hint: [`@${user.username}`, user.email, user.phone].filter(Boolean).join(' · ') || 'Клиент',
   }
 }
 
@@ -862,7 +871,7 @@ function mapRequestOption(request) {
     id: request.id,
     label: `Заявка №${request.id}`,
     hint: [
-      request.client_username,
+      request.client_name && request.client_name !== '—' ? request.client_name : request.client_username,
       request.property_title,
       request.status_name,
     ].filter(Boolean).join(' · ') || 'Заявка',
@@ -1880,6 +1889,61 @@ onMounted(async () => {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.assignee-name {
+  font-weight: 600;
+}
+
+/* Hero */
+.task-hero {
+  padding: 24px 28px;
+}
+
+.task-hero__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.task-hero__intro {
+  min-width: 0;
+}
+
+.task-hero__title {
+  color: #fff;
+  margin-top: 8px;
+}
+
+/* Form helpers */
+.task-form__property-actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-form__property-label {
+  margin-top: 8px;
+}
+
+.task-form__actions {
+  justify-content: flex-end;
+}
+
+/* Table sublines */
+.task-subline {
+  font-size: 12px;
+}
+
+.task-subline--gap {
+  margin-top: 4px;
+}
+
+/* Filter status chips */
+.status-chips {
+  gap: 6px;
   flex-wrap: wrap;
 }
 
