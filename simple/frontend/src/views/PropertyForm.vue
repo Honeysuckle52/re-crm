@@ -244,6 +244,7 @@
             <div class="field">
               <label>Количество этажей в доме</label>
               <input class="input" type="number" min="1" max="500" v-model.number="form.building_details.total_floors" />
+              <div v-if="fieldErrors.total_floors" class="property-form__field-error">{{ fieldErrors.total_floors }}</div>
             </div>
 
             <div class="field">
@@ -424,7 +425,7 @@
           </div>
 
           <p class="muted property-form__text">
-            После создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
+            Пос��е создания объекта карты и спутниковые снимки могут подтянуться из 2GIS по адресу.
           </p>
 
           <div v-if="photos.length" class="grid grid--3 property-form__photo-grid">
@@ -1013,15 +1014,23 @@ function getFieldErrorsForStep(stepId) {
     if (form.area_total !== null && form.area_total !== undefined && form.area_total !== '' && Number(form.area_total) <= 0) {
       errors.area_total = 'Площадь должна быть больше нуля.'
     }
-    if (form.building_details.year_built) {
+    // Only validate building details fields when the section is visible
+    if (showBuildingDetailsSection.value && form.building_details.year_built) {
       const yr = Number(form.building_details.year_built)
       if (yr < 1800 || yr > currentYear) {
         errors.year_built = `Год постройки должен быть от 1800 до ${currentYear}.`
       }
     }
-    if (form.floor_number !== null && form.floor_number !== undefined && form.floor_number !== '') {
+    // Only validate floor field when it is shown (apartment / room only)
+    if (showFloorField.value && form.floor_number !== null && form.floor_number !== undefined && form.floor_number !== '') {
       if (Number(form.floor_number) < -10 || Number(form.floor_number) > 500) {
         errors.floor_number = 'Этаж должен быть в диапазоне от −10 до 500.'
+      }
+    }
+    // Validate total_floors only when building section is visible
+    if (showBuildingDetailsSection.value && form.building_details.total_floors !== null && form.building_details.total_floors !== undefined && form.building_details.total_floors !== '') {
+      if (Number(form.building_details.total_floors) < 1) {
+        errors.total_floors = 'Количество этажей должно быть не менее 1.'
       }
     }
   }
@@ -1690,7 +1699,7 @@ async function submit() {
       // Editing without touching the address field — omit address entirely,
       // backend will keep the existing one
     } else {
-      throw new Error('Выберите адрес из подсказок.')
+      throw new Error('Выбе��ите адрес из подсказок.')
     }
 
     const url = isEdit.value ? `/properties/${route.params.id}/` : '/properties/'
@@ -1964,7 +1973,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   padding: 18px;
   border: 1px solid var(--c-border);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .property-form__grid {
