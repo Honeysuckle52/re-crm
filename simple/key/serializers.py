@@ -1035,8 +1035,8 @@ class PropertyDetailsWriteSerializer(serializers.Serializer):
     living_area = serializers.DecimalField(required=False, allow_null=True, max_digits=8, decimal_places=2)
     kitchen_area = serializers.DecimalField(required=False, allow_null=True, max_digits=8, decimal_places=2)
     ceiling_height = serializers.DecimalField(required=False, allow_null=True, max_digits=4, decimal_places=2)
-  balcony_count = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=0)
-  bathroom_count = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=1)
+    balcony_count = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=0)
+    bathroom_count = serializers.IntegerField(required=False, allow_null=True, min_value=0, default=1)
     bathroom_type = serializers.PrimaryKeyRelatedField(
         queryset=models.BathroomType.objects.all(),
         required=False,
