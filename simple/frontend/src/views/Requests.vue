@@ -306,23 +306,13 @@
                   @change="toggleRequestSelection(requestItem, $event.target.checked)" />
               </td>
               <td v-if="auth.isStaff" data-label="Клиент">
-                <div class="user-cell">
-                  <span class="user-avatar">{{ getInitials(requestItem.client_full_name || requestItem.client_username) }}</span>
-                  <div class="user-info">
-                    <div class="user-name">{{ requestItem.client_full_name || requestItem.client_username }}</div>
-                    <div class="user-email" v-if="requestItem.client_email">{{ requestItem.client_email }}</div>
-                  </div>
-                </div>
+                <div class="user-name">{{ requestItem.client_full_name || requestItem.client_username }}</div>
               </td>
               <td data-label="Агент">
-                <div v-if="requestItem.agent_id" class="user-cell">
-                  <span class="user-avatar">{{ getInitials(requestItem.agent_full_name || requestItem.agent_username) }}</span>
-                  <div class="user-info">
-                    <div class="user-name">{{ requestItem.agent_full_name || requestItem.agent_username }}</div>
-                    <div class="user-email" v-if="requestItem.agent_email">{{ requestItem.agent_email }}</div>
-                  </div>
+                <div v-if="requestItem.agent_id" class="user-name">
+                  {{ requestItem.agent_full_name || requestItem.agent_username }}
                 </div>
-                <span v-else class="tag">не назначен</span>
+                <span v-else class="tag tag-unassigned">не назначен</span>
               </td>
               <td data-label="Объект">
                 <router-link
@@ -337,7 +327,7 @@
               </td>
               <td data-label="Операция">{{ requestItem.operation_type_name }}</td>
               <td data-label="Бюджет">{{ formatBudget(requestItem) }}</td>
-              <td data-label="Статус">
+              <td data-label="Статус" class="status-cell">
                 <span class="tag" :class="statusClass(requestItem)">
                   {{ requestItem.status_name }}
                 </span>
@@ -1127,18 +1117,7 @@ onMounted(async () => {
 }
 
 .user-avatar {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--c-accent);
-  color: #fff;
-  text-transform: uppercase;
+  display: none;
 }
 
 .user-info {
@@ -1162,6 +1141,16 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tag-unassigned {
+  border-color: rgba(194, 85, 74, 0.22);
+  background: rgba(194, 85, 74, 0.12);
+  color: #ffc4b8;
+}
+
+.status-cell {
+  white-space: nowrap;
 }
 
 .request-form__grid {
