@@ -136,14 +136,10 @@
 
         <div v-if="error" class="error">{{ error }}</div>
 
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
+        <div class="row" style="gap: 8px; justify-content: space-between">
           <button class="btn btn--ghost" type="button" @click="step = 1"
                   :disabled="loading">
             ← Назад
-          </button>
-          <button class="btn" type="button" @click="submitWithoutExtras"
-                  :disabled="loading">
-            {{ loading ? '…' : 'Пропустить и зарегистрироваться' }}
           </button>
           <button class="btn btn--accent" type="submit" :disabled="loading">
             {{ loading ? 'Создание…' : 'Зарегистрироваться' }}
@@ -392,7 +388,6 @@ async function doRegister (extended) {
 }
 
 function submit () { return doRegister(true) }
-function submitWithoutExtras () { return doRegister(false) }
 
 function formatVerificationCode () {
   verificationCode.value = digitsOnly(verificationCode.value).slice(0, 6)
