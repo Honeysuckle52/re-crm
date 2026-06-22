@@ -1373,6 +1373,32 @@ class PropertySerializer(serializers.ModelSerializer):
         user = User.objects.select_related('client_profile').filter(pk=user_id).first()
         return getattr(user, 'client_profile', None) if user else None
 
+    # Поля, которые не применимы для конкретного типа недвижимости.
+    # Фронт уже их обнуляет, но сервер тоже должен их игнорировать/очищать.
+    FIELD_RESTRICTIONS = {
+        # тип -> набор полей, которые должны быть None/пусты
+        models.Property.PROPERTY_TYPE_COMMERCIAL: {
+            'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
+            'required': ('area_total',),
+        },
+        models.Property.PROPERTY_TYPE_LAND: {
+            'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_GARAGE: {
+            'forbidden': ('rooms_count', 'floor_number', 'total_floors'),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_ROOM: {
+            'forbidden': ('total_floors',),
+            'required': (),
+        },
+        models.Property.PROPERTY_TYPE_HOUSE: {
+            'forbidden': ('floor_number',),
+            'required': (),
+        },
+    }
+
     def validate(self, attrs):
         attrs = super().validate(attrs)
         instance = self.instance
@@ -1380,40 +1406,25 @@ class PropertySerializer(serializers.ModelSerializer):
             'premises_type',
             getattr(instance, 'premises_type', None),
         )
-        rooms_count = attrs.get(
-            'rooms_count',
-            getattr(instance, 'rooms_count', None),
-        )
-        floor_number = attrs.get(
-            'floor_number',
-            getattr(instance, 'floor_number', None),
-        )
-        total_floors = attrs.get(
-            'total_floors',
-            getattr(instance, 'total_floors', None),
-        )
         area_total = attrs.get(
             'area_total',
             getattr(instance, 'area_total', None),
         )
 
         errors = {}
-        if premises_type == models.Property.PREMISES_APARTMENT:
-            pass
-        elif premises_type == models.Property.PREMISES_HOUSE:
-            if floor_number not in (None, ''):
-                errors['floor_number'] = 'Для дома отдельный этаж не указывается.'
-            if total_floors in (None, ''):
-                errors['total_floors'] = 'Для дома укажите количество этажей.'
-        elif premises_type == models.Property.PROPERTY_TYPE_COMMERCIAL:
-            if area_total in (None, ''):
-                errors['area_total'] = 'Для коммерческого объекта укажите площадь.'
-            if rooms_count not in (None, ''):
-                errors['rooms_count'] = 'Для коммерческого объекта количество комнат не используется.'
-            if floor_number not in (None, ''):
-                errors['floor_number'] = 'Для коммерческого объекта этаж не указывается.'
-            if total_floors not in (None, ''):
-                errors['total_floors'] = 'Для коммерческого объекта количество этажей не указывается.'
+
+        # Автоматически очищаем запрещённые поля вместо ошибки,
+        # чтобы фронт не мог случайно прислать мусор, и при этом
+        # форма не ломалась, если поле скрыто.
+        restriction = self.FIELD_RESTRICTIONS.get(premises_type, {})
+        for field in restriction.get('forbidden', ()):
+            if field in attrs and attrs[field] not in (None, ''):
+                attrs[field] = None
+
+        for field in restriction.get('required', ()):
+            val = attrs.get(field, getattr(instance, field, None))
+            if val in (None, ''):
+                errors[field] = f'Для данного типа объекта поле "{field}" обязательно.'
 
         if errors:
             raise serializers.ValidationError(errors)

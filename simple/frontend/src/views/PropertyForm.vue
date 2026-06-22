@@ -226,7 +226,7 @@
           </div>
         </div>
 
-        <div class="panel panel--light property-form__subpanel">
+        <div v-if="showBuildingDetailsSection" class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
               <h3 class="h4">О доме</h3>
@@ -264,12 +264,15 @@
           </div>
         </div>
 
-        <div v-if="!isCommercialType" class="panel panel--light property-form__subpanel">
+        <!-- Раздел "О помещении" — только для жилых объектов и гаража -->
+        <div v-if="showResidentialDetailsSection || showGarageRenovationOnly" class="panel panel--light property-form__subpanel">
           <div class="surface-head">
             <div class="surface-head__meta">
-              <h3 class="h4">О помещении</h3>
+              <h3 class="h4">{{ isGarageType ? 'Параметры гаража' : 'О помещении' }}</h3>
             </div>
-            <div class="surface-head__caption">Планировка, санузлы, ремонт и жилые характеристики.</div>
+            <div class="surface-head__caption">
+              {{ isGarageType ? 'Тип ремонта и состояние гаражного помещения.' : 'Планировка, санузлы, ремонт и жилые характеристики.' }}
+            </div>
           </div>
 
           <div class="grid grid--2 property-form__grid">
@@ -912,6 +915,8 @@ const touchedSteps = reactive({
   5: false,
 })
 let initSeq = 0
+// Флаг подавления очистки полей при программной инициализации формы редактирования
+let isInitializingForm = false
 
 const currentYear = new Date().getFullYear()
 const normalizedPremisesType = computed(() => normalizePropertyType(form.premises_type))
@@ -921,15 +926,28 @@ const isApartmentType = computed(() => normalizedPremisesType.value === 'apartme
 const isRoomType = computed(() => normalizedPremisesType.value === 'room')
 const isLandType = computed(() => normalizedPremisesType.value === 'land')
 const isGarageType = computed(() => normalizedPremisesType.value === 'garage')
-const showBuildingDetailsSection = computed(() => !isLandType.value && !isGarageType.value)
+// "О доме": скрываем для земли, гаража и коммерции (у коммерции свой блок)
+const showBuildingDetailsSection = computed(() => !isLandType.value && !isGarageType.value && !isCommercialType.value)
+// Комнаты: только квартира, дом, комната
 const showRoomsField = computed(() => propertyTypeUsesRooms(normalizedPremisesType.value))
+// Этаж (номер): только квартира и комната
 const showFloorField = computed(() => propertyTypeUsesFloor(normalizedPremisesType.value))
+// Площадь участка: дом и земля
 const showLandAreaField = computed(() => propertyTypeHasLand(normalizedPremisesType.value))
+// Балкон: только квартира и дом
 const showBalconyField = computed(() => isApartmentType.value || isHouseType.value)
+// Жилая площадь + кухня + высота потолков: квартира, дом, комната
 const showResidentialAreaFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+// Санузел: квартира, дом, комната
 const showBathroomFields = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+// Ремонт: квартира, дом, комната, гараж
 const showRenovationField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value || isGarageType.value)
+// Спальни: квартира, дом, комната
 const showBedroomField = computed(() => isApartmentType.value || isHouseType.value || isRoomType.value)
+// Блок "О помещении" (жилое): не для коммерции, не для земли, не для гаража (гараж видит только ремонт)
+const showResidentialDetailsSection = computed(() => !isCommercialType.value && !isLandType.value)
+// Гараж отображает только тип ремонта в разделе "О помещении"
+const showGarageRenovationOnly = computed(() => isGarageType.value)
 const currentStepMeta = computed(() => steps.find((step) => step.id === currentStep.value) || steps[0])
 const propertyOwners = computed(() => propertyData.value?.owners || [])
 const propertyDirtySnapshot = computed(() => JSON.stringify(buildPropertyDirtyState()))
@@ -1312,7 +1330,7 @@ function isPropertyDraftEmpty(draft) {
 function formatPropertyValidationError(data) {
   const labels = {
     title: 'Название',
-    operation_type: 'Тип операции',
+    operation_type: 'Тип операц��и',
     status: 'Статус',
     premises_type: 'Тип помещения',
     price: 'Цена',
@@ -1417,6 +1435,7 @@ function stripDataKeys(obj) {
 async function initializeForm() {
   const seq = ++initSeq
   loading.value = true
+  isInitializingForm = true
   resetPropertyFormState()
 
   try {
@@ -1509,6 +1528,9 @@ async function initializeForm() {
   } finally {
     if (seq === initSeq) {
       loading.value = false
+      // Снимаем флаг инициализации в следующем тике, чтобы watcher premises_type
+      // не затёр только что загруженные данные
+      nextTick(() => { isInitializingForm = false })
     }
   }
 }
@@ -1540,7 +1562,7 @@ const { clearDraft: clearPropertyEditDraft, restoreDraft: restorePropertyEditDra
 useUnsavedChangesGuard({
   enabled: () => isPropertyDirty.value,
   isDirty: () => isPropertyDirty.value,
-  message: 'Есть несохранённые изменения в карточке объекта. Покинуть страницу?',
+  message: 'Есть несохра��ённые изменения в карточке объекта. Покинуть страницу?',
 })
 
 async function uploadPhotos(propertyId) {
@@ -1746,6 +1768,8 @@ watch(addressQuery, (value) => {
 })
 
 watch(() => form.premises_type, (value) => {
+  // Не очищаем поля при первичной загрузке данных в форму редактирования
+  if (isInitializingForm) return
   const type = normalizePropertyType(value)
   if (!type) return
   if (!propertyTypeUsesRooms(type)) {

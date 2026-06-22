@@ -139,7 +139,8 @@
                 </div>
 
                 <div v-else-if="section.key === 'space'" class="grid properties-filter__grid">
-                  <div class="field">
+                  <!-- Комнаты только для квартиры, дома, комнаты -->
+                  <div v-if="canUseRooms" class="field">
                     <label>Комнаты</label>
                     <div class="properties-filter__chip-row">
                       <button
@@ -155,12 +156,13 @@
                     </div>
                   </div>
 
-                  <div v-if="propertyTypeHasFloor(selectedPremisesType)" class="field">
+                  <!-- Этаж только для квартиры и комнаты -->
+                  <div v-if="canUseFloor" class="field">
                     <label>Этаж</label>
                     <input class="input" type="number" v-model.number="filters.floor_number" />
                   </div>
 
-                  <div class="field">
+                  <div v-if="canUseFloor" class="field">
                     <label>Не первый этаж</label>
                     <label class="chip-check">
                       <input type="checkbox" v-model="filters.not_first_floor" />
@@ -168,7 +170,7 @@
                     </label>
                   </div>
 
-                  <div class="field">
+                  <div v-if="canUseFloor" class="field">
                     <label>Не последний этаж</label>
                     <label class="chip-check">
                       <input type="checkbox" v-model="filters.not_last_floor" />
@@ -415,6 +417,7 @@ import {
   normalizePropertyType,
   propertyTypeHasFloor,
   propertyTypeIsCommercial,
+  propertyTypeUsesFloor,
   propertyTypeUsesRooms,
 } from '@/utils/propertyTypes'
 
@@ -505,16 +508,25 @@ const isCommercial = computed(() => propertyTypeIsCommercial(selectedPremisesTyp
 const isLand = computed(() => selectedPremisesType.value === 'land')
 const isGarage = computed(() => selectedPremisesType.value === 'garage')
 const isResidential = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
+// "О доме": материал стен, год постройки — только жилые (квартира, комната, дом)
+// Этажность дома — только дом
+// Коммерция и гараж не имеют раздела "О доме"
 const canUseBuildingMaterial = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
 const canUseYearBuilt = computed(() => ['apartment', 'house', 'room'].includes(selectedPremisesType.value))
-const canUseBathroomType = computed(() => ['apartment', 'room'].includes(selectedPremisesType.value))
-const canUseRenovationType = computed(() => ['apartment', 'room', 'garage'].includes(selectedPremisesType.value))
+const canUseBathroomType = computed(() => ['apartment', 'room', 'house'].includes(selectedPremisesType.value))
+const canUseRenovationType = computed(() => ['apartment', 'room', 'house', 'garage'].includes(selectedPremisesType.value))
 const canUseLandArea = computed(() => ['house', 'land'].includes(selectedPremisesType.value))
-const showRoomsFilter = computed(() => isResidential.value)
+const canUseRooms = computed(() => ['apartment', 'house', 'room'].includes(selectedPremisesType.value))
+const canUseFloor = computed(() => propertyTypeUsesFloor(selectedPremisesType.value))
+// Раздел "О доме" — только для жилых (без коммерции, без гаража, без земли)
+const showHouseSection = computed(() => canUseBuildingMaterial.value || canUseYearBuilt.value || isHouse.value)
+// Раздел "О помещении" — жилые + гараж (только ремонт для гаража)
+const showSpaceSection = computed(() => isApartmentOrRoom.value || isHouse.value || isGarage.value)
+const showRoomsFilter = computed(() => canUseRooms.value)
 const filterSections = computed(() => ([
   { key: 'main', title: 'Основное', visible: true },
-  { key: 'house', title: 'О доме', visible: canUseBuildingMaterial.value || canUseYearBuilt.value || isHouse.value },
-  { key: 'space', title: 'О помещении', visible: isApartmentOrRoom.value || isHouse.value || isGarage.value },
+  { key: 'house', title: 'О доме', visible: showHouseSection.value },
+  { key: 'space', title: 'О помещении', visible: showSpaceSection.value },
   { key: 'commercial', title: 'Коммерческая', visible: isCommercial.value },
   { key: 'land', title: 'Участок', visible: canUseLandArea.value },
   { key: 'amenities', title: 'Удобства', visible: true },
@@ -778,39 +790,45 @@ watch(() => route.name, async () => {
 
 watch(() => filters.premises_type, (value) => {
   const type = normalizePropertyType(value)
-  if (!propertyTypeUsesRooms(type)) {
+  // Комнаты — только квартира, дом, комната
+  if (!['apartment', 'house', 'room'].includes(type)) {
     filters.rooms = ''
   }
-  if (!propertyTypeHasFloor(type)) {
+  // Этаж (номер) — только квартира и комната
+  if (!['apartment', 'room'].includes(type)) {
     filters.floor_number = ''
     filters.not_first_floor = false
     filters.not_last_floor = false
   }
+  // Материал стен — только жилые (квартира, дом, комната)
   if (!['apartment', 'room', 'house'].includes(type)) {
     filters.building_material = ''
   }
+  // Год постройки — только жилые
   if (!['apartment', 'house', 'room'].includes(type)) {
     filters.year_built_from = ''
     filters.year_built_to = ''
   }
+  // Участок — дом и земля
   if (!['house', 'land'].includes(type)) {
     filters.min_land_area = null
     filters.max_land_area = null
   } else if (type === 'house') {
     filters.max_land_area = null
   }
-  if (!['apartment', 'room'].includes(type)) {
+  // Санузел — квартира, дом, комната
+  if (!['apartment', 'room', 'house'].includes(type)) {
     filters.bathroom_type = ''
   }
-  if (!['apartment', 'room', 'garage'].includes(type)) {
+  // Ремонт — квартира, дом, комната, гараж
+  if (!['apartment', 'room', 'house', 'garage'].includes(type)) {
     filters.renovation_type = ''
   }
-  if (!propertyTypeUsesRooms(type)) {
-    filters.rooms = ''
-  }
+  // Этажность дома — только дом
   if (type !== 'house') {
     filters.total_floors = ''
   }
+  // Коммерческие поля — только commercial
   if (!propertyTypeIsCommercial(type)) {
     filters.commercial_type = ''
     filters.has_separate_entrance = false
@@ -857,6 +875,9 @@ watch(() => filters.premises_type, (value) => {
   position: sticky;
   top: 84px;
   padding: 0;
+  max-height: calc(100vh - 104px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .properties-filter__sticky {
