@@ -633,9 +633,10 @@ class UserRole(models.Model):
         if value in (None, ''):
             return default
         try:
-            return int(value)
+            result = int(value)
         except (TypeError, ValueError):
             return default
+        return result if result >= 1 else default
 
     @property
     def max_active_tasks(self):

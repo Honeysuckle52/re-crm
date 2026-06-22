@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """Сериализаторы DRF."""
 import re
 
@@ -175,9 +175,21 @@ class TaskStatusSerializer(serializers.ModelSerializer):
 
 
 class UserRoleSerializer(serializers.ModelSerializer):
+    max_active_tasks = serializers.IntegerField(min_value=1, required=False)
+    max_in_progress_tasks = serializers.IntegerField(min_value=1, required=False)
+    max_active_requests = serializers.IntegerField(min_value=1, required=False)
+
     class Meta:
         model = models.UserRole
-        fields = ['id', 'code', 'name', 'description']
+        fields = [
+            'id',
+            'code',
+            'name',
+            'description',
+            'max_active_tasks',
+            'max_in_progress_tasks',
+            'max_active_requests',
+        ]
 
 
 class CodeNameLookupSerializer(serializers.ModelSerializer):

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Регистрация моделей и настройка панели администрирования."""
 from django import forms
+from django.apps import apps
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.core.exceptions import FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import models as django_models
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -11,6 +12,36 @@ from django.template.response import TemplateResponse
 from django.urls import path
 
 from . import db_backups, mailing, models, reports
+
+# ── Скрываем таблицы Token Blacklist из Django-Admin ─────────────────────────
+try:
+    from rest_framework_simplejwt.token_blacklist.admin import (
+        BlacklistedTokenAdmin,
+        OutstandingTokenAdmin,
+    )
+    from rest_framework_simplejwt.token_blacklist.models import (
+        BlacklistedToken,
+        OutstandingToken,
+    )
+
+    class _HiddenTokenAdmin(admin.ModelAdmin):
+        def has_module_permission(self, request):
+            return False
+        def has_view_permission(self, request, obj=None):
+            return False
+        def has_add_permission(self, request):
+            return False
+        def has_change_permission(self, request, obj=None):
+            return False
+        def has_delete_permission(self, request, obj=None):
+            return False
+
+    admin.site.unregister(OutstandingToken)
+    admin.site.unregister(BlacklistedToken)
+    admin.site.register(OutstandingToken, _HiddenTokenAdmin)
+    admin.site.register(BlacklistedToken, _HiddenTokenAdmin)
+except Exception:
+    pass
 
 
 def _crm_admin_has_permission(request):
@@ -280,6 +311,36 @@ def _humanize_admin_name(name):
     return str(name).replace('_', ' ').capitalize()
 
 
+def _permission_action_label(codename: str) -> str:
+    action_code = codename.split('_', 1)[0]
+    return {
+        'add': 'Добавление',
+        'change': 'Изменение',
+        'delete': 'Удаление',
+        'view': 'Просмотр',
+    }.get(action_code, codename)
+
+
+def _permission_label(permission) -> str:
+    try:
+        app_name = apps.get_app_config(permission.content_type.app_label).verbose_name
+    except LookupError:
+        app_name = permission.content_type.app_label
+
+    model_class = permission.content_type.model_class()
+    model_name = (
+        model_class._meta.verbose_name
+        if model_class is not None
+        else permission.content_type.model
+    )
+    return f'{app_name} | {model_name} | {_permission_action_label(permission.codename)}'
+
+
+class PermissionChoiceField(forms.ModelMultipleChoiceField):
+    def label_from_instance(self, obj):
+        return _permission_label(obj)
+
+
 def _make_admin_display(field_name, description, *, boolean=False):
     def display(self, obj):
         return getattr(obj, field_name)
@@ -459,8 +520,51 @@ class UserTypeAdmin(CodeNameAdmin):
     pass
 
 
+class UserRoleAdminForm(forms.ModelForm):
+    max_active_tasks = forms.IntegerField(
+        min_value=1,
+        initial=models.UserRole.DEFAULT_MAX_ACTIVE_TASKS,
+        label='Макс. активных задач',
+        help_text='Минимальное значение — 1.',
+    )
+    max_in_progress_tasks = forms.IntegerField(
+        min_value=1,
+        initial=models.UserRole.DEFAULT_MAX_IN_PROGRESS_TASKS,
+        label='Макс. задач в работе',
+        help_text='Минимальное значение — 1.',
+    )
+    max_active_requests = forms.IntegerField(
+        min_value=1,
+        initial=models.UserRole.DEFAULT_MAX_ACTIVE_REQUESTS,
+        label='Макс. активных заявок',
+        help_text='Минимальное значение — 1.',
+    )
+
+    class Meta:
+        model = models.UserRole
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = kwargs.get('instance')
+        if instance is not None:
+            self.fields['max_active_tasks'].initial = instance.max_active_tasks
+            self.fields['max_in_progress_tasks'].initial = instance.max_in_progress_tasks
+            self.fields['max_active_requests'].initial = instance.max_active_requests
+
+    def save(self, commit=True):
+        role = super().save(commit=False)
+        role.max_active_tasks = self.cleaned_data['max_active_tasks']
+        role.max_in_progress_tasks = self.cleaned_data['max_in_progress_tasks']
+        role.max_active_requests = self.cleaned_data['max_active_requests']
+        if commit:
+            role.save()
+        return role
+
+
 @admin.register(models.UserRole)
 class UserRoleAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
+    form = UserRoleAdminForm
     list_display = (
         'code',
         'name',
@@ -470,6 +574,28 @@ class UserRoleAdmin(CrmAdminPermissionsMixin, admin.ModelAdmin):
     )
     search_fields = ('code', 'name', 'description')
     ordering = ('code',)
+    fieldsets = (
+        (
+            'Основное',
+            {
+                'fields': ('code', 'name', 'description'),
+            },
+        ),
+        (
+            'Лимиты нагрузки',
+            {
+                'fields': (
+                    'max_active_tasks',
+                    'max_in_progress_tasks',
+                    'max_active_requests',
+                ),
+                'description': (
+                    'Ограничения на количество одновременно активных задач и заявок '
+                    'для сотрудников с данной ролью. Значения должны быть не менее 1.'
+                ),
+            },
+        ),
+    )
 
 
 @admin.register(models.User)
@@ -510,7 +636,7 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
                 'description': 'Роль назначается сотрудникам. Клиенты не должны иметь административные роли.',
             },
         ),
-        ('Подтверждение', {'fields': ('is_email_verified', 'is_phone_verified')}),
+        ('Подтверждение', {'fields': ('is_email_verified',)}),
         (
             'Права',
             {
@@ -545,6 +671,35 @@ class UserAdmin(CrmAdminPermissionsMixin, BaseUserAdmin):
             },
         ),
     )
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == 'user_permissions':
+            kwargs['queryset'] = db_field.remote_field.model.objects.select_related(
+                'content_type',
+            ).order_by('content_type__app_label', 'content_type__model', 'codename')
+            kwargs['form_class'] = PermissionChoiceField
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+    def has_delete_permission(self, request, obj=None):
+        """Запрещает администратору удалять собственную учётную запись."""
+        if obj is not None and obj.pk == request.user.pk:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        normalized = []
+        for title, options in fieldsets:
+            updated = dict(options)
+            if title == 'Права':
+                updated['description'] = (
+                    'Доступ в панель администрирования разрешён только staff/'
+                    'superuser или пользователям с ролью администратора. '
+                    'Удаление текущей активной учётной записи недоступно, '
+                    'потому что сейчас это вы.'
+                )
+            normalized.append((title, updated))
+        return tuple(normalized)
 
 
 @admin.register(models.City)

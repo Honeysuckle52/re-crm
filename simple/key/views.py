@@ -734,6 +734,30 @@ class UserViewSet(viewsets.ModelViewSet):
             self._ensure_profile_for_user_type(target, requested_user_type)
         return Response(serializers.UserSerializer(target).data)
 
+    def perform_destroy(self, instance):
+        """Запрещает администратору удалять собственную учётную запись."""
+        if instance.pk == self.request.user.pk:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                'Действие невозможно: нельзя удалить текущую активную учётную запись, потому что сейчас это вы.'
+            )
+        super().perform_destroy(instance)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.pk == request.user.pk:
+            return Response(
+                {
+                    'detail': (
+                        'Действие невозможно: нельзя удалить текущую активную '
+                        'учётную запись, потому что сейчас это вы.'
+                    ),
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        self.check_permissions(request)
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=False, methods=['get'], url_path='me/workload',
             permission_classes=[IsAuthenticated])
     def my_workload(self, request):
