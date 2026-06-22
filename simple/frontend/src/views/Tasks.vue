@@ -134,6 +134,32 @@
       </div>
     </form>
 
+    <div class="panel panel--light">
+      <div class="surface-head tasks-head">
+        <div class="surface-head__meta">
+          <h2 class="h3">Режим просмотра</h2>
+          <div class="muted">
+            Активные задачи и история вынесены в отдельные режимы.
+          </div>
+        </div>
+      </div>
+      <div class="row requests-tabs" style="gap: 8px; flex-wrap: wrap">
+        <button
+          class="btn btn--sm"
+          :class="{ 'btn--primary': viewMode === 'active' }"
+          @click="setViewMode('active')"
+        >
+          Активные ({{ activeCount }})
+        </button>
+        <button
+          class="btn btn--sm"
+          :class="{ 'btn--primary': viewMode === 'history' }"
+          @click="setViewMode('history')"
+        >
+          История ({{ historyCount }})
+        </button>
+      </div>
+    </div>
 
     <div class="panel panel--light">
       <div class="surface-head tasks-head">
@@ -201,7 +227,7 @@
       </div>
     </div>
 
-    <div class="panel panel--light">
+    <div v-if="viewMode === 'active'" class="panel panel--light">
       <div class="surface-head">
         <div class="surface-head__meta">
           <h2 class="h3">Активные задачи</h2>
